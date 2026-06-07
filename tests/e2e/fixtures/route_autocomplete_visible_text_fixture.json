@@ -1,0 +1,119 @@
+{
+  "fixture_id": "route-autocomplete-visible-text-20260607",
+  "fixture_type": "route_autocomplete_visible_text",
+  "run_id": "gf-20260607-073838-03-route-mutations",
+  "capture_date": "2026-06-07",
+  "source_surface": "route-autocomplete-visible-text",
+  "source_artifacts": [
+    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/origin-copenhagen-autocomplete-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/destination-delhi-autocomplete-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/notes.md"
+  ],
+  "scenario": "Redacted route autocomplete visible-text snapshots for common and ambiguous route inputs.",
+  "confidence": "weak",
+  "redaction_status": "redacted",
+  "linked_behavior_requirement": "docs/detailed-cli-spec.md#route",
+  "redaction": {
+    "status": "redacted",
+    "notes": [
+      "Only normalized visible text needed for route choice extraction is included.",
+      "Raw browser URLs, storage payloads, network payloads, target IDs, account labels, cookies, and encoded query values are excluded.",
+      "City code_or_id values are not inferred from visible text; airport IATA codes are used only when visibly present."
+    ]
+  },
+  "queries": [
+    {
+      "input_text": "Washington DC",
+      "field": "destination",
+      "snapshot": {
+        "items": [
+          {
+            "text": "Flights Round trip 1 Economy Copenhagen CPH New Delhi DEL Select multiple airports Washington, USA Capital of the United States of America Ronald Reagan Washington National AirportDCA 6 km to destination Dulles International AirportIAD 36 km to destination Baltimore/Washington International Thurgood Marshall AirportBWI 43 km to destination Search"
+          }
+        ]
+      },
+      "expected": {
+        "status": "ambiguous",
+        "exit_code": 2,
+        "candidate_labels": [
+          "Washington, USA",
+          "Ronald Reagan Washington National Airport",
+          "Dulles International Airport",
+          "Baltimore/Washington International Thurgood Marshall Airport"
+        ],
+        "candidate_code_or_ids": [null, "DCA", "IAD", "BWI"]
+      }
+    },
+    {
+      "input_text": "Lucknow",
+      "field": "destination",
+      "snapshot": {
+        "items": [
+          {
+            "text": "Flights Round trip 1 Economy Copenhagen CPH New Delhi DEL Lucknow, Uttar Pradesh, India Select multiple airports Lucknow, Uttar Pradesh, India City in India Chaudhary Charan Singh International AirportLKO 11 km to destination Lucknow, Ontario, Canada Township in Ontario, Canada Lucknow, Australia City in Australia Lucknow, Australia Suburb in Australia Search"
+          }
+        ]
+      },
+      "expected": {
+        "status": "ambiguous",
+        "exit_code": 2,
+        "candidate_labels": [
+          "Lucknow, Uttar Pradesh, India",
+          "Chaudhary Charan Singh International Airport",
+          "Lucknow, Ontario, Canada",
+          "Lucknow, Australia",
+          "Lucknow, Australia"
+        ],
+        "candidate_code_or_ids": [null, "LKO", null, null, null]
+      }
+    },
+    {
+      "input_text": "Copenhagen",
+      "field": "origin",
+      "snapshot": {
+        "items": [
+          {
+            "text": "Flights Round trip 1 Economy Helsinki Copenhagen, Denmark Select multiple airports Copenhagen, Denmark Capital of Denmark Copenhagen AirportCPH 8 km to destination Copenhagen Central Station Copenhagen, New York, USA Village in New York State Explore"
+          }
+        ]
+      },
+      "expected": {
+        "status": "ambiguous",
+        "exit_code": 2,
+        "candidate_labels": [
+          "Copenhagen, Denmark",
+          "Copenhagen Airport",
+          "Copenhagen Central Station",
+          "Copenhagen, New York, USA"
+        ],
+        "candidate_code_or_ids": [null, "CPH", null, null]
+      }
+    },
+    {
+      "input_text": "Delhi",
+      "field": "destination",
+      "snapshot": {
+        "items": [
+          {
+            "text": "Flights Round trip 1 Economy Copenhagen CPH Select multiple airports New Delhi, India Capital of India Indira Gandhi International AirportDEL 10 km to destination South Delhi, India District in Delhi North Delhi, India District in Delhi North East Delhi, India District in Delhi Delhi, New York, USA Town in New York State Explore"
+          }
+        ]
+      },
+      "expected": {
+        "status": "ambiguous",
+        "exit_code": 2,
+        "candidate_labels": [
+          "New Delhi, India",
+          "Indira Gandhi International Airport",
+          "South Delhi, India",
+          "North Delhi, India",
+          "North East Delhi, India",
+          "Delhi, New York, USA"
+        ],
+        "candidate_code_or_ids": [null, "DEL", null, null, null, null]
+      }
+    }
+  ]
+}

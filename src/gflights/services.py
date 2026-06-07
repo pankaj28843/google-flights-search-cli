@@ -16,7 +16,11 @@ from gflights.domain import SearchIntent
 from gflights.itinerary_extraction import extract_selected_itinerary
 from gflights.ranking import rank_observed_pairs
 from gflights.result_extraction import extract_primary_results
-from gflights.route_resolution import RouteFixtureSource, resolve_route_from_fixtures
+from gflights.route_resolution import (
+    RouteFixtureSource,
+    extract_route_choices_from_snapshot,
+    resolve_route_from_fixtures,
+)
 
 DatePairProbe = Callable[[SearchIntent], dict[str, Any]]
 
@@ -499,7 +503,8 @@ def _pair_unsupported(
 
 def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
     fixture = load_json(path)
-    expected = fixture["expected"]
+    fixture_type = fixture["fixture_type"]
+    expected = fixture.get("expected", {})
     evidence = {
         "fixture_id": fixture["fixture_id"],
         "run_id": fixture["run_id"],
@@ -507,7 +512,7 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
         "artifacts": [str(path)],
     }
 
-    if fixture["fixture_type"] == "blocked_stop_state":
+    if fixture_type == "blocked_stop_state":
         return expected["exit_code"], {
             "status": expected["status"],
             "browser_mode": expected["browser_mode"],
@@ -516,7 +521,7 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
             "evidence": evidence,
         }
 
-    if fixture["fixture_type"] == "primary_results_visible_text":
+    if fixture_type == "primary_results_visible_text":
         results = extract_primary_results(
             fixture.get("snapshot", {}),
             source_surface=fixture["source_surface"],
@@ -532,7 +537,7 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
             "evidence": evidence,
         }
 
-    if fixture["fixture_type"] == "selected_itinerary_visible_text":
+    if fixture_type == "selected_itinerary_visible_text":
         itinerary = extract_selected_itinerary(
             fixture,
             source_surface=fixture["source_surface"],
@@ -553,12 +558,40 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
             "evidence": selected_evidence,
         }
 
-    if fixture["fixture_type"] == "route_autocomplete_choices":
+    if fixture_type == "route_autocomplete_choices":
         return 0, {
             "status": expected.get("status", "ok"),
             "confidence": fixture["confidence"],
             "queries": fixture.get("queries", []),
             "unsupported": [],
+            "warnings": [],
+            "evidence": {
+                **evidence,
+                "artifacts": [str(path), *fixture.get("source_artifacts", [])],
+            },
+        }
+
+    if fixture_type == "route_autocomplete_visible_text":
+        outputs: list[dict[str, Any]] = []
+        exit_codes: list[int] = []
+        for query in fixture.get("queries", []):
+            if not isinstance(query, dict):
+                continue
+            exit_code, payload = extract_route_choices_from_snapshot(
+                input_text=str(query.get("input_text") or ""),
+                field=str(query.get("field") or ""),
+                snapshot=query.get("snapshot", {}),
+                evidence_artifact=str(path),
+                source_surface=str(fixture["source_surface"]),
+                confidence=str(fixture.get("confidence") or "weak"),
+            )
+            exit_codes.append(exit_code)
+            outputs.append(payload)
+        return _aggregate_exit_code(exit_codes), {
+            "status": _aggregate_status(outputs),
+            "confidence": fixture["confidence"],
+            "queries": outputs,
+            "unsupported": _aggregate_unsupported(outputs),
             "warnings": [],
             "evidence": {
                 **evidence,
@@ -648,6 +681,23 @@ def _codec_stale_warnings(
         if not matched:
             warnings.append(f"expected wire path {path}={value!r} was not observed")
     return warnings
+
+
+def _aggregate_status(outputs: list[dict[str, Any]]) -> str:
+    statuses = [str(output.get("status") or "unknown") for output in outputs]
+    for status in ("tool_error", "blocked", "stale_fixture", "unsupported", "ambiguous"):
+        if status in statuses:
+            return status
+    return "ok" if statuses and all(status == "ok" for status in statuses) else "unknown"
+
+
+def _aggregate_unsupported(outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for output in outputs:
+        unsupported = output.get("unsupported")
+        if isinstance(unsupported, list):
+            items.extend(item for item in unsupported if isinstance(item, dict))
+    return items
 
 
 def search_offline(

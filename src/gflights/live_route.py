@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
+from gflights.route_resolution import extract_route_choices_from_snapshot
 
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
 
@@ -132,6 +133,53 @@ async def run_live_route_resolution(
             executed=executed,
         )
 
+    fill_result = await _run_step(
+        adapter=adapter,
+        args=[
+            "fill",
+            "Where to?",
+            input_text,
+            "--by",
+            "label",
+            "--exact",
+            "--target",
+            page_id,
+            "--wait-text",
+            input_text,
+        ],
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        artifact_name="route-autocomplete-fill.json",
+        source_surface="cdp:route-autocomplete-fill",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if _is_stop_result(fill_result):
+        return _finish_stop(
+            input_text=input_text,
+            run_id=run_id,
+            browser_mode=browser_mode,
+            result=fill_result,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            target_url=target_url,
+            run_root=run_root,
+            executed=executed,
+        )
+    if fill_result.status == "tool_error":
+        return _finish_tool_error(
+            input_text=input_text,
+            run_id=run_id,
+            browser_mode=browser_mode,
+            result=fill_result,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            run_root=run_root,
+            executed=executed,
+        )
+
     snapshot_result = await _run_step(
         adapter=adapter,
         args=["snapshot", "--target", page_id, "--limit", "120"],
@@ -167,6 +215,30 @@ async def run_live_route_resolution(
             run_root=run_root,
             executed=executed,
         )
+
+    route_exit_code, route_payload = extract_route_choices_from_snapshot(
+        input_text=input_text,
+        field="route",
+        snapshot=snapshot_result.json_payload or {},
+        evidence_artifact=str(run_root / "snapshot.json"),
+        source_surface="route-autocomplete-visible-text",
+    )
+    if route_exit_code in {0, 2}:
+        source_surfaces.append("route-autocomplete-visible-text")
+        _write_command_log(run_root, executed, artifacts)
+        route_payload.update(
+            {
+                "live_mode": True,
+                "browser_mode": browser_mode,
+                "target_url": target_url,
+                "evidence": {
+                    "run_id": run_id,
+                    "artifacts": artifacts,
+                    "source_surfaces": source_surfaces,
+                },
+            }
+        )
+        return route_exit_code, route_payload
 
     _write_command_log(run_root, executed, artifacts)
     return 3, {

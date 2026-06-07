@@ -20,9 +20,10 @@ Read in this order:
 
 The repository is in early implementation. Red e2e tests, the Python/uv CLI
 harness, live-cdp-by-default orchestration, app-state/cache setup, fake live
-form planning, live route stop-state handling, visible-text result extraction,
-and bounded live smoke coverage exist. Keep new behavior evidence-backed and
-update the docs/contracts before expanding Google Flights support.
+form planning, live route stop-state handling and visible-text choice
+extraction, visible-text result extraction, and bounded live smoke coverage
+exist. Keep new behavior evidence-backed and update the docs/contracts before
+expanding Google Flights support.
 
 ## Validation
 

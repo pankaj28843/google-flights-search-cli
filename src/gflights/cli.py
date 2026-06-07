@@ -77,7 +77,8 @@ ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
 Use route resolution before search when text such as Washington DC or Lucknow
 could map to multiple city or airport choices. Without --offline-fixtures this
 opens the live Google Flights shell through cdp and records task-scoped route
-autocomplete evidence, stopping on browser safety boundaries.
+autocomplete evidence, returning visible choices when parseable and stopping on
+browser safety boundaries.
 
 Examples:
   gflights route resolve --input-text CPH --json
@@ -329,9 +330,9 @@ def route_resolve_command(
     """Return one route choice or explicit ambiguous candidates from evidence.
 
     Without --offline-fixtures, this command opens Google Flights through live
-    cdp, records route-autocomplete evidence under the state root, and returns
-    explicit unsupported/deferred output until durable live choice extraction is
-    fixture-backed.
+    cdp, fills the route autocomplete field, records evidence under the state
+    root, and returns visible choices when parser fixtures support them. If no
+    choices are parseable, it returns explicit unsupported/deferred output.
 
     Examples:
       gflights route resolve --input-text CPH --json

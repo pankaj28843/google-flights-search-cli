@@ -4,14 +4,12 @@ Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
 and fixture replay.
 
 Current phase: live-cdp-by-default search orchestration, fixture-backed route
-resolution, live route evidence capture with fake-tested stop-state handling,
-generic query-codec validation, fake-tested live form interaction planning, and
+resolution, parser-backed live route visible-text extraction, generic
+query-codec validation, fake-tested live form interaction planning, and
 visible-text primary-result extraction. The behavior spec is written, the
 Python project passes the offline agentic contract, and `gflights search` uses
 headless cdp by default when `--offline-fixtures` is not provided. `--live-form`
-is an additional explicit experimental mode for observed form controls; durable
-live route choice extraction remains deferred until focused parser fixtures
-support it.
+is an additional explicit experimental mode for observed form controls.
 
 Runtime state defaults to `~/.gflights-search`: `config.json`, `cache.sqlite`,
 and task-scoped `runs/` evidence bundles live there unless `GFLIGHTS_SEARCH_HOME`
@@ -54,8 +52,8 @@ editable target uses `--editable --link-mode symlink --force`.
 
 The Python suite covers offline contracts, route autocomplete fixture replay,
 app-state/cache behavior, fake live search orchestration, fake live route
-stop-state handling, visible-text result extraction, local cdp smoke, and Google
-Flights evidence capture.
+stop-state handling and visible-text choice extraction, visible-text result
+extraction, local cdp smoke, and Google Flights evidence capture.
 
 Local cdp smoke target:
 
@@ -76,9 +74,9 @@ Current expected result: opens Google Flights in headless mode and returns
 visible-text result rows when extractable, `experimental` evidence capture
 output when rows are not yet extractable, or exits `4` with a structured stop
 state and headed fallback recommendation. `gflights route resolve` also defaults
-to live cdp evidence capture when fixtures are absent and returns either
-fixture-backed offline choices, explicit live extraction deferral, or a
-structured browser stop state.
+to live cdp evidence capture when fixtures are absent and returns either parsed
+visible autocomplete choices, explicit live extraction deferral, or a structured
+browser stop state.
 
 ## Behavior Contract
 

@@ -270,10 +270,14 @@ with `selected: null` and `choices` for multi-airport or similarly named
 locations.
 
 When `--offline-fixtures` is absent, `gflights route resolve` opens the live
-Google Flights shell through cdp, records task-scoped route evidence, and stops
-on browser safety boundaries. Until durable live autocomplete choice extraction
-is backed by focused fixtures, successful evidence capture returns exit `3`
-with `status: unsupported`, `selected: null`, empty `choices`, and
+Google Flights shell through cdp, fills the route autocomplete field, records
+task-scoped route evidence, and stops on browser safety boundaries. When
+visible-text parser fixtures cover the autocomplete surface, successful evidence
+capture returns `ok` or `ambiguous` with route choices. Airport rows may use a
+visible IATA code as `code_or_id`; city rows must leave `code_or_id` null unless
+a separate reviewed decode surface supplies a stable ID. If no supported choices
+are visible, the command returns exit `3` with `status: unsupported`,
+`selected: null`, empty `choices`, and
 `route.resolve.live_autocomplete_extraction: deferred`. Browser stop states
 return exit `4` with `stop_state` and headed fallback guidance when available.
 

@@ -38,6 +38,8 @@ agentic contract for the first implementation. It asserts:
 - `route resolve --input-text <text> --json` defaults to live cdp evidence
   capture when fixtures are absent, with stop-state behavior fake-adapter tested
   so default validation stays offline
+- `evidence replay route_autocomplete_visible_text` extracts route autocomplete
+  choices from redacted visible-text snapshots without contacting Google Flights
 - `dates scan --offline-fixtures` returns JSON-array date-scan explanations
 - `dates scan --project-root` can rank from fresh SQLite cache observations
   without opening a browser in default validation
@@ -58,6 +60,8 @@ agentic contract for the first implementation. It asserts:
 - live `route resolve` reports explicit deferred extraction or structured
   browser stop states instead of guessing autocomplete choices from unsupported
   selectors
+- route visible-text replay keeps city IDs null when they are not visible and
+  uses airport IATA codes only when they are present in the visible row
 - live `search` reports `query_population` and uses fixture-backed encoded
   query state for supported concrete intents
 - `search --offline-fixtures` accepts JSON-array input and preserves input order

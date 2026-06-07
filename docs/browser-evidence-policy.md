@@ -57,9 +57,10 @@ tests for this command.
 
 `gflights route resolve --input-text <text> --json` is the live route evidence
 path when offline fixtures are absent. It opens the Google Flights shell,
-captures route-autocomplete evidence, and returns explicit deferred output until
-live choice extraction is fixture-backed. Default validation uses fake cdp
-adapter tests for stop states and does not open Google Flights.
+fills the route autocomplete field, captures route-autocomplete evidence, and
+returns parser-backed visible choices when available. If no supported choices
+are visible, it returns explicit deferred output. Default validation uses fake
+cdp adapter tests for stop states and does not open Google Flights.
 
 ## Required Artifacts
 

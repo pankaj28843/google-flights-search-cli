@@ -106,9 +106,18 @@ candidate `choices`. Each choice must carry `text`, `kind`, `display_name`,
 `code_or_id`, `confidence`, and `evidence`.
 
 When `--offline-fixtures` is omitted, route resolution opens the live Google
-Flights shell through cdp, writes task-scoped route evidence under the state
-root, and stops on browser safety boundaries. If live evidence is captured but
-durable choice extraction is not yet fixture-backed, the command exits `3` with:
+Flights shell through cdp, fills the route autocomplete field, writes
+task-scoped route evidence under the state root, and stops on browser safety
+boundaries.
+
+If visible autocomplete evidence contains parser-backed choices, the command
+returns the same `ok` or `ambiguous` shape as offline route resolution. Airport
+rows may set `code_or_id` from a visible IATA code. City rows keep
+`code_or_id: null` unless a separate reviewed decode surface supplies a stable
+ID.
+
+If live evidence is captured but no durable choice extraction is possible, the
+command exits `3` with:
 
 - `status: "unsupported"`
 - `live_mode: true`

@@ -27,6 +27,14 @@ only agent-facing route choice fields and evidence references; they must not
 include raw browser URLs, storage, network payloads, target IDs, cookies, or
 encoded query values.
 
+Checked-in `route_autocomplete_visible_text` fixtures are redacted normalized
+visible-text snapshots for parser replay. They may include only the text needed
+to identify autocomplete labels, city descriptors, and visible airport IATA
+codes. They must not include raw browser URLs, storage, network payloads, target
+IDs, cookies, account labels, or encoded query values. City `code_or_id` values
+must remain `null` unless a decoded evidence report is explicitly joined by a
+separate reviewed fixture.
+
 ## Fixture Metadata
 
 Every fixture needs:

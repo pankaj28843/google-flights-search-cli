@@ -386,6 +386,34 @@ def test_route_resolve_offline_fixture_returns_ambiguous_candidates() -> None:
     assert payload["evidence"]["source_surfaces"] == ["route-autocomplete-visible-text"]
 
 
+def test_evidence_replay_extracts_route_autocomplete_visible_text_fixture() -> None:
+    result = run_cli(
+        "evidence",
+        "replay",
+        str(FIXTURES / "route_autocomplete_visible_text_fixture.json"),
+        "--json",
+    )
+
+    assert result.returncode == 2, result.stderr
+    payload = assert_json_stdout(result)
+    assert payload["status"] == "ambiguous"
+    assert [item["input_text"] for item in payload["queries"]] == [
+        "Washington DC",
+        "Lucknow",
+        "Copenhagen",
+        "Delhi",
+    ]
+    washington = payload["queries"][0]
+    assert [choice["code_or_id"] for choice in washington["choices"]] == [
+        None,
+        "DCA",
+        "IAD",
+        "BWI",
+    ]
+    assert washington["selected"] is None
+    assert washington["ambiguity_reason"] == "multiple_route_choices"
+
+
 def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) -> None:
     result = run_cli(
         "doctor",

@@ -8,6 +8,8 @@ from pathlib import Path
 from gflights.browser import BrowserMode, CdpResult
 from gflights.live_route import run_live_route_resolution
 
+FIXTURES = Path(__file__).resolve().parents[1] / "e2e" / "fixtures"
+
 
 class FakeCdpAdapter:
     def __init__(self, results: list[CdpResult]) -> None:
@@ -146,6 +148,7 @@ def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
                 },
             ),
             cdp_result(["wait"], {"ok": True}),
+            cdp_result(["fill"], {"ok": True}),
             cdp_result(
                 ["snapshot"],
                 {"ok": True, "items": [{"text": "Flights"}, {"text": "Copenhagen"}]},
@@ -174,6 +177,7 @@ def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
     assert payload["evidence"]["source_surfaces"] == [
         "cdp:open",
         "cdp:wait",
+        "cdp:route-autocomplete-fill",
         "cdp:snapshot:route-autocomplete",
     ]
     assert adapter.calls == [
@@ -183,7 +187,76 @@ def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
             30.0,
         ),
         (["wait", "load-state", "domcontentloaded", "--target", "page-1"], "headless", 30.0),
+        (
+            [
+                "fill",
+                "Where to?",
+                "CPH",
+                "--by",
+                "label",
+                "--exact",
+                "--target",
+                "page-1",
+                "--wait-text",
+                "CPH",
+            ],
+            "headless",
+            30.0,
+        ),
         (["snapshot", "--target", "page-1", "--limit", "120"], "headless", 30.0),
     ]
     assert (tmp_path / "runs" / "gf-route-snapshot" / "input.json").is_file()
     assert (tmp_path / "runs" / "gf-route-snapshot" / "snapshot.json").is_file()
+
+
+def test_live_route_extracts_choices_from_autocomplete_snapshot(tmp_path: Path) -> None:
+    fixture = json.loads((FIXTURES / "route_autocomplete_visible_text_fixture.json").read_text())
+    washington_query = next(
+        query for query in fixture["queries"] if query["input_text"] == "Washington DC"
+    )
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["fill"], {"ok": True}),
+            cdp_result(["snapshot"], washington_query["snapshot"]),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_route_resolution(
+            input_text="Washington DC",
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-route-washington",
+        )
+    )
+
+    assert exit_code == 2
+    assert payload["status"] == "ambiguous"
+    assert payload["selected"] is None
+    assert [choice["code_or_id"] for choice in payload["choices"]] == [
+        None,
+        "DCA",
+        "IAD",
+        "BWI",
+    ]
+    assert payload["live_mode"] is True
+    assert payload["browser_mode"] == "headless"
+    assert payload["evidence"]["source_surfaces"] == [
+        "cdp:open",
+        "cdp:wait",
+        "cdp:route-autocomplete-fill",
+        "cdp:snapshot:route-autocomplete",
+        "route-autocomplete-visible-text",
+    ]
