@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -38,6 +39,12 @@ class RouteEndpoint(BaseModel):
 class DateWindow(BaseModel):
     start: str
     end: str
+
+    @model_validator(mode="after")
+    def validate_order(self) -> DateWindow:
+        if date.fromisoformat(self.start) > date.fromisoformat(self.end):
+            raise ValueError("date window start must be on or before end")
+        return self
 
 
 class PassengerParty(BaseModel):

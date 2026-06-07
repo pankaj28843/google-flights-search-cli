@@ -25,7 +25,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Current expected result: 11 offline e2e tests pass.
+Current expected result: 25 tests pass, including 11 offline e2e contract tests.
 
 ## Behavior Contract
 

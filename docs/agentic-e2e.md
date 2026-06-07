@@ -47,8 +47,8 @@ Current expected result:
 uv run pytest
 ```
 
-Result: 11 tests pass. Live Google Flights smoke tests remain separate and
-opt-in.
+Result: 25 tests pass in the full suite, including these 11 e2e contract tests.
+Live Google Flights smoke tests remain separate and opt-in.
 
 ## Test Layers
 
