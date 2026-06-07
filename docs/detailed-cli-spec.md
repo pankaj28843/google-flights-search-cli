@@ -267,9 +267,15 @@ When `--offline-fixtures` contains a reviewed
 `route_autocomplete_choices` fixture, the command returns `ok` with
 `selected` for a single evidence-backed airport/city choice, or `ambiguous`
 with `selected: null` and `choices` for multi-airport or similarly named
-locations. Live route autocomplete probing remains deferred and must return an
-explicit unsupported/deferred payload until fake-adapter stop-state handling and
-bounded live evidence are added.
+locations.
+
+When `--offline-fixtures` is absent, `gflights route resolve` opens the live
+Google Flights shell through cdp, records task-scoped route evidence, and stops
+on browser safety boundaries. Until durable live autocomplete choice extraction
+is backed by focused fixtures, successful evidence capture returns exit `3`
+with `status: unsupported`, `selected: null`, empty `choices`, and
+`route.resolve.live_autocomplete_extraction: deferred`. Browser stop states
+return exit `4` with `stop_state` and headed fallback guidance when available.
 
 ### Dates And Date Windows
 

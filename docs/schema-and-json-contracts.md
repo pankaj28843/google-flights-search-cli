@@ -81,10 +81,11 @@ payloads, cookies, storage, or full cdp JSON artifacts.
 
 ## Route Resolve Command
 
-Deterministic route autocomplete replay:
+Route autocomplete resolution:
 
 ```bash
 gflights route resolve --input-text <text> --offline-fixtures <fixture-dir> --json
+gflights route resolve --input-text <text> --browser-mode headless --json
 ```
 
 When a `route_autocomplete_choices` fixture contains a single reviewed match,
@@ -104,9 +105,25 @@ When a reviewed match has multiple candidates, the command exits `2` with
 candidate `choices`. Each choice must carry `text`, `kind`, `display_name`,
 `code_or_id`, `confidence`, and `evidence`.
 
-When `--offline-fixtures` is omitted, live route probing currently exits `3`
-with `status: "unsupported"` / `route.resolve.live: deferred`. That behavior
-stays explicit until live autocomplete stop-state handling is fake-tested.
+When `--offline-fixtures` is omitted, route resolution opens the live Google
+Flights shell through cdp, writes task-scoped route evidence under the state
+root, and stops on browser safety boundaries. If live evidence is captured but
+durable choice extraction is not yet fixture-backed, the command exits `3` with:
+
+- `status: "unsupported"`
+- `live_mode: true`
+- `browser_mode`
+- `target_url`
+- `selected: null`
+- `choices: []`
+- `unsupported[0].field: "route.resolve.live_autocomplete_extraction"`
+- `evidence.run_id`
+- `evidence.artifacts`
+- `evidence.source_surfaces`
+
+If cdp reports a blocked/login/personal-data/payment/human stop state or a
+browser resource-budget boundary, the command exits `4` with `stop_state`, empty
+`choices`, and optional `fallback.recommended_browser_mode`.
 
 ## Date Scan Command
 

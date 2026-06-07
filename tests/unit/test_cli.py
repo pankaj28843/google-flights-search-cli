@@ -127,3 +127,46 @@ def test_itinerary_inspect_uses_headless_live_cdp_by_default(
     assert json.loads(result.stdout)["status"] == "payment_or_booking_boundary"
     assert calls[0]["browser_mode"] == "headless"
     assert calls[0]["project_root"] == tmp_path
+
+
+def test_route_resolve_defaults_to_live_cdp_without_offline_fixtures(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_live_route_resolution(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 3, {
+            "status": "unsupported",
+            "warnings": [],
+            "selected": None,
+            "choices": [],
+            "unsupported": [
+                {
+                    "field": "route.resolve.live_autocomplete_extraction",
+                    "status": "deferred",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(cli, "run_live_route_resolution", fake_run_live_route_resolution)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "route",
+            "resolve",
+            "--input-text",
+            "CPH",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 3, result.output
+    assert json.loads(result.stdout)["status"] == "unsupported"
+    assert calls[0]["input_text"] == "CPH"
+    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["project_root"] == tmp_path

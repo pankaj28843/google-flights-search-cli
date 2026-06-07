@@ -12,6 +12,7 @@ import typer
 from gflights import services
 from gflights.browser import BrowserMode
 from gflights.live_itinerary import run_live_itinerary_inspection
+from gflights.live_route import run_live_route_resolution
 from gflights.live_search import run_live_search
 
 ROOT_HELP = """Agent-first Google Flights CLI for live searches, offline replay, and evidence-backed JSON.
@@ -74,9 +75,12 @@ Examples:
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
 
 Use route resolution before search when text such as Washington DC or Lucknow
-could map to multiple city or airport choices.
+could map to multiple city or airport choices. Without --offline-fixtures this
+opens the live Google Flights shell through cdp and records task-scoped route
+autocomplete evidence, stopping on browser safety boundaries.
 
 Examples:
+  gflights route resolve --input-text CPH --json
   gflights route resolve --input-text CPH --offline-fixtures fixtures --json
   gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
 """
@@ -310,27 +314,41 @@ def route_resolve_command(
         "--offline-fixtures",
         help="Directory or file with reviewed route_autocomplete_choices fixtures.",
     ),
+    browser_mode: BrowserMode = typer.Option(
+        "headless",
+        "--browser-mode",
+        help="Browser mode for live cdp route evidence; use headed only for fallback/debugging.",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="State root for config, cache.sqlite, fixtures, and runs; defaults to ~/.gflights-search.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
     """Return one route choice or explicit ambiguous candidates from evidence.
 
+    Without --offline-fixtures, this command opens Google Flights through live
+    cdp, records route-autocomplete evidence under the state root, and returns
+    explicit unsupported/deferred output until durable live choice extraction is
+    fixture-backed.
+
     Examples:
+      gflights route resolve --input-text CPH --json
       gflights route resolve --input-text CPH --offline-fixtures fixtures --json
+      gflights route resolve --input-text CPH --browser-mode headed --json
       gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
     """
     del json_output
     if offline_fixtures is None:
-        emit(
-            {
-                "status": "unsupported",
-                "input_text": input_text,
-                "selected": None,
-                "choices": [],
-                "unsupported": [{"field": "route.resolve.live", "status": "deferred"}],
-                "warnings": [],
-            },
-            3,
+        exit_code, payload = asyncio.run(
+            run_live_route_resolution(
+                input_text=input_text,
+                browser_mode=browser_mode,
+                project_root=project_root,
+            )
         )
+        emit(payload, exit_code)
         return
     exit_code, payload = services.resolve_route(input_text, offline_fixtures)
     emit(payload, exit_code)

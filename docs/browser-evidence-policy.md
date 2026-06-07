@@ -55,6 +55,12 @@ captures visible selected-itinerary text, and must not click provider
 `Continue` controls or enter checkout. Default validation uses fake cdp adapter
 tests for this command.
 
+`gflights route resolve --input-text <text> --json` is the live route evidence
+path when offline fixtures are absent. It opens the Google Flights shell,
+captures route-autocomplete evidence, and returns explicit deferred output until
+live choice extraction is fixture-backed. Default validation uses fake cdp
+adapter tests for stop states and does not open Google Flights.
+
 ## Required Artifacts
 
 Each live run must capture:
@@ -89,6 +95,7 @@ Stop and record safe evidence on:
 - unusual traffic
 - access denied
 - login required
+- browser resource budget exceeded
 - payment or booking boundary
 - personal-data prompts
 - permission or human-required states

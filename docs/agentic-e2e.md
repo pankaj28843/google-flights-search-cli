@@ -35,6 +35,9 @@ agentic contract for the first implementation. It asserts:
 - `route resolve --input-text <text> --offline-fixtures <fixtures> --json`
   returns deterministic route choices and exits `2` for ambiguous
   autocomplete inputs instead of selecting silently
+- `route resolve --input-text <text> --json` defaults to live cdp evidence
+  capture when fixtures are absent, with stop-state behavior fake-adapter tested
+  so default validation stays offline
 - `dates scan --offline-fixtures` returns JSON-array date-scan explanations
 - `dates scan --project-root` can rank from fresh SQLite cache observations
   without opening a browser in default validation
@@ -52,6 +55,9 @@ agentic contract for the first implementation. It asserts:
   against the generic Python codec, and keeps confidence non-`proven`
 - `search` defaults to live cdp when `--offline-fixtures` is absent, with fake
   adapters used in unit tests so default validation stays offline
+- live `route resolve` reports explicit deferred extraction or structured
+  browser stop states instead of guessing autocomplete choices from unsupported
+  selectors
 - live `search` reports `query_population` and uses fixture-backed encoded
   query state for supported concrete intents
 - `search --offline-fixtures` accepts JSON-array input and preserves input order

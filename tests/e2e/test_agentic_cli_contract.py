@@ -121,6 +121,8 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "Airport code",
             "--offline-fixtures",
             "route_autocomplete_choices",
+            "--browser-mode",
+            "--project-root",
         ],
         ("dates", "scan", "--help"): [
             "Examples:",
@@ -159,13 +161,15 @@ def test_itinerary_inspect_help_exposes_live_agent_options() -> None:
     assert "--project-root" in help_text
 
 
-def test_route_resolve_help_exposes_offline_agent_options() -> None:
+def test_route_resolve_help_exposes_agent_options() -> None:
     result = run_cli("route", "resolve", "--help")
 
     assert result.returncode == 0, result.stderr
     help_text = f"{result.stdout}\n{result.stderr}"
     assert "--input-text" in help_text
     assert "--offline-fixtures" in help_text
+    assert "--browser-mode" in help_text
+    assert "--project-root" in help_text
 
 
 def test_schema_search_intent_json_contract() -> None:
