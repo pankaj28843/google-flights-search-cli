@@ -123,12 +123,19 @@ def test_scan_dates_uses_fresh_cache_or_probe_for_every_generated_pair(
         ("2026-10-02", "probed"),
     ]
     assert [pair["best_observed_price"]["amount"] for pair in result["ranked_pairs"]] == [
-        640,
         702,
+        640,
     ]
-    assert result["ranked_pairs"][0]["departure_date"] == "2026-10-02"
-    assert result["ranked_pairs"][0]["evidence"]["source_surfaces"] == ["fake-live-probe"]
-    assert result["ranked_pairs"][1]["evidence"]["source_surfaces"] == ["sqlite-cache"]
+    assert result["ranking_policy"] == "comfort_aware_v1"
+    assert result["ranked_pairs"][0]["departure_date"] == "2026-10-01"
+    assert result["ranked_pairs"][0]["evidence"]["source_surfaces"] == ["sqlite-cache"]
+    components = {
+        component["name"]: component
+        for component in result["ranked_pairs"][0]["scoring_explanation"]["components"]
+    }
+    assert components["preferred_airline"]["value"] == "matched"
+    assert components["senior_comfort"]["value"] == "high"
+    assert result["ranked_pairs"][1]["evidence"]["source_surfaces"] == ["fake-live-probe"]
 
 
 def test_scan_dates_without_cache_or_probe_records_skipped_pairs(

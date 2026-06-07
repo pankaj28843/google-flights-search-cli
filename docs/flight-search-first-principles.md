@@ -82,6 +82,8 @@ duration, layovers, carriers, baggage, emissions, and facilities.
 
 Ranking based on airline preference or senior comfort must be an explained
 post-result ranking unless a live Google Flights filter has been proven.
+The explanation must state that no Google Flights filter was applied when the
+CLI is only re-ranking visible or cached result rows.
 
 Date-window ranking must account for every generated date pair before producing
 agent-facing recommendations. Fresh cache observations may support ranking for

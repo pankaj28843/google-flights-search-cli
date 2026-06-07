@@ -98,6 +98,11 @@ only pairs backed by a fresh cache row or a probe result with a visible price.
 older e2e contract. Default validation does not probe live Google Flights from
 `dates scan`.
 
+When `ranking_policy` is `comfort_aware_v1`, each ranked pair has a
+`scoring_explanation` with `score`, `google_flights_filters_applied: false`,
+and component entries for price, duration, stops, preferred-airline status,
+senior-comfort weight, and emissions when visible.
+
 ## Status Values
 
 Allowed command status values:

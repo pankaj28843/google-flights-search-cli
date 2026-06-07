@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from gflights.app_state import DEFAULT_CACHE_MAX_AGE_SECONDS, AppState, PriceCache, init_app_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
+from gflights.ranking import rank_observed_pairs
 from gflights.result_extraction import extract_primary_results
 
 DatePairProbe = Callable[[SearchIntent], dict[str, Any]]
@@ -310,12 +311,7 @@ def _date_scan_live_or_cache_result(
             f"date pair {departure_date}/{return_date or ''} needs a live probe or fresh cache"
         )
 
-    ranked_pairs.sort(
-        key=lambda pair: (
-            pair["best_observed_price"]["amount"],
-            pair["scoring_explanation"]["components"][1]["value"],
-        )
-    )
+    ranked_pairs = rank_observed_pairs(intent, ranked_pairs)
     status = (
         "ok"
         if ranked_pairs and counts["skipped"] == 0 and counts["unsupported"] == 0
@@ -329,7 +325,7 @@ def _date_scan_live_or_cache_result(
         "coverage_counts": counts,
         "pair_coverage": pair_coverage,
         "ranked_pairs": ranked_pairs,
-        "ranking_policy": "live_or_fresh_cache_price",
+        "ranking_policy": "comfort_aware_v1",
         "unsupported": unsupported,
         "warnings": warnings,
         "cache": {
@@ -451,14 +447,10 @@ def _ranked_pair(
             "carriers": result.get("carriers", []),
             "duration_minutes": result.get("duration_minutes"),
             "stops": result.get("stops"),
+            "layovers": result.get("layovers", []),
+            "emissions": result.get("emissions"),
         },
-        "scoring_explanation": {
-            "policy": "live_or_fresh_cache_price",
-            "components": [
-                {"name": "price", "value": price["amount"]},
-                {"name": "source", "value": source},
-            ],
-        },
+        "source": source,
         "evidence": evidence,
     }
 

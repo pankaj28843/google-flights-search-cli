@@ -302,6 +302,12 @@ fields are visible:
 Every such ranking must return an explanation object and must not claim that a
 Google Flights filter was applied.
 
+The first post-result ranking policy is `comfort_aware_v1`. It is a pure
+service-layer policy over visible or cached fields, not a browser adapter
+feature. Its explanation includes price, duration, stops, preferred-airline
+match state, senior-comfort weight, emissions when visible, a numeric score,
+and `google_flights_filters_applied: false`.
+
 ### Sorting
 
 Supported sort values:
