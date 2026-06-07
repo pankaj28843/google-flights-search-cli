@@ -62,6 +62,29 @@ def test_help_lists_atomic_command_families() -> None:
         assert command in help_text
 
 
+def test_root_help_is_self_explanatory_without_repo_docs() -> None:
+    result = run_cli("--help")
+
+    assert result.returncode == 0, result.stderr
+    help_text = f"{result.stdout}\n{result.stderr}"
+    for expected in [
+        "Default search:",
+        "headless cdp",
+        "Workflow:",
+        "Agent contract:",
+        "Environment:",
+        "--offline-fixtures",
+        "~/.gflights-search",
+        "Examples:",
+        "gflights search --input-json intents.json --json",
+        "Exit codes:",
+        "2 invalid/ambiguous",
+        "4 browser/safety stop",
+        'Use "gflights <command> --help"',
+    ]:
+        assert expected in help_text
+
+
 def test_itinerary_inspect_help_exposes_live_agent_options() -> None:
     result = run_cli("itinerary", "inspect", "--help")
 

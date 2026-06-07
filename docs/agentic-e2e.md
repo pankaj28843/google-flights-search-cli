@@ -27,6 +27,8 @@ The current `tests/e2e/test_agentic_cli_contract.py` suite is the offline
 agentic contract for the first implementation. It asserts:
 
 - root help lists the atomic command families
+- root help is self-contained for installed users, including workflow,
+  defaults, environment, examples, and exit codes
 - `schema --model search-intent --json` emits the `SearchIntent` JSON Schema
 - `project init --path <tmp> --json` creates app-state files under `<tmp>/`
 - `intent parse --input-json <array> --json` preserves JSON-array order
