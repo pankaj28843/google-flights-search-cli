@@ -81,6 +81,12 @@ Allowed confidence values:
 
 Current Google Flights query/protobuf behavior must not emit `proven`.
 
+`gflights codec decode --fixture <fixture.json> --json` returns the
+fixture-backed hypothesis paths plus a `codec` object with generic observed wire
+paths, decoded byte length, string anchors, and URL-safe-base64 round-trip
+status. The generic decoder may validate `tfs`/`tfu` wire structure, but it must
+not promote semantic field names by itself.
+
 ## Exit Codes
 
 Stable exit-code classes:

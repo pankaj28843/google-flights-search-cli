@@ -3,10 +3,11 @@
 Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
 and fixture replay.
 
-Current phase: opt-in live evidence capture. The behavior spec is written, the
-Python project passes the offline agentic contract, and `gflights search
---live-cdp` can open Google Flights in headless mode to capture task-scoped cdp
-evidence without claiming durable result extraction.
+Current phase: opt-in live evidence capture and generic query-codec validation.
+The behavior spec is written, the Python project passes the offline agentic
+contract, and `gflights search --live-cdp` can open Google Flights in headless
+mode to capture task-scoped cdp evidence without claiming durable result
+extraction.
 
 ## Validation
 
@@ -26,7 +27,7 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Current expected result: 33 tests pass and 3 opt-in live tests skip, including
+Current expected result: 38 tests pass and 3 opt-in live tests skip, including
 11 offline e2e contract tests.
 
 Opt-in local cdp smoke:
@@ -84,6 +85,6 @@ scripts/
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
 `project`, `dates`, `evidence`, `codec`, `doctor`, unsupported/deferred exit
 codes, isolated editable `uv tool install --editable --link-mode symlink .`
-smoke behavior, domain/service invariants, and cdp adapter command construction
-and stop-state handling. Opt-in tests cover local cdp smoke and Google Flights
-evidence capture.
+smoke behavior, domain/service invariants, generic `tfs`/`tfu` wire decode
+round trips, and cdp adapter command construction and stop-state handling.
+Opt-in tests cover local cdp smoke and Google Flights evidence capture.

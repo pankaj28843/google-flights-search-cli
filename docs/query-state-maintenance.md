@@ -16,6 +16,12 @@ Use these confidence classes:
 
 Current query/protobuf behavior has no `proven` fields.
 
+The current Python implementation includes a generic URL-safe-base64 and
+protobuf-wire decoder for captured `tfs`/`tfu` evidence. It validates round-trip
+encoding and reports numeric wire paths and printable string anchors only.
+Semantic labels such as trip type, cabin, or sort remain fixture-backed
+hypotheses, not codec-owned truth.
+
 ## Required Evidence For Codec Support
 
 Every supported query/protobuf field needs:
@@ -55,7 +61,7 @@ Deferred:
 
 1. Create a task-scoped evidence run.
 2. Capture raw URL, visible state, network evidence when relevant, and command log.
-3. Decode values with a fixture-backed tool.
+3. Decode values with the fixture-backed Python codec tool.
 4. Compare baseline, mutation, and counterexample.
 5. Update fixtures and confidence ledger.
 6. Add or update tests before changing reusable codec behavior.

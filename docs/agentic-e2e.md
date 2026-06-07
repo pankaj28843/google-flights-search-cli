@@ -14,7 +14,8 @@ Write failing tests for:
 - `evidence replay` parses saved fixtures offline
 - browser adapter defaults to headless
 - blocked headless fixture recommends headed fallback
-- `codec decode` reports raw wire paths and confidence
+- `codec decode` reports raw wire paths, round-trip codec metadata, and
+  confidence
 - deterministic exit codes
 - `uv tool install --editable --link-mode symlink .` exposes the CLI entry point
 
@@ -31,7 +32,8 @@ agentic contract for the first implementation. It asserts:
 - `evidence replay` parses redacted offline fixtures
 - `doctor --json` reports headless default and no-live-default validation
 - blocked headless replay returns exit `4` and headed fallback guidance
-- `codec decode --fixture` reports raw wire paths and non-`proven` confidence
+- `codec decode --fixture` reports raw wire paths, verifies fixture hypotheses
+  against the generic Python codec, and keeps confidence non-`proven`
 - deferred live Google filter requests exit `3`
 - an isolated `uv tool install --editable --link-mode symlink . --force`
   exposes `gflights`, then `gflights doctor --json` proves the installed entry
@@ -47,7 +49,7 @@ Current expected result:
 uv run pytest
 ```
 
-Default result: 33 tests pass and 3 opt-in live tests skip in the full suite,
+Default result: 38 tests pass and 3 opt-in live tests skip in the full suite,
 including these 11 e2e contract tests. Live Google Flights smoke tests remain
 separate and opt-in.
 

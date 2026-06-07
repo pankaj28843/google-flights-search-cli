@@ -68,6 +68,26 @@ def test_codec_decode_preserves_confidence_boundary() -> None:
     assert payload["confidence"] == "strong"
     assert payload["confidence"] != "proven"
     assert payload["wire_paths"][0]["path"] == "tfu.2.1"
+    assert payload["codec"]["round_trip_ok"] is True
+    assert payload["codec"]["round_trip_value"] == "EgYIAhAAGAA"
+    assert {"path": "tfu.2.1", "wire_type": "varint", "value": 2} in payload["codec"][
+        "observed_wire_paths"
+    ]
+
+
+def test_codec_decode_marks_fixture_stale_when_expected_wire_path_is_missing(
+    tmp_path: Path,
+) -> None:
+    fixture = json.loads((FIXTURES / "codec_tfu_price_fixture.json").read_text())
+    fixture["expected"]["wire_paths"][0]["path"] = "tfu.99"
+    stale_fixture = tmp_path / "stale-codec-fixture.json"
+    stale_fixture.write_text(json.dumps(fixture))
+
+    payload = services.decode_codec_fixture(stale_fixture)
+
+    assert payload["status"] == "stale_fixture"
+    assert payload["confidence"] == "unknown"
+    assert "tfu.99" in payload["warnings"][0]
 
 
 def test_search_returns_unsupported_for_deferred_live_layover_filter() -> None:

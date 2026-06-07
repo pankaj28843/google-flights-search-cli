@@ -183,6 +183,10 @@ def test_codec_decode_reports_wire_paths_and_confidence_from_fixture() -> None:
     assert payload["confidence"] == "strong"
     assert payload["confidence"] != "proven"
     assert {"path": "tfu.2.1", "value": 2, "hypothesis": "price sort"} in payload["wire_paths"]
+    assert payload["codec"]["round_trip_ok"] is True
+    assert {"path": "tfu.2.1", "wire_type": "varint", "value": 2} in payload["codec"][
+        "observed_wire_paths"
+    ]
 
 
 def test_deferred_live_google_filter_exits_unsupported() -> None:

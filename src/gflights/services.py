@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
 
 
@@ -170,6 +171,49 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
 def decode_codec_fixture(path: Path) -> dict[str, Any]:
     fixture = load_json(path)
     expected = fixture["expected"]
+    evidence = {
+        "fixture_id": fixture["fixture_id"],
+        "run_id": fixture["run_id"],
+        "source_surfaces": [fixture["source_surface"]],
+        "artifacts": [str(path)],
+    }
+    try:
+        decoded = decode_query_value(fixture["key"], fixture["raw_value"])
+    except CodecError as exc:
+        return {
+            "status": "stale_fixture",
+            "key": fixture["key"],
+            "raw_value": fixture["raw_value"],
+            "confidence": "unknown",
+            "wire_paths": [],
+            "warnings": [str(exc)],
+            "evidence": evidence,
+        }
+
+    stale_warnings = _codec_stale_warnings(
+        expected_paths=expected.get("wire_paths", []),
+        observed_paths=decoded.wire_paths,
+    )
+    codec_payload = {
+        "encoding": decoded.encoding,
+        "decoded_byte_length": decoded.decoded_byte_length,
+        "round_trip_value": decoded.round_trip_value,
+        "round_trip_ok": decoded.round_trip_value == fixture["raw_value"],
+        "observed_wire_paths": decoded.wire_paths,
+        "string_anchors": decoded.string_anchors,
+    }
+    if stale_warnings:
+        return {
+            "status": "stale_fixture",
+            "key": fixture["key"],
+            "raw_value": fixture["raw_value"],
+            "confidence": "unknown",
+            "wire_paths": expected.get("wire_paths", []),
+            "warnings": stale_warnings,
+            "codec": codec_payload,
+            "evidence": evidence,
+        }
+
     return {
         "status": expected["status"],
         "key": fixture["key"],
@@ -177,13 +221,25 @@ def decode_codec_fixture(path: Path) -> dict[str, Any]:
         "confidence": expected["confidence"],
         "wire_paths": expected["wire_paths"],
         "warnings": [],
-        "evidence": {
-            "fixture_id": fixture["fixture_id"],
-            "run_id": fixture["run_id"],
-            "source_surfaces": [fixture["source_surface"]],
-            "artifacts": [str(path)],
-        },
+        "codec": codec_payload,
+        "evidence": evidence,
     }
+
+
+def _codec_stale_warnings(
+    *, expected_paths: list[dict[str, Any]], observed_paths: list[dict[str, Any]]
+) -> list[str]:
+    warnings: list[str] = []
+    for expected_path in expected_paths:
+        path = expected_path.get("path")
+        value = expected_path.get("value")
+        matched = any(
+            observed_path.get("path") == path and observed_path.get("value") == value
+            for observed_path in observed_paths
+        )
+        if not matched:
+            warnings.append(f"expected wire path {path}={value!r} was not observed")
+    return warnings
 
 
 def search_offline(input_json: Path, offline_fixtures: Path) -> tuple[int, dict[str, Any]]:
