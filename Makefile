@@ -1,4 +1,4 @@
-.PHONY: validate lint format-check red-test
+.PHONY: validate lint format-check test
 
 validate:
 	./scripts/validate-harness.sh
@@ -9,5 +9,5 @@ lint:
 format-check:
 	uv run ruff format --check .
 
-red-test:
+test:
 	uv run pytest

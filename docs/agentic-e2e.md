@@ -18,10 +18,10 @@ Write failing tests for:
 - deterministic exit codes
 - `uv tool install --editable --link-mode symlink .` exposes the CLI entry point
 
-## Current Red Bootstrap
+## Current E2E Bootstrap
 
-The current `tests/e2e/test_agentic_cli_contract.py` suite is intentionally red
-until production CLI behavior starts. It asserts:
+The current `tests/e2e/test_agentic_cli_contract.py` suite is the offline
+agentic contract for the first implementation. It asserts:
 
 - root help lists the atomic command families
 - `schema --model search-intent --json` emits the `SearchIntent` JSON Schema
@@ -40,6 +40,15 @@ until production CLI behavior starts. It asserts:
 The editable install test sets `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`, and
 `UV_CACHE_DIR` to temporary directories so it does not write to the user's global
 tool install location.
+
+Current expected result:
+
+```bash
+uv run pytest
+```
+
+Result: 11 tests pass. Live Google Flights smoke tests remain separate and
+opt-in.
 
 ## Test Layers
 

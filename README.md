@@ -3,8 +3,9 @@
 Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
 and fixture replay.
 
-Current phase: red Python e2e bootstrap. The behavior spec is written and the
-Python project skeleton exists, but production CLI behavior has not started yet.
+Current phase: first green offline CLI core. The behavior spec is written and
+the Python project passes the agentic e2e contract against offline fixtures.
+Live Google Flights behavior has not started yet.
 
 ## Validation
 
@@ -16,21 +17,15 @@ Default validation checks repository harness/docs only and does not contact
 Google Flights. Live browser probes must be explicit evidence refresh or smoke
 commands.
 
-Python bootstrap checks:
+Python checks:
 
 ```bash
+uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 ```
 
-The first e2e suite is intentionally red until implementation starts:
-
-```bash
-uv run pytest
-```
-
-Expected current result: 11 failures for missing public CLI command behavior and
-JSON contracts.
+Current expected result: 11 offline e2e tests pass.
 
 ## Behavior Contract
 
@@ -63,7 +58,7 @@ artifacts/
 scripts/
 ```
 
-The checked-in tests cover the red agentic CLI contract for `schema`, `intent`,
+The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
 `project`, `dates`, `evidence`, `codec`, `doctor`, unsupported/deferred exit
 codes, and isolated editable `uv tool install --editable --link-mode symlink .`
 smoke behavior.
