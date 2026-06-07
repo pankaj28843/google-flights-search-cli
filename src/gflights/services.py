@@ -305,6 +305,21 @@ def _date_scan_live_or_cache_result(
                 )
                 continue
 
+            if probe_payload.get("status") == "skipped":
+                counts["skipped"] += 1
+                reason = str(probe_payload.get("reason") or "date pair was not probed")
+                pair_coverage.append(
+                    {
+                        "departure_date": departure_date,
+                        "return_date": return_date,
+                        "status": "skipped",
+                        "reason": reason,
+                        "evidence": evidence,
+                    }
+                )
+                warnings.append(f"date pair {departure_date}/{return_date or ''} skipped: {reason}")
+                continue
+
             counts["probed"] += 1
             pair_coverage.append(
                 {

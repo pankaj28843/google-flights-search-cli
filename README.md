@@ -73,11 +73,40 @@ make live-google-flights
 
 Current expected result: opens Google Flights in headless mode and returns
 visible-text result rows when extractable, `experimental` evidence capture
-output when rows are not yet extractable, or exits `4` with a structured stop
-state and headed fallback recommendation. `gflights route resolve` also defaults
-to live cdp evidence capture when fixtures are absent and returns either parsed
+output when a no-row state is not classifiable, `unsupported` when bounded
+evidence waits still show empty/loading results, `no_results` when visible text
+explicitly says there are no flights, or exits `4` with a structured stop state
+and headed fallback recommendation. `gflights route resolve` also defaults to
+live cdp evidence capture when fixtures are absent and returns either parsed
 visible autocomplete choices, explicit live extraction deferral, or a structured
 browser stop state.
+
+India trip usefulness gate:
+
+```bash
+gflights trip india --json
+gflights trip india --execute-live --date-scan-max-probes 1 --json
+make live-india-trip-plan
+```
+
+`gflights trip india` writes the canonical CPH-Lucknow family-trip inputs and
+reduces saved outputs into summary JSON plus a Markdown report under
+`~/Personal/Code/paternity-leave-research/india-trip-plan/`. It opens Google
+Flights only with `--execute-live`, records CDP preflight/postrun evidence, and
+reports `useful` only when ranked options have prices and evidence. The report
+states whether ranking came from date scan or from parsed concrete live-search
+rows. A zero-row experimental run is reported as `not_useful` or as a precise
+blocked or inconclusive state. During live execution, the date-window scan uses
+`--date-scan-max-probes` to keep live date-pair probing explicit and bounded.
+
+Date-window scans are cache-first. They rank fresh SQLite price observations by
+default and open Google Flights for missing date pairs only when explicitly
+bounded:
+
+```bash
+gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+gflights dates scan --input-json intents.json --project-root ~/.gflights-search --live-probe --max-probes 5 --json
+```
 
 ## Behavior Contract
 
@@ -113,9 +142,10 @@ scripts/
 ```
 
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
-`project`, `route`, `dates`, `evidence`, `codec`, `doctor`,
+`project`, `route`, `dates`, `evidence`, `codec`, `trip`, `doctor`,
 unsupported/deferred/ambiguous exit codes, isolated editable `uv tool install
 --editable --link-mode symlink .` smoke behavior, domain/service invariants,
 generic `tfs`/`tfu` wire decode round trips, fake live form interaction
-planning, and cdp adapter command construction and stop-state handling. Live
-tests cover local cdp smoke and Google Flights evidence capture.
+planning, the India-trip usefulness reducer, and cdp adapter command
+construction and stop-state handling. Live tests cover local cdp smoke and
+Google Flights evidence capture.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from gflights.result_extraction import extract_primary_results
+from gflights.result_extraction import classify_primary_result_absence, extract_primary_results
 
 FIXTURES = Path(__file__).resolve().parents[1] / "e2e" / "fixtures"
 
@@ -48,3 +48,65 @@ def test_extract_primary_results_returns_empty_without_primary_rows() -> None:
     )
 
     assert results == []
+
+
+def test_extract_primary_results_from_current_compact_visible_rows() -> None:
+    results = extract_primary_results(
+        {
+            "snapshot": {
+                "items": [
+                    {
+                        "text": (
+                            "Search results 5 results returned. Best Cheapest from €3,561 "
+                            "Top departing flights Sorted by top flights "
+                            "2:50 PM CPH 2:35 PM+1 LKO €3,561 round trip "
+                            "2 stops19 hr 15 minBritish Airways, IndiGo +10% emissions "
+                            "9:55 AM CPH 6:35 AM+1 LKO Economy + Premium Economy "
+                            "€3,794 round trip 2 stops16 hr 10 minKLM, IndiGo +37% emissions "
+                            "Other departing flights "
+                            "6:45 AM CPH 6:35 AM+1 LKO €4,468 round trip "
+                            "2 stops19 hr 20 minAir France, IndiGo -7% emissions "
+                            "2:15 PM CPH 1:20 PM+1 LKO Price unavailable "
+                            "2 stops18 hr 35 minLufthansa, Air India Avg emissions"
+                        )
+                    }
+                ]
+            }
+        },
+        source_surface="primary-results-visible-text",
+        evidence_artifact="snapshot-results-retry-1.json",
+    )
+
+    assert len(results) == 3
+    assert results[0]["origin_airports"] == ["CPH"]
+    assert results[0]["destination_airports"] == ["LKO"]
+    assert results[0]["departure_times"] == ["2:50 PM"]
+    assert results[0]["arrival_times"] == ["2:35 PM+1"]
+    assert results[0]["price"] == {"amount": 3561, "currency": "EUR", "text": "€3,561"}
+    assert results[0]["stops"] == {"count": 2, "text": "2 stops"}
+    assert results[0]["duration_minutes"] == 19 * 60 + 15
+    assert results[0]["carriers"] == ["British Airways", "IndiGo"]
+    assert results[0]["emissions"] == {"text": "+10% emissions"}
+    assert results[0]["evidence"]["artifacts"] == ["snapshot-results-retry-1.json"]
+    assert results[1]["carriers"] == ["KLM", "IndiGo"]
+    assert results[1]["duration_minutes"] == 16 * 60 + 10
+    assert results[2]["price"]["amount"] == 4468
+
+
+def test_classify_primary_result_absence_states() -> None:
+    assert classify_primary_result_absence({"snapshot": {"items": []}}) == "empty_snapshot"
+    assert (
+        classify_primary_result_absence(
+            {"snapshot": {"items": [{"text": "Search results Loading results Filters"}]}}
+        )
+        == "loading_results"
+    )
+    assert (
+        classify_primary_result_absence(
+            {"text": {"text": "No flights found. Try changing your dates."}}
+        )
+        == "no_results"
+    )
+    assert (
+        classify_primary_result_absence({"text": {"text": "Search results Filters"}}) == "unknown"
+    )

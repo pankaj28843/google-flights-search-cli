@@ -95,8 +95,13 @@ writes a state-local `runs/<run-id>/` evidence bundle, records
 - `ok` with weak confidence and primary result rows when visible text contains
   parseable primary search rows plus a `cache.price_observations_written`
   count for the fresh SQLite observations written from priced rows,
+- `no_results` with weak confidence when visible evidence explicitly reports no
+  result rows,
+- `unsupported` with exit code `3` when bounded evidence waits still produce an
+  empty snapshot or `Loading results` instead of visible primary rows,
 - `experimental` with weak confidence when cdp evidence capture succeeds but
-  no primary rows are extractable yet, with zero price observations written, or
+  the no-row state is not classifiable yet, with zero price observations
+  written, or
 - `blocked` with exit code `4` and headed fallback guidance when a browser stop
   state appears.
 
@@ -161,7 +166,13 @@ When `--offline-fixtures` is omitted, route resolution opens the live Google
 Flights shell through cdp, fills the route autocomplete field, writes
 task-scoped route evidence under the state root, and stops on browser safety
 boundaries. When it owns a page target, its run bundle includes
-`managed-tab-close.json`.
+`managed-tab-close.json`. Live route run ids include subsecond time plus a
+random suffix so rapid route resolves do not share artifact directories.
+The command waits past `about:blank` before filling route controls. Transient
+`Cannot find default execution context` failures are retried once for route
+wait/snapshot/fill steps. Route fill starts with the observed exact `Where to?`
+label and then falls back to bounded alternate label attempts before returning a
+structured `tool_error`.
 
 If visible autocomplete evidence contains parser-backed choices, the command
 returns the same `ok` or `ambiguous` shape as offline route resolution. Airport
@@ -193,6 +204,7 @@ Date-window scans:
 
 ```bash
 gflights dates scan --input-json <intent.json> --project-root <state-root> --json
+gflights dates scan --input-json <intent.json> --project-root <state-root> --live-probe --max-probes <N> --json
 ```
 
 When `--project-root` is supplied, `dates scan` expands the requested date
@@ -201,6 +213,15 @@ attempting or requiring any live probe. Output includes `coverage_counts` and
 `pair_coverage`; every generated date pair is represented as `fresh_cache`,
 `probed`, `unsupported`, or `skipped` with evidence. `ranked_pairs` may contain
 only pairs backed by a fresh cache row or a probe result with a visible price.
+
+Live Google Flights probing is opt-in. `--live-probe` requires `--max-probes`
+greater than zero and may also use `--probe-timeout-seconds` and
+`--browser-mode`. Each cache-miss pair is probed at most once until the limit is
+exhausted. Remaining pairs are represented as `pair_coverage.status = "skipped"`
+with `reason: "max_live_probes_reached"`, and generated live-search intent
+artifacts are written under the app-state
+`artifacts/date-scan-live-probes/` directory with concrete date keys to avoid
+collisions.
 
 `--offline-fixtures` remains the deterministic bootstrap/replay path for the
 older e2e contract. Default validation does not probe live Google Flights from
@@ -217,7 +238,12 @@ When route fixtures cannot resolve a route endpoint, `dates scan` returns exit
 When `ranking_policy` is `comfort_aware_v1`, each ranked pair has a
 `scoring_explanation` with `score`, `google_flights_filters_applied: false`,
 and component entries for price, duration, stops, preferred-airline status,
-senior-comfort weight, and emissions when visible.
+senior-comfort weight, and emissions when visible. The same explanation also
+contains `airline_preference` with `preferred_airlines`, `status`,
+`matched_carriers`, `matched_carrier_count`, `visible_carriers`,
+`local_ranking_preference_applied`, and
+`google_flights_filters_applied: false` until a future Google Flights airline
+filter implementation is proven.
 
 The optional analysis adapter can flatten `dates scan` output into table rows.
 If pandas is unavailable, it returns `status: "unavailable"` with an install
@@ -255,6 +281,54 @@ include:
 
 Replay fixtures must not include raw browser URLs, raw network payloads, raw
 storage payloads, cookies, target IDs, or unredacted cdp artifacts.
+
+## India Trip Usefulness Gate
+
+Task-specific gate:
+
+```bash
+gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
+gflights trip india --execute-live --browser-mode headless --date-scan-max-probes 1 --json
+```
+
+The command returns a JSON envelope with:
+
+- `status`: `ok`, `blocked`, `unsupported`, or `tool_error`
+- `verdict`: `useful`, `blocked`, `not_useful`, or `inconclusive`
+- `useful`: boolean shortcut for `verdict == "useful"`
+- `reason`: human-readable but stable enough for reports
+- `report_root`
+- `live_attempted`
+- `artifacts.window_intent`
+- `artifacts.concrete_intents`
+- `artifacts.summary_json`
+- `artifacts.markdown_report`
+- `counts`
+- `ranking_source`: `date_scan`, `live_search_results`, or `none`
+- `airline_preference`
+- `next_actions`
+
+The command writes `inputs/cph-lko-window-intent.json`,
+`inputs/cph-lko-100-concrete-intents.json`, `analysis/summary.json`, and
+`e2e-report.md`. With `--execute-live`, it also writes command stdout JSON,
+exit-code files, timing files, cdp preflight/postrun JSON, and state-local run
+artifacts under the report root.
+During `--execute-live`, `--date-scan-max-probes` controls how many cache-miss
+date pairs the window scan may live-probe, and
+`--date-scan-probe-timeout-seconds` controls each probe timeout. These bounds
+must be explicit in command output and saved timing/evidence.
+
+`verdict: "useful"` is allowed only when ranked options have visible prices and
+non-empty evidence. Date-scan ranked pairs are preferred; if date scan produces
+no ranked pairs but the 100 concrete live searches parsed priced rows, the
+reducer may rank those live-search rows and report
+`ranking_source: "live_search_results"`. A zero-row `experimental` search with
+closed tabs is `not_useful`, not useful. Air India preference must be visible
+through `airline_preference`, including whether Google Flights filters were
+applied or only local ranking preference was used. The reducer also reports
+result-row and ranked-pair match counts, visible-carrier denominators, and a
+`preference_observation_status` of `matched`, `not_matched`, `not_observable`,
+or `not_requested`.
 
 ## Live Itinerary Inspect
 

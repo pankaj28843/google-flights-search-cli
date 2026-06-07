@@ -180,6 +180,49 @@ def test_scan_dates_without_cache_or_probe_records_skipped_pairs(
     assert all(pair["evidence"]["source_surfaces"] for pair in result["pair_coverage"])
 
 
+def test_scan_dates_records_live_probe_limit_skips(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 6, 7, 12, 0, tzinfo=UTC)
+    state = init_app_state(tmp_path / "state")
+    intent_path = _write_window_intent(tmp_path)
+
+    def fake_probe(_concrete_intent: object) -> dict[str, object]:
+        return {
+            "status": "skipped",
+            "reason": "max_live_probes_reached",
+            "results": [],
+            "unsupported": [],
+            "warnings": ["date pair skipped because max live probe limit was reached"],
+            "evidence": {
+                "run_id": "date-scan-live-probe-limit",
+                "source_surfaces": ["date-scan-live-probe-limit"],
+                "artifacts": [],
+            },
+        }
+
+    results = services.scan_dates(
+        intent_path,
+        FIXTURES,
+        project_root=state.root,
+        now=now,
+        date_pair_probe=fake_probe,
+    )
+
+    result = results[0]
+    assert result["status"] == "experimental"
+    assert result["coverage_counts"] == {
+        "fresh_cache": 0,
+        "probed": 0,
+        "unsupported": 0,
+        "skipped": 2,
+    }
+    assert [pair["status"] for pair in result["pair_coverage"]] == ["skipped", "skipped"]
+    assert {pair["reason"] for pair in result["pair_coverage"]} == {"max_live_probes_reached"}
+    assert any("max_live_probes_reached" in warning for warning in result["warnings"])
+    assert "date-scan-live-probe-limit" in result["evidence"]["source_surfaces"]
+
+
 def test_scan_dates_uses_configured_cache_max_age(
     tmp_path: Path,
 ) -> None:

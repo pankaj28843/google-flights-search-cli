@@ -170,6 +170,25 @@ def successful_capture_results(
     return results
 
 
+def compact_current_results_snapshot() -> dict[str, object]:
+    return {
+        "ok": True,
+        "snapshot": {
+            "items": [
+                {
+                    "text": (
+                        "Search results Loading results 5 results returned. "
+                        "2:50 PM CPH 2:35 PM+1 LKO €3,561 round trip "
+                        "2 stops19 hr 15 minBritish Airways, IndiGo +10% emissions "
+                        "9:55 AM CPH 6:35 AM+1 LKO Economy + Premium Economy "
+                        "€3,794 round trip 2 stops16 hr 10 minKLM, IndiGo +37% emissions"
+                    )
+                }
+            ]
+        },
+    }
+
+
 def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
     tmp_path: Path,
 ) -> None:
@@ -390,6 +409,80 @@ def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> Non
     run_root = tmp_path / "runs" / "gf-test-wait-retry"
     assert (run_root / "wait.json").is_file()
     assert (run_root / "wait-retry-1.json").is_file()
+
+
+def test_live_search_waits_for_navigation_when_load_state_matches_about_blank(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(
+                ["wait"],
+                {
+                    "ok": True,
+                    "wait": {
+                        "kind": "load-state",
+                        "state": "domcontentloaded",
+                        "ready_state": "complete",
+                        "url": "about:blank",
+                        "matched": True,
+                    },
+                },
+            ),
+            cdp_result(
+                ["wait"],
+                {
+                    "ok": True,
+                    "wait": {
+                        "kind": "eval",
+                        "matched": True,
+                        "value": True,
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-about-blank-navigation",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    assert adapter.calls[2] == (
+        [
+            "wait",
+            "eval",
+            'location.href !== "about:blank"',
+            "--target",
+            "page-1",
+        ],
+        "headless",
+        10.0,
+    )
+    assert adapter.calls[3][0] == ["wait", "load-state", "domcontentloaded", "--target", "page-1"]
+    run_root = tmp_path / "runs" / "gf-test-about-blank-navigation"
+    assert (run_root / "wait-navigation-url.json").is_file()
+    assert (run_root / "wait-after-navigation.json").is_file()
 
 
 def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) -> None:
@@ -622,6 +715,228 @@ def test_live_search_extracts_primary_results_from_snapshot_payload(tmp_path: Pa
     assert payload["results"][0]["evidence"]["artifacts"] == [
         str(tmp_path / "runs" / "gf-test-results" / "snapshot.json")
     ]
+
+
+def test_live_search_retries_loading_snapshot_before_parsing_rows(tmp_path: Path) -> None:
+    fixture = json.loads((FIXTURES / "primary_results_visible_text_fixture.json").read_text())
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {"ok": True, "snapshot": {"items": [{"text": "Search results Loading results"}]}},
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], fixture["snapshot"]),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-results-retry",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["results"][0]["price"]["amount"] == 3206
+    assert payload["results"][0]["evidence"]["artifacts"] == [
+        str(tmp_path / "runs" / "gf-test-results-retry" / "snapshot-results-retry-1.json")
+    ]
+    assert adapter.calls[3] == (
+        ["wait", "network-idle", "--target", "page-1", "--idle", "2s"],
+        "headless",
+        10.0,
+    )
+    assert adapter.calls[4][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
+
+
+def test_live_search_does_not_retry_when_loading_snapshot_already_has_rows(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], compact_current_results_snapshot()),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-loading-with-rows",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert [result["price"]["amount"] for result in payload["results"]] == [3561, 3794]
+    assert payload["cache"]["price_observations_written"] == 2
+    assert all(call[0][0:2] != ["wait", "network-idle"] for call in adapter.calls)
+
+
+def test_live_search_reports_loading_snapshot_as_specific_unsupported(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {"ok": True, "snapshot": {"items": [{"text": "Search results Loading results"}]}},
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {"ok": True, "snapshot": {"items": [{"text": "Search results Loading results"}]}},
+            ),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-loading-timeout",
+        )
+    )
+
+    assert exit_code == 3
+    assert payload["status"] == "unsupported"
+    assert payload["results"] == []
+    assert payload["unsupported"][0]["field"] == "live_result_extraction.loading_results"
+    assert "bounded evidence wait" in payload["unsupported"][0]["reason"]
+
+
+def test_live_search_retries_snapshot_after_result_wait_timeout(tmp_path: Path) -> None:
+    fixture = json.loads((FIXTURES / "primary_results_visible_text_fixture.json").read_text())
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {"ok": True, "snapshot": {"items": [{"text": "Search results Loading results"}]}},
+            ),
+            cdp_result(
+                ["wait"],
+                {"ok": False, "message": "cdp command timed out after 10s"},
+                status="tool_error",
+                exit_code=6,
+            ),
+            cdp_result(["snapshot"], fixture["snapshot"]),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-results-retry-after-timeout",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["results"][0]["price"]["amount"] == 3206
+    assert any("network-idle wait failed" in warning for warning in payload["warnings"])
+    assert adapter.calls[4][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
+
+
+def test_live_search_reports_visible_no_results_status(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {
+                    "ok": True,
+                    "snapshot": {
+                        "items": [{"text": "Search results No flights found. Try changing dates."}]
+                    },
+                },
+            ),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-no-results",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "no_results"
+    assert payload["unsupported"] == []
 
 
 def test_live_search_writes_extracted_result_prices_to_sqlite_cache(tmp_path: Path) -> None:

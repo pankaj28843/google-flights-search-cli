@@ -57,6 +57,7 @@ def test_help_lists_atomic_command_families() -> None:
         "itinerary",
         "evidence",
         "codec",
+        "trip",
         "doctor",
     ]:
         assert command in help_text
@@ -77,6 +78,7 @@ def test_root_help_is_self_explanatory_without_repo_docs() -> None:
         "~/.gflights-search",
         "Examples:",
         "gflights search --input-json intents.json --json",
+        "gflights trip india",
         "Exit codes:",
         "2 invalid/ambiguous",
         "4 browser/safety stop",
@@ -94,6 +96,7 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
         ("itinerary", "--help"): ["Examples:", "gflights itinerary inspect"],
         ("evidence", "--help"): ["Examples:", "gflights evidence replay"],
         ("codec", "--help"): ["Examples:", "gflights codec decode"],
+        ("trip", "--help"): ["Examples:", "gflights trip india", "--execute-live"],
         ("schema", "--help"): [
             "Examples:",
             "--model",
@@ -130,6 +133,10 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "date windows",
             "--project-root",
             "cache.sqlite",
+            "--live-probe",
+            "--max-probes",
+            "--probe-timeout-seconds",
+            "--browser-mode",
         ],
         ("itinerary", "inspect", "--help"): [
             "Examples:",
@@ -140,6 +147,15 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
         ],
         ("evidence", "replay", "--help"): ["Examples:", "FIXTURE", "Redacted fixture"],
         ("codec", "decode", "--help"): ["Examples:", "--fixture", "wire-path"],
+        ("trip", "india", "--help"): [
+            "Examples:",
+            "--report-root",
+            "--execute-live",
+            "--date-scan-max-probes",
+            "--date-scan-probe-timeout-seconds",
+            "summary JSON",
+            "Markdown report",
+        ],
     }
 
     for args, expected_items in expectations.items():

@@ -18,7 +18,7 @@ from gflights.live_form import (
     validate_live_form_support,
 )
 from gflights.query_state import UnsupportedQueryState, build_query_state
-from gflights.result_extraction import extract_primary_results
+from gflights.result_extraction import classify_primary_result_absence, extract_primary_results
 from gflights.services import load_intents
 
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
@@ -186,6 +186,60 @@ async def _run_one_live_search(
             artifacts=artifacts,
             source_surfaces=source_surfaces,
         )
+    if _wait_matched_about_blank(wait_result):
+        navigation_result = await _run_step(
+            adapter=adapter,
+            args=[
+                "wait",
+                "eval",
+                'location.href !== "about:blank"',
+                "--target",
+                page_id,
+            ],
+            browser_mode=browser_mode,
+            timeout_seconds=min(timeout_seconds, 10.0),
+            run_root=run_root,
+            artifact_name="wait-navigation-url.json",
+            source_surface="cdp:wait:navigation-url",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        if _is_stop_result(navigation_result):
+            return await _finish_live_search(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                exit_code=navigation_result.exit_code or 4,
+                payload=_stop_payload(
+                    intent_query_id=intent.query_id,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=navigation_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    target_url=target_url,
+                    query_population=query_population,
+                ),
+            )
+        if navigation_result.status != "tool_error":
+            wait_result = await _run_step(
+                adapter=adapter,
+                args=["wait", "load-state", "domcontentloaded", "--target", page_id],
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                artifact_name="wait-after-navigation.json",
+                source_surface="cdp:wait:after-navigation",
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            )
     if _is_stop_result(wait_result):
         return await _finish_live_search(
             adapter=adapter,
@@ -328,6 +382,8 @@ async def _run_one_live_search(
                     ),
                 )
 
+    nonfatal_warnings: list[str] = []
+    snapshot_evidence_artifact = str(run_root / "snapshot.json")
     snapshot_result = await _run_step(
         adapter=adapter,
         args=["snapshot", "--target", page_id, "--limit", "80"],
@@ -341,6 +397,7 @@ async def _run_one_live_search(
         source_surfaces=source_surfaces,
     )
     if _is_recoverable_context_error(snapshot_result):
+        snapshot_evidence_artifact = str(run_root / "snapshot-retry-1.json")
         snapshot_result = await _run_step(
             adapter=adapter,
             args=["snapshot", "--target", page_id, "--limit", "80"],
@@ -349,6 +406,58 @@ async def _run_one_live_search(
             run_root=run_root,
             artifact_name="snapshot-retry-1.json",
             source_surface="cdp:snapshot:retry",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+    if _snapshot_needs_result_retry(snapshot_result):
+        settle_result = await _run_step(
+            adapter=adapter,
+            args=["wait", "network-idle", "--target", page_id, "--idle", "2s"],
+            browser_mode=browser_mode,
+            timeout_seconds=min(timeout_seconds, 10.0),
+            run_root=run_root,
+            artifact_name="wait-results-network-idle.json",
+            source_surface="cdp:wait:results-network-idle",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        if _is_stop_result(settle_result):
+            return await _finish_live_search(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                exit_code=settle_result.exit_code or 4,
+                payload=_stop_payload(
+                    intent_query_id=intent.query_id,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=settle_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    target_url=target_url,
+                    query_population=query_population,
+                ),
+            )
+        if settle_result.status == "tool_error":
+            nonfatal_warnings.append(
+                "result-load network-idle wait failed; retrying snapshot once with bounded evidence"
+            )
+        snapshot_evidence_artifact = str(run_root / "snapshot-results-retry-1.json")
+        snapshot_result = await _run_step(
+            adapter=adapter,
+            args=["snapshot", "--target", page_id, "--limit", "120"],
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            artifact_name="snapshot-results-retry-1.json",
+            source_surface="cdp:snapshot:results-retry",
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
@@ -388,7 +497,6 @@ async def _run_one_live_search(
                 query_population,
             ),
         )
-    nonfatal_warnings: list[str] = []
     if network_result.status == "tool_error":
         nonfatal_warnings.append(
             "network evidence capture failed after snapshot evidence was collected"
@@ -397,7 +505,7 @@ async def _run_one_live_search(
     extracted_results = extract_primary_results(
         snapshot_result.json_payload or {},
         source_surface="primary-results-visible-text",
-        evidence_artifact=str(run_root / "snapshot.json"),
+        evidence_artifact=snapshot_evidence_artifact,
         confidence="weak",
     )
     price_observations_written = _write_price_observations(
@@ -436,6 +544,90 @@ async def _run_one_live_search(
                         if interact_with_form
                         else []
                     ),
+                    "Google Flights URL query/protobuf encoding is not guessed",
+                ],
+                "evidence": {
+                    "run_id": run_id,
+                    "artifacts": artifacts,
+                    "source_surfaces": source_surfaces,
+                },
+                "cache": {
+                    "database_path": str(state.database_path),
+                    "price_observations_written": price_observations_written,
+                },
+            },
+        )
+
+    absence_status = classify_primary_result_absence(snapshot_result.json_payload or {})
+    if absence_status == "no_results":
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=0,
+            payload={
+                "query_id": intent.query_id,
+                "status": "no_results",
+                "confidence": "weak",
+                "live_mode": True,
+                "browser_mode": browser_mode,
+                "target_url": target_url,
+                "query_population": query_population["payload"],
+                "results": [],
+                "unsupported": [],
+                "warnings": [
+                    *query_population["warnings"],
+                    *nonfatal_warnings,
+                    "visible Google Flights evidence reported no primary result rows",
+                ],
+                "evidence": {
+                    "run_id": run_id,
+                    "artifacts": artifacts,
+                    "source_surfaces": source_surfaces,
+                },
+                "cache": {
+                    "database_path": str(state.database_path),
+                    "price_observations_written": price_observations_written,
+                },
+            },
+        )
+    if absence_status in {"empty_snapshot", "loading_results"}:
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=3,
+            payload={
+                "query_id": intent.query_id,
+                "status": "unsupported",
+                "confidence": "weak",
+                "live_mode": True,
+                "browser_mode": browser_mode,
+                "target_url": target_url,
+                "query_population": query_population["payload"],
+                "results": [],
+                "unsupported": [
+                    *query_population["unsupported"],
+                    {
+                        "field": f"live_result_extraction.{absence_status}",
+                        "status": "deferred",
+                        "reason": "Google Flights did not expose visible primary result rows within the bounded evidence wait",
+                    },
+                ],
+                "warnings": [
+                    *query_population["warnings"],
+                    *nonfatal_warnings,
+                    "live search captured bounded evidence but primary rows were not visible yet",
                     "Google Flights URL query/protobuf encoding is not guessed",
                 ],
                 "evidence": {
@@ -569,6 +761,24 @@ def _payload_warnings(payload: dict[str, Any]) -> list[str] | None:
     if isinstance(warnings, list):
         return warnings
     return None
+
+
+def _snapshot_needs_result_retry(result: CdpResult) -> bool:
+    if result.status == "tool_error":
+        return False
+    payload = result.json_payload or {}
+    if extract_primary_results(payload):
+        return False
+    return classify_primary_result_absence(payload) in {
+        "empty_snapshot",
+        "loading_results",
+    }
+
+
+def _wait_matched_about_blank(result: CdpResult) -> bool:
+    payload = result.json_payload or {}
+    wait = payload.get("wait")
+    return isinstance(wait, dict) and wait.get("url") == "about:blank"
 
 
 def _write_command_log(

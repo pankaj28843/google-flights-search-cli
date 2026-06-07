@@ -102,12 +102,13 @@ agents must rely on JSON schemas and stable JSON output, not terminal prose.
 | `gflights intent parse` | Normalize JSON input and optionally parse text into a `SearchIntent`; ambiguous free text returns `ambiguous`. | service layer | implementation policy |
 | `gflights project init` | Create app-state config, cache, and artifact directories. | imperative shell | implementation policy |
 | `gflights route resolve` | Resolve airport/city route choices through fixtures or live evidence. | service + shell adapter | observed route evidence |
-| `gflights dates scan` | Expand date windows into concrete date pairs, run or replay searches, and rank candidate combinations. | service layer + adapters | date/result evidence |
+| `gflights dates scan` | Expand date windows into concrete date pairs, use fresh cache, optionally live-probe bounded misses, and rank candidate combinations. | service layer + adapters | date/result evidence |
 | `gflights search` | Run one concrete search intent and return primary result rows plus evidence paths. | service + shell adapter | observed result evidence |
 | `gflights itinerary inspect` | Inspect one selected itinerary and return booking/detail fields when visible. | service + shell adapter | selected-itinerary evidence |
 | `gflights evidence capture` | Capture headed/headless browser evidence for a named scenario. | imperative shell | harness policy |
 | `gflights evidence replay` | Replay redacted fixtures offline and return parsed result/evidence summaries. | functional core + file shell | harness policy |
 | `gflights codec decode` | Decode captured `tfs`/`tfu` values and report raw wire paths plus confidence. | functional core | strong hypothesis evidence |
+| `gflights trip india` | Generate the CPH-Lucknow family-trip inputs, optionally run the live usefulness gate, and write a verdict report. | shell + reducer | harness policy |
 | `gflights doctor` | Report toolchain, browser, project, fixture, and codec health. | imperative shell | implementation policy |
 
 Commands must be atomic and composable. A command that cannot satisfy an input
@@ -281,13 +282,19 @@ with a guessed route.
 
 When `--offline-fixtures` is absent, `gflights route resolve` opens the live
 Google Flights shell through cdp, fills the route autocomplete field, records
-task-scoped route evidence, and stops on browser safety boundaries. When
-visible-text parser fixtures cover the autocomplete surface, successful evidence
-capture returns `ok` or `ambiguous` with route choices. Airport rows may use a
-visible IATA code as `code_or_id`; city rows must leave `code_or_id` null unless
-a separate reviewed decode surface supplies a stable ID. If no supported choices
-are visible, the command returns exit `3` with `status: unsupported`,
-`selected: null`, empty `choices`, and
+task-scoped route evidence, and stops on browser safety boundaries. Each live
+run must use a collision-resistant run id, wait past `about:blank`, retry
+recoverable execution-context loss once, and record every bounded fill attempt
+as an artifact. Selector labels are implementation evidence; if the exact
+observed label fails, the command may try alternate labels before returning a
+structured `tool_error`. Any opened page must still get a
+`managed-tab-close.json` artifact on success,
+unsupported, blocked, or tool-error paths. When visible-text parser fixtures
+cover the autocomplete surface, successful evidence capture returns `ok` or
+`ambiguous` with route choices. Airport rows may use a visible IATA code as
+`code_or_id`; city rows must leave `code_or_id` null unless a separate reviewed
+decode surface supplies a stable ID. If no supported choices are visible, the
+command returns exit `3` with `status: unsupported`, `selected: null`, empty `choices`, and
 `route.resolve.live_autocomplete_extraction: deferred`. Browser stop states
 return exit `4` with `stop_state` and headed fallback guidance when available.
 
@@ -343,7 +350,10 @@ The first post-result ranking policy is `comfort_aware_v1`. It is a pure
 service-layer policy over visible or cached fields, not a browser adapter
 feature. Its explanation includes price, duration, stops, preferred-airline
 match state, senior-comfort weight, emissions when visible, a numeric score,
-and `google_flights_filters_applied: false`.
+and `google_flights_filters_applied: false`. It also includes an
+`airline_preference` object with requested preferred airlines, visible carriers,
+matched carriers, match count, local-ranking-applied truth, and
+`google_flights_filters_applied: false`.
 
 Optional tabular analysis may use pandas through an adapter outside the pure
 domain core. The core date-scan JSON remains the stable contract; pandas-backed
@@ -399,6 +409,10 @@ Absence behavior:
 - Missing optional fields must be `null`, empty arrays, or structured
   `unavailable` objects, not guessed.
 - Missing required primary row fields make the row `weak` or `ambiguous`.
+- Visible no-results text returns `no_results`.
+- Empty snapshots or snapshots that still show `Loading results` after bounded
+  evidence waits return `unsupported` with a specific
+  `live_result_extraction.*` field, not a useful zero-row success.
 
 ### DateComboResult
 
@@ -434,6 +448,13 @@ Each pair coverage entry includes:
 - unsupported reason or skipped reason when unavailable
 - evidence references
 
+Live probing from `dates scan` is never implicit. Agents must pass
+`--live-probe --max-probes <N>` to open Google Flights for cache misses, and
+may further bound each probe with `--probe-timeout-seconds` and choose
+`--browser-mode`. When the probe limit is exhausted, remaining pairs stay in
+`pair_coverage` as `skipped` with `reason: "max_live_probes_reached"` instead
+of being guessed or omitted.
+
 ### ItineraryDetail
 
 Observed itinerary/detail fields:
@@ -458,6 +479,52 @@ Current default-validation support includes fixture replay for redacted
 for live `itinerary inspect`. Actual live inspection remains an explicit
 browser-orchestration step and must keep checkout, login, payment, and
 personal-data flows as stop boundaries.
+
+## India Trip Usefulness Gate
+
+Task-specific gate:
+
+```bash
+gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
+gflights trip india --execute-live --browser-mode headless --date-scan-max-probes 1 --json
+```
+
+The command writes deterministic inputs for the CPH-Lucknow family-trip ask:
+one window intent and 100 concrete date-pair intents. The 9-month infant is
+represented as `infants_on_lap = 1`. Air India is represented as a local
+preferred-airline ranking preference with `consider_all_airlines: true`; the
+gate must state whether Google Flights filters were applied. Current behavior
+does not apply a Google airline filter. The summary/report must include
+result-row and ranked-pair Air India match counts, visible-carrier
+denominators, and a `matched`, `not_matched`, `not_observable`, or
+`not_requested` preference status.
+
+Without `--execute-live`, the command reduces existing artifacts under
+`--report-root` and writes `analysis/summary.json` plus `e2e-report.md`. If
+saved live artifacts are present, the reduced output still reports
+`live_attempted: true`. With `--execute-live`, it first records cdp daemon
+health and page budget, refuses routine over-budget browser runs, runs route
+resolution, live search, and date scan commands, records postrun cdp evidence,
+then writes the same summary and report artifacts. The live date-window scan is
+bounded by
+`--date-scan-max-probes` and `--date-scan-probe-timeout-seconds`; a skipped
+date pair due to this limit must remain explicit in `pair_coverage`.
+
+The report verdict values are:
+
+- `useful`: ranked options exist with prices and evidence.
+- `blocked`: cdp or Google Flights stopped at a browser/safety boundary.
+- `not_useful`: command outputs exist but contain no ranked options or no
+  actionable trip answer.
+- `inconclusive`: the gate could not collect or reduce enough evidence to
+  judge usefulness.
+
+The command JSON uses normal CLI status classes: `ok` for `useful`, `blocked`
+for `blocked`, `unsupported` for `not_useful`, and `tool_error` for
+`inconclusive`. A zero-row `experimental` live search must not produce a
+`useful` verdict. The summary also reports `ranking_source`: `date_scan` when
+date scan supplied ranked pairs, `live_search_results` when concrete live
+search rows were ranked as the fallback, or `none`.
 
 ## Query And Protobuf Policy
 

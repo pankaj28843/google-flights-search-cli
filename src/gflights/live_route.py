@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
+from uuid import uuid4
 
 from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
@@ -119,7 +120,7 @@ async def run_live_route_resolution(
             ),
         )
 
-    wait_result = await _run_step(
+    wait_result = await _run_step_with_recoverable_retry(
         adapter=adapter,
         args=["wait", "load-state", "domcontentloaded", "--target", page_id],
         browser_mode=browser_mode,
@@ -127,6 +128,8 @@ async def run_live_route_resolution(
         run_root=run_root,
         artifact_name="wait.json",
         source_surface="cdp:wait",
+        retry_artifact_name="wait-retry-1.json",
+        retry_source_surface="cdp:wait:retry",
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
@@ -174,26 +177,135 @@ async def run_live_route_resolution(
                 executed=executed,
             ),
         )
+    if _wait_matched_about_blank(wait_result):
+        navigation_result = await _run_step_with_recoverable_retry(
+            adapter=adapter,
+            args=[
+                "wait",
+                "eval",
+                'location.href !== "about:blank"',
+                "--target",
+                page_id,
+            ],
+            browser_mode=browser_mode,
+            timeout_seconds=min(timeout_seconds, 10.0),
+            run_root=run_root,
+            artifact_name="wait-navigation-url.json",
+            source_surface="cdp:wait:navigation-url",
+            retry_artifact_name="wait-navigation-url-retry-1.json",
+            retry_source_surface="cdp:wait:navigation-url:retry",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        if _is_stop_result(navigation_result):
+            return await _finish_route_resolution(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                result=_finish_stop(
+                    input_text=input_text,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=navigation_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    target_url=target_url,
+                    run_root=run_root,
+                    executed=executed,
+                ),
+            )
+        if navigation_result.status == "tool_error":
+            return await _finish_route_resolution(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                result=_finish_tool_error(
+                    input_text=input_text,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=navigation_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    run_root=run_root,
+                    executed=executed,
+                ),
+            )
+        wait_after_navigation_result = await _run_step_with_recoverable_retry(
+            adapter=adapter,
+            args=["wait", "load-state", "domcontentloaded", "--target", page_id],
+            browser_mode=browser_mode,
+            timeout_seconds=min(timeout_seconds, 10.0),
+            run_root=run_root,
+            artifact_name="wait-after-navigation.json",
+            source_surface="cdp:wait:after-navigation",
+            retry_artifact_name="wait-after-navigation-retry-1.json",
+            retry_source_surface="cdp:wait:after-navigation:retry",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        if _is_stop_result(wait_after_navigation_result):
+            return await _finish_route_resolution(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                result=_finish_stop(
+                    input_text=input_text,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=wait_after_navigation_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    target_url=target_url,
+                    run_root=run_root,
+                    executed=executed,
+                ),
+            )
+        if wait_after_navigation_result.status == "tool_error":
+            return await _finish_route_resolution(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                result=_finish_tool_error(
+                    input_text=input_text,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=wait_after_navigation_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    run_root=run_root,
+                    executed=executed,
+                ),
+            )
 
-    fill_result = await _run_step(
+    fill_result = await _fill_route_autocomplete(
         adapter=adapter,
-        args=[
-            "fill",
-            "Where to?",
-            input_text,
-            "--by",
-            "label",
-            "--exact",
-            "--target",
-            page_id,
-            "--wait-text",
-            input_text,
-        ],
         browser_mode=browser_mode,
         timeout_seconds=timeout_seconds,
         run_root=run_root,
-        artifact_name="route-autocomplete-fill.json",
-        source_surface="cdp:route-autocomplete-fill",
+        input_text=input_text,
+        page_id=page_id,
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
@@ -242,7 +354,8 @@ async def run_live_route_resolution(
             ),
         )
 
-    snapshot_result = await _run_step(
+    snapshot_evidence_artifact = str(run_root / "snapshot.json")
+    snapshot_result = await _run_step_with_recoverable_retry(
         adapter=adapter,
         args=["snapshot", "--target", page_id, "--limit", "120"],
         browser_mode=browser_mode,
@@ -250,6 +363,8 @@ async def run_live_route_resolution(
         run_root=run_root,
         artifact_name="snapshot.json",
         source_surface="cdp:snapshot:route-autocomplete",
+        retry_artifact_name="snapshot-retry-1.json",
+        retry_source_surface="cdp:snapshot:route-autocomplete:retry",
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
@@ -297,12 +412,14 @@ async def run_live_route_resolution(
                 executed=executed,
             ),
         )
+    if str(run_root / "snapshot-retry-1.json") in artifacts:
+        snapshot_evidence_artifact = str(run_root / "snapshot-retry-1.json")
 
     route_exit_code, route_payload = extract_route_choices_from_snapshot(
         input_text=input_text,
         field="route",
         snapshot=snapshot_result.json_payload or {},
-        evidence_artifact=str(run_root / "snapshot.json"),
+        evidence_artifact=snapshot_evidence_artifact,
         source_surface="route-autocomplete-visible-text",
     )
     if route_exit_code in {0, 2}:
@@ -404,6 +521,139 @@ async def _run_step(
         }
     )
     return result
+
+
+async def _run_step_with_recoverable_retry(
+    *,
+    adapter: CdpAdapter,
+    args: list[str],
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    artifact_name: str,
+    source_surface: str,
+    retry_artifact_name: str,
+    retry_source_surface: str,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+) -> CdpResult:
+    result = await _run_step(
+        adapter=adapter,
+        args=args,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        artifact_name=artifact_name,
+        source_surface=source_surface,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if not _is_recoverable_context_error(result):
+        return result
+    return await _run_step(
+        adapter=adapter,
+        args=args,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        artifact_name=retry_artifact_name,
+        source_surface=retry_source_surface,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+
+
+async def _fill_route_autocomplete(
+    *,
+    adapter: CdpAdapter,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    input_text: str,
+    page_id: str,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+) -> CdpResult:
+    attempts = [
+        (
+            [
+                "fill",
+                "Where to?",
+                input_text,
+                "--by",
+                "label",
+                "--exact",
+                "--target",
+                page_id,
+                "--wait-text",
+                input_text,
+            ],
+            "route-autocomplete-fill.json",
+            "cdp:route-autocomplete-fill",
+            "route-autocomplete-fill-retry-1.json",
+            "cdp:route-autocomplete-fill:retry",
+        ),
+        (
+            [
+                "fill",
+                "Where to?",
+                input_text,
+                "--by",
+                "label",
+                "--target",
+                page_id,
+                "--wait-text",
+                input_text,
+            ],
+            "route-autocomplete-fill-label-fuzzy.json",
+            "cdp:route-autocomplete-fill:label-fuzzy",
+            "route-autocomplete-fill-label-fuzzy-retry-1.json",
+            "cdp:route-autocomplete-fill:label-fuzzy:retry",
+        ),
+        (
+            [
+                "fill",
+                "Destination",
+                input_text,
+                "--by",
+                "label",
+                "--target",
+                page_id,
+                "--wait-text",
+                input_text,
+            ],
+            "route-autocomplete-fill-destination-label.json",
+            "cdp:route-autocomplete-fill:destination-label",
+            "route-autocomplete-fill-destination-label-retry-1.json",
+            "cdp:route-autocomplete-fill:destination-label:retry",
+        ),
+    ]
+    last_result: CdpResult | None = None
+    for args, artifact_name, source_surface, retry_artifact, retry_surface in attempts:
+        result = await _run_step_with_recoverable_retry(
+            adapter=adapter,
+            args=args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            artifact_name=artifact_name,
+            source_surface=source_surface,
+            retry_artifact_name=retry_artifact,
+            retry_source_surface=retry_surface,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        if result.status != "tool_error" or _is_stop_result(result):
+            return result
+        last_result = result
+    if last_result is None:
+        raise RuntimeError("route autocomplete fill had no attempts")
+    return last_result
 
 
 def _finish_stop(
@@ -539,6 +789,25 @@ def _is_stop_result(result: CdpResult) -> bool:
     return bool(result.fallback) or result.status in BLOCKED_STOP_STATES
 
 
+def _is_recoverable_context_error(result: CdpResult) -> bool:
+    if result.status != "tool_error":
+        return False
+    payload = result.json_payload or {}
+    message = str(payload.get("message") or result.error or result.stdout)
+    return (
+        payload.get("code") == "connection_failed"
+        and "Cannot find default execution context" in message
+    )
+
+
+def _wait_matched_about_blank(result: CdpResult) -> bool:
+    payload = result.json_payload or {}
+    wait_payload = payload.get("wait")
+    if not isinstance(wait_payload, dict):
+        return False
+    return wait_payload.get("matched") is True and wait_payload.get("url") == "about:blank"
+
+
 def _page_id(payload: dict[str, Any] | None) -> str:
     if not payload:
         return ""
@@ -558,7 +827,8 @@ def _google_flights_url() -> str:
 
 
 def _new_run_id() -> str:
-    return f"gf-route-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    return f"gf-route-{timestamp}-{uuid4().hex[:8]}"
 
 
 def _write_json(path: Path, payload: Any) -> None:

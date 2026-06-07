@@ -170,3 +170,24 @@ def test_route_resolve_defaults_to_live_cdp_without_offline_fixtures(
     assert calls[0]["input_text"] == "CPH"
     assert calls[0]["browser_mode"] == "headless"
     assert calls[0]["project_root"] == tmp_path
+
+
+def test_dates_scan_live_probe_requires_positive_max_probes(tmp_path: Path) -> None:
+    result = runner.invoke(
+        cli.app,
+        [
+            "dates",
+            "scan",
+            "--input-json",
+            str(write_intent(tmp_path)),
+            "--live-probe",
+            "--max-probes",
+            "0",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 6, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "tool_error"
+    assert payload["error"] == "--live-probe requires --max-probes greater than zero"

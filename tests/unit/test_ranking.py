@@ -37,8 +37,19 @@ def test_comfort_aware_ranking_can_prefer_better_senior_trip_over_cheapest() -> 
     explanation = ranked[0]["scoring_explanation"]
     assert explanation["policy"] == "comfort_aware_v1"
     assert explanation["google_flights_filters_applied"] is False
+    assert explanation["airline_preference"] == {
+        "preferred_airlines": ["Air India"],
+        "status": "matched",
+        "matched_carriers": ["Air India"],
+        "matched_carrier_count": 1,
+        "visible_carriers": ["Air India"],
+        "visible_carrier_count": 1,
+        "local_ranking_preference_applied": True,
+        "google_flights_filters_applied": False,
+    }
     components = {component["name"]: component for component in explanation["components"]}
     assert components["preferred_airline"]["value"] == "matched"
+    assert components["preferred_airline"]["matched_carrier_count"] == 1
     assert components["senior_comfort"]["value"] == "high"
     assert components["stops"]["value"] == 1
     assert components["duration_minutes"]["value"] == 870
@@ -76,6 +87,38 @@ def test_price_ranking_wins_when_no_comfort_or_airline_preference_is_visible() -
     }
     assert components["price"]["value"] == 640
     assert components["preferred_airline"]["value"] == "not_requested"
+    assert (
+        ranked[0]["scoring_explanation"]["airline_preference"]["google_flights_filters_applied"]
+        is False
+    )
+
+
+def test_preferred_airline_metadata_reports_visible_non_match() -> None:
+    ranked = rank_observed_pairs(
+        _intent(
+            traveler_profiles=[],
+            airline_preferences=[{"airline": "Air India", "mode": "preferred"}],
+        ),
+        [
+            _pair(
+                "non-air-india",
+                price=640,
+                carriers=["KLM", "IndiGo"],
+                duration_minutes=930,
+                stops=2,
+                emissions="800 kg CO2e",
+            )
+        ],
+    )
+
+    preference = ranked[0]["scoring_explanation"]["airline_preference"]
+    assert preference["preferred_airlines"] == ["Air India"]
+    assert preference["status"] == "not_matched"
+    assert preference["matched_carriers"] == []
+    assert preference["matched_carrier_count"] == 0
+    assert preference["visible_carriers"] == ["KLM", "IndiGo"]
+    assert preference["local_ranking_preference_applied"] is True
+    assert preference["google_flights_filters_applied"] is False
 
 
 def _intent(

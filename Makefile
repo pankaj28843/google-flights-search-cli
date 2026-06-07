@@ -2,7 +2,7 @@ UV ?= uv
 UV_TOOL_PACKAGE ?= .
 UV_TOOL_LINK_MODE ?= symlink
 
-.PHONY: validate lint format-check test install install-tool install-editable install-tool-editable live-cdp live-google-flights
+.PHONY: validate lint format-check test install install-tool install-editable install-tool-editable live-cdp live-google-flights india-trip-plan live-india-trip-plan
 
 validate:
 	./scripts/validate-harness.sh
@@ -31,3 +31,9 @@ live-cdp:
 
 live-google-flights:
 	$(UV) run pytest -m live_google_flights
+
+india-trip-plan:
+	$(UV) run gflights trip india --json
+
+live-india-trip-plan:
+	$(UV) run gflights trip india --execute-live --json

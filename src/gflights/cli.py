@@ -11,6 +11,8 @@ import typer
 
 from gflights import services
 from gflights.browser import BrowserMode
+from gflights.date_scan_live import LiveDatePairProbe
+from gflights.india_trip import DEFAULT_REPORT_ROOT, run_india_trip_workflow
 from gflights.live_itinerary import run_live_itinerary_inspection
 from gflights.live_route import run_live_route_resolution
 from gflights.live_search import run_live_search
@@ -23,6 +25,7 @@ Workflow:
   gflights search --input-json intents.json --json    Run live Google Flights
   gflights dates scan --input-json intents.json --json Rank date combinations
   gflights itinerary inspect --booking-url URL --json Inspect visible itinerary details
+  gflights trip india --json                         Generate/reduce the India trip gate
 
 Default search:
   gflights search opens live Google Flights through headless cdp unless --offline-fixtures is supplied.
@@ -42,6 +45,7 @@ Examples:
   gflights search --input-json intents.json --offline-fixtures fixtures --json
   gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+  gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
 
 Exit codes:
   0 ok
@@ -89,10 +93,12 @@ Examples:
 DATES_HELP = """Scan date windows using cache, probes, or deterministic fixtures.
 
 This command expands date windows into concrete date pairs, uses fresh cache
-observations when available, and returns ranked pairs with evidence.
+observations when available, and returns ranked pairs with evidence. Live probes
+are opt-in and require an explicit --max-probes limit.
 
 Examples:
   gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+  gflights dates scan --input-json intents.json --project-root ~/.gflights-search --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
   gflights dates scan --input-json intents.json --offline-fixtures fixtures --json
 """
 
@@ -122,6 +128,18 @@ Examples:
   gflights codec decode --fixture fixtures/codec_tfu_price_fixture.json --json
 """
 
+TRIP_HELP = """Run task-specific trip-planning gates with saved inputs and reports.
+
+The India gate writes the canonical CPH-Lucknow family-trip inputs, can run the
+live commands only when --execute-live is supplied, and reduces saved command
+outputs into useful, blocked, not_useful, or inconclusive verdicts.
+
+Examples:
+  gflights trip india --json
+  gflights trip india --execute-live --browser-mode headless --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
+  gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
+"""
+
 app = typer.Typer(
     help=ROOT_HELP,
     no_args_is_help=True,
@@ -133,6 +151,7 @@ dates_app = typer.Typer(help=DATES_HELP)
 itinerary_app = typer.Typer(help=ITINERARY_HELP)
 evidence_app = typer.Typer(help=EVIDENCE_HELP)
 codec_app = typer.Typer(help=CODEC_HELP)
+trip_app = typer.Typer(help=TRIP_HELP)
 
 app.add_typer(intent_app, name="intent")
 app.add_typer(project_app, name="project")
@@ -141,6 +160,7 @@ app.add_typer(dates_app, name="dates")
 app.add_typer(itinerary_app, name="itinerary")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(codec_app, name="codec")
+app.add_typer(trip_app, name="trip")
 
 
 def emit(payload: Any, exit_code: int = 0) -> None:
@@ -372,20 +392,64 @@ def dates_scan_command(
         "--project-root",
         help="State root with cache.sqlite; defaults to ~/.gflights-search.",
     ),
+    live_probe: bool = typer.Option(
+        False,
+        "--live-probe",
+        help="Opt in to live Google Flights probes for cache misses.",
+    ),
+    max_probes: int = typer.Option(
+        0,
+        "--max-probes",
+        min=0,
+        help="Maximum cache-miss date pairs to live-probe; required with --live-probe.",
+    ),
+    probe_timeout_seconds: float = typer.Option(
+        30.0,
+        "--probe-timeout-seconds",
+        min=1.0,
+        help="Timeout in seconds for each live date-pair probe.",
+    ),
+    browser_mode: BrowserMode = typer.Option(
+        "headless",
+        "--browser-mode",
+        help="Browser mode for opt-in live date-pair probes.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
     """Expand date windows, use fresh cache/probes, and rank candidate date pairs.
 
     Examples:
       gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+      gflights dates scan --input-json intents.json --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
       gflights dates scan --input-json intents.json --offline-fixtures fixtures --json
     """
     del json_output
+    if live_probe and max_probes <= 0:
+        emit(
+            {
+                "status": "tool_error",
+                "warnings": [],
+                "error": "--live-probe requires --max-probes greater than zero",
+            },
+            6,
+        )
+        return
+    date_pair_probe = (
+        LiveDatePairProbe(
+            project_root=project_root or Path.home() / ".gflights-search",
+            browser_mode=browser_mode,
+            max_probes=max_probes,
+            timeout_seconds=probe_timeout_seconds,
+        )
+        if live_probe
+        else None
+    )
     try:
         payload = services.scan_dates(
             input_json,
             offline_fixtures,
             project_root=project_root,
+            date_pair_probe=date_pair_probe,
         )
         emit(payload, services.exit_code_for_payload(payload))
     except services.ServiceError as error:
@@ -461,6 +525,66 @@ def codec_decode_command(
     """
     del json_output
     emit(services.decode_codec_fixture(fixture))
+
+
+@trip_app.command("india")
+def trip_india_command(
+    report_root: Path = typer.Option(
+        DEFAULT_REPORT_ROOT,
+        "--report-root",
+        help="Directory for inputs, outputs, CDP evidence, state, summary JSON, and report.",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="State root for live commands; defaults to <report-root>/state.",
+    ),
+    browser_mode: BrowserMode = typer.Option(
+        "headless",
+        "--browser-mode",
+        help="Browser mode for opt-in live cdp runs.",
+    ),
+    execute_live: bool = typer.Option(
+        False,
+        "--execute-live",
+        help="Opt in to opening Google Flights through cdp; omitted means reduce saved outputs only.",
+    ),
+    date_scan_max_probes: int = typer.Option(
+        1,
+        "--date-scan-max-probes",
+        min=0,
+        help="Maximum date-window cache misses to live-probe during --execute-live.",
+    ),
+    date_scan_probe_timeout_seconds: float = typer.Option(
+        45.0,
+        "--date-scan-probe-timeout-seconds",
+        min=1.0,
+        help="Timeout in seconds for each trip date-scan live probe.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+) -> None:
+    """Generate and judge the CPH-Lucknow India trip usefulness gate.
+
+    Without --execute-live, this command writes deterministic inputs and reduces
+    existing outputs under --report-root. With --execute-live, it records CDP
+    preflight/postrun evidence, runs route/search/date commands, and writes a
+    summary JSON plus Markdown report.
+
+    Examples:
+      gflights trip india --json
+      gflights trip india --execute-live --browser-mode headless --json
+      gflights trip india --execute-live --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
+    """
+    del json_output
+    exit_code, payload = run_india_trip_workflow(
+        report_root=report_root,
+        project_root=project_root,
+        browser_mode=browser_mode,
+        execute_live=execute_live,
+        date_scan_max_probes=date_scan_max_probes,
+        date_scan_probe_timeout_seconds=date_scan_probe_timeout_seconds,
+    )
+    emit(payload, exit_code)
 
 
 def main() -> None:
