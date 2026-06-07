@@ -21,6 +21,12 @@ baggage-policy links only when the visible link text was observed and the
 decoded target was reviewed. They must not include raw browser URLs, storage,
 network payloads, target IDs, cookies, or encoded query values.
 
+Checked-in `route_autocomplete_choices` fixtures are redacted normalized route
+choice rows from reviewed visible-text notes and decode reports. They include
+only agent-facing route choice fields and evidence references; they must not
+include raw browser URLs, storage, network payloads, target IDs, cookies, or
+encoded query values.
+
 ## Fixture Metadata
 
 Every fixture needs:

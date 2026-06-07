@@ -23,6 +23,9 @@ browser steps needed to express that intent on Google Flights.
 
 Routes can be airport-code choices or city/city-like autocomplete choices.
 Ambiguous route text must produce candidate choices instead of silent selection.
+For deterministic offline replay, the route resolver can use reviewed
+`route_autocomplete_choices` fixtures to return a single `selected` choice or
+an ordered candidate list with an ambiguity reason.
 
 Multi-airport city context is route-disambiguation evidence. It is not the same
 as a result-filter preference for airports.

@@ -72,6 +72,15 @@ def test_itinerary_inspect_help_exposes_live_agent_options() -> None:
     assert "--project-root" in help_text
 
 
+def test_route_resolve_help_exposes_offline_agent_options() -> None:
+    result = run_cli("route", "resolve", "--help")
+
+    assert result.returncode == 0, result.stderr
+    help_text = f"{result.stdout}\n{result.stderr}"
+    assert "--input-text" in help_text
+    assert "--offline-fixtures" in help_text
+
+
 def test_schema_search_intent_json_contract() -> None:
     result = run_cli("schema", "--model", "search-intent", "--json")
 
@@ -259,6 +268,31 @@ def test_evidence_replay_extracts_selected_itinerary_details() -> None:
     assert itinerary["boundary"]["provider_continue_clicked"] is False
     assert itinerary["boundary"]["checkout_entered"] is False
     assert itinerary["baggage_policy_links"][0]["url"].startswith("https://www.klm.co.uk/")
+
+
+def test_route_resolve_offline_fixture_returns_ambiguous_candidates() -> None:
+    result = run_cli(
+        "route",
+        "resolve",
+        "--input-text",
+        "Washington DC",
+        "--offline-fixtures",
+        str(FIXTURES),
+        "--json",
+    )
+
+    assert result.returncode == 2, result.stderr
+    payload = assert_json_stdout(result)
+    assert payload["status"] == "ambiguous"
+    assert payload["selected"] is None
+    assert payload["ambiguity_reason"] == "multi_airport_city_autocomplete"
+    assert [choice["code_or_id"] for choice in payload["choices"]] == [
+        "/m/0rh6k",
+        "DCA",
+        "IAD",
+        "BWI",
+    ]
+    assert payload["evidence"]["source_surfaces"] == ["route-autocomplete-visible-text"]
 
 
 def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) -> None:

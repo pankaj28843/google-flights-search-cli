@@ -10,6 +10,8 @@ Write failing tests for:
 - `schema --model search-intent --json` emits JSON Schema
 - `project init` creates app-state config, SQLite cache, and artifact roots
 - `intent parse --input-json` validates a JSON array of dicts
+- `route resolve --offline-fixtures` returns route choices or ambiguity from
+  reviewed fixtures
 - `dates scan --offline-fixtures` returns JSON array output with explanations
 - `evidence replay` parses saved fixtures offline
 - browser adapter defaults to headless
@@ -28,6 +30,9 @@ agentic contract for the first implementation. It asserts:
 - `schema --model search-intent --json` emits the `SearchIntent` JSON Schema
 - `project init --path <tmp> --json` creates app-state files under `<tmp>/`
 - `intent parse --input-json <array> --json` preserves JSON-array order
+- `route resolve --input-text <text> --offline-fixtures <fixtures> --json`
+  returns deterministic route choices and exits `2` for ambiguous
+  autocomplete inputs instead of selecting silently
 - `dates scan --offline-fixtures` returns JSON-array date-scan explanations
 - `dates scan --project-root` can rank from fresh SQLite cache observations
   without opening a browser in default validation

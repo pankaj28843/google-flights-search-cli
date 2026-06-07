@@ -1,0 +1,185 @@
+{
+  "fixture_id": "route-autocomplete-choices-20260607",
+  "fixture_type": "route_autocomplete_choices",
+  "run_id": "gf-20260607-073838-03-route-mutations",
+  "capture_date": "2026-06-07",
+  "source_surface": "route-autocomplete-visible-text",
+  "source_artifacts": [
+    "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/route-cph-del-selected-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/notes.md",
+    "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+  ],
+  "scenario": "Route autocomplete choices for CPH, Delhi, Washington DC, and Lucknow.",
+  "confidence": "strong",
+  "redaction_status": "redacted",
+  "linked_behavior_requirement": "docs/detailed-cli-spec.md#route",
+  "redaction": {
+    "status": "redacted",
+    "notes": [
+      "Choices are normalized from reviewed visible-text notes and decode reports.",
+      "Raw browser URLs, storage payloads, network payloads, target IDs, and encoded query values are excluded."
+    ]
+  },
+  "queries": [
+    {
+      "input_text": "CPH",
+      "field": "origin",
+      "status": "ok",
+      "choices": [
+        {
+          "text": "Copenhagen CPH",
+          "kind": "airport_code",
+          "display_name": "Copenhagen Airport",
+          "code_or_id": "CPH",
+          "confidence": "strong",
+          "aliases": ["Copenhagen", "Copenhagen CPH"],
+          "evidence": {
+            "source_surfaces": ["route-cph-del-selected-visible-text", "protobuf-decode-report"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/route-cph-del-selected-visible-text.json",
+              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "input_text": "Delhi",
+      "field": "destination",
+      "status": "ok",
+      "choices": [
+        {
+          "text": "New Delhi DEL",
+          "kind": "airport_code",
+          "display_name": "Indira Gandhi International Airport",
+          "code_or_id": "DEL",
+          "confidence": "strong",
+          "aliases": ["DEL", "New Delhi", "New Delhi DEL"],
+          "evidence": {
+            "source_surfaces": ["route-cph-del-selected-visible-text", "protobuf-decode-report"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/route-cph-del-selected-visible-text.json",
+              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "input_text": "Washington DC",
+      "field": "destination",
+      "status": "ambiguous",
+      "ambiguity_reason": "multi_airport_city_autocomplete",
+      "choices": [
+        {
+          "text": "Washington, USA",
+          "kind": "city",
+          "display_name": "Washington, USA",
+          "code_or_id": "/m/0rh6k",
+          "confidence": "strong",
+          "aliases": ["Washington", "Washington DC"],
+          "evidence": {
+            "source_surfaces": ["washington-autocomplete-visible-text", "protobuf-decode-report"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json",
+              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+            ]
+          }
+        },
+        {
+          "text": "Ronald Reagan Washington National Airport DCA",
+          "kind": "airport_code",
+          "display_name": "Ronald Reagan Washington National Airport",
+          "code_or_id": "DCA",
+          "confidence": "strong",
+          "aliases": ["DCA"],
+          "evidence": {
+            "source_surfaces": ["washington-autocomplete-visible-text"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json"
+            ]
+          }
+        },
+        {
+          "text": "Dulles International Airport IAD",
+          "kind": "airport_code",
+          "display_name": "Dulles International Airport",
+          "code_or_id": "IAD",
+          "confidence": "strong",
+          "aliases": ["IAD"],
+          "evidence": {
+            "source_surfaces": ["washington-autocomplete-visible-text"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json"
+            ]
+          }
+        },
+        {
+          "text": "Baltimore/Washington International Thurgood Marshall Airport BWI",
+          "kind": "airport_code",
+          "display_name": "Baltimore/Washington International Thurgood Marshall Airport",
+          "code_or_id": "BWI",
+          "confidence": "strong",
+          "aliases": ["BWI"],
+          "evidence": {
+            "source_surfaces": ["washington-autocomplete-visible-text"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "input_text": "Lucknow",
+      "field": "destination",
+      "status": "ambiguous",
+      "ambiguity_reason": "similarly_named_locations",
+      "choices": [
+        {
+          "text": "Lucknow, Uttar Pradesh, India",
+          "kind": "city",
+          "display_name": "Lucknow, Uttar Pradesh, India",
+          "code_or_id": "/m/022tq4",
+          "confidence": "strong",
+          "aliases": ["Lucknow"],
+          "evidence": {
+            "source_surfaces": ["lucknow-autocomplete-visible-text", "protobuf-decode-report"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json",
+              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+            ]
+          }
+        },
+        {
+          "text": "Chaudhary Charan Singh International Airport LKO",
+          "kind": "airport_code",
+          "display_name": "Chaudhary Charan Singh International Airport",
+          "code_or_id": "LKO",
+          "confidence": "strong",
+          "aliases": ["LKO"],
+          "evidence": {
+            "source_surfaces": ["lucknow-autocomplete-visible-text"],
+            "artifacts": [
+              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "CPH": {
+      "status": "ok",
+      "exit_code": 0,
+      "selected_code_or_id": "CPH"
+    },
+    "Washington DC": {
+      "status": "ambiguous",
+      "exit_code": 2,
+      "candidate_code_or_ids": ["/m/0rh6k", "DCA", "IAD", "BWI"]
+    }
+  }
+}

@@ -79,6 +79,35 @@ SQLite cache payloads contain sanitized price-observation fields derived from
 parsed result rows. They must not store raw browser stdout, raw network request
 payloads, cookies, storage, or full cdp JSON artifacts.
 
+## Route Resolve Command
+
+Deterministic route autocomplete replay:
+
+```bash
+gflights route resolve --input-text <text> --offline-fixtures <fixture-dir> --json
+```
+
+When a `route_autocomplete_choices` fixture contains a single reviewed match,
+the command exits `0` with:
+
+- `status: "ok"`
+- `input_text`
+- `selected`
+- `choices`
+- `confidence`
+- `unsupported: []`
+- `warnings: []`
+- `evidence`
+
+When a reviewed match has multiple candidates, the command exits `2` with
+`status: "ambiguous"`, `selected: null`, `ambiguity_reason`, and ordered
+candidate `choices`. Each choice must carry `text`, `kind`, `display_name`,
+`code_or_id`, `confidence`, and `evidence`.
+
+When `--offline-fixtures` is omitted, live route probing currently exits `3`
+with `status: "unsupported"` / `route.resolve.live: deferred`. That behavior
+stays explicit until live autocomplete stop-state handling is fake-tested.
+
 ## Date Scan Command
 
 Date-window scans:

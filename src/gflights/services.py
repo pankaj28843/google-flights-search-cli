@@ -16,6 +16,7 @@ from gflights.domain import SearchIntent
 from gflights.itinerary_extraction import extract_selected_itinerary
 from gflights.ranking import rank_observed_pairs
 from gflights.result_extraction import extract_primary_results
+from gflights.route_resolution import RouteFixtureSource, resolve_route_from_fixtures
 
 DatePairProbe = Callable[[SearchIntent], dict[str, Any]]
 
@@ -552,6 +553,19 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
             "evidence": selected_evidence,
         }
 
+    if fixture["fixture_type"] == "route_autocomplete_choices":
+        return 0, {
+            "status": expected.get("status", "ok"),
+            "confidence": fixture["confidence"],
+            "queries": fixture.get("queries", []),
+            "unsupported": [],
+            "warnings": [],
+            "evidence": {
+                **evidence,
+                "artifacts": [str(path), *fixture.get("source_artifacts", [])],
+            },
+        }
+
     return 0, {
         "status": expected["status"],
         "confidence": fixture["confidence"],
@@ -693,6 +707,33 @@ def _search_offline_intent(
             "artifacts": [str(offline_fixtures)],
         },
     }
+
+
+def resolve_route(input_text: str, offline_fixtures: Path) -> tuple[int, dict[str, Any]]:
+    return resolve_route_from_fixtures(
+        input_text,
+        _route_fixture_sources(offline_fixtures),
+    )
+
+
+def _route_fixture_sources(offline_fixtures: Path) -> list[RouteFixtureSource]:
+    paths = (
+        [offline_fixtures]
+        if offline_fixtures.is_file()
+        else sorted(offline_fixtures.glob("*.json"))
+    )
+    sources: list[RouteFixtureSource] = []
+    for path in paths:
+        try:
+            fixture = load_json(path)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(fixture, dict)
+            and fixture.get("fixture_type") == "route_autocomplete_choices"
+        ):
+            sources.append((str(path), fixture))
+    return sources
 
 
 def _aggregate_exit_code(exit_codes: list[int]) -> int:

@@ -131,16 +131,27 @@ def project_init_command(
 
 
 @route_app.command("resolve")
-def route_resolve_command(json_output: bool = typer.Option(False, "--json")) -> None:
+def route_resolve_command(
+    input_text: str = typer.Option(..., "--input-text"),
+    offline_fixtures: Path | None = typer.Option(None, "--offline-fixtures"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
     del json_output
-    emit(
-        {
-            "status": "unsupported",
-            "unsupported": [{"field": "route.resolve.live", "status": "deferred"}],
-            "warnings": [],
-        },
-        3,
-    )
+    if offline_fixtures is None:
+        emit(
+            {
+                "status": "unsupported",
+                "input_text": input_text,
+                "selected": None,
+                "choices": [],
+                "unsupported": [{"field": "route.resolve.live", "status": "deferred"}],
+                "warnings": [],
+            },
+            3,
+        )
+        return
+    exit_code, payload = services.resolve_route(input_text, offline_fixtures)
+    emit(payload, exit_code)
 
 
 @dates_app.command("scan")

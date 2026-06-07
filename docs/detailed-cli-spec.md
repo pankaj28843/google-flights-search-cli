@@ -257,6 +257,20 @@ The route resolver must return choices with:
 Ambiguous autocomplete input must return `ambiguous` and candidate choices
 instead of selecting silently.
 
+Offline deterministic replay is:
+
+```bash
+gflights route resolve --input-text <text> --offline-fixtures <fixture-dir> --json
+```
+
+When `--offline-fixtures` contains a reviewed
+`route_autocomplete_choices` fixture, the command returns `ok` with
+`selected` for a single evidence-backed airport/city choice, or `ambiguous`
+with `selected: null` and `choices` for multi-airport or similarly named
+locations. Live route autocomplete probing remains deferred and must return an
+explicit unsupported/deferred payload until fake-adapter stop-state handling and
+bounded live evidence are added.
+
 ### Dates And Date Windows
 
 Concrete departure and return dates are supported for observed one-way and

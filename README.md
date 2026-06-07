@@ -3,14 +3,14 @@
 Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
 and fixture replay.
 
-Current phase: live-cdp-by-default search orchestration, generic query-codec
-validation, fake-tested live form interaction planning, and visible-text
-primary-result extraction. The behavior spec is written, the Python project
-passes the offline agentic contract, and `gflights search` uses headless cdp by
-default when `--offline-fixtures` is not provided. `--live-form` is an
-additional explicit experimental mode for observed form controls; nested
-itinerary/provider extraction remains deferred until focused evidence supports
-it.
+Current phase: live-cdp-by-default search orchestration, fixture-backed route
+resolution, generic query-codec validation, fake-tested live form interaction
+planning, and visible-text primary-result extraction. The behavior spec is
+written, the Python project passes the offline agentic contract, and `gflights
+search` uses headless cdp by default when `--offline-fixtures` is not provided.
+`--live-form` is an additional explicit experimental mode for observed form
+controls; live route autocomplete probing remains deferred until focused
+stop-state tests support it.
 
 Runtime state defaults to `~/.gflights-search`: `config.json`, `cache.sqlite`,
 and task-scoped `runs/` evidence bundles live there unless `GFLIGHTS_SEARCH_HOME`
@@ -51,9 +51,9 @@ make install-editable
 Both targets install the `gflights` entry point with `uv tool install`; the
 editable target uses `--editable --link-mode symlink --force`.
 
-The Python suite covers offline contracts, app-state/cache behavior, fake live
-search orchestration, visible-text result extraction, local cdp smoke, and
-Google Flights evidence capture.
+The Python suite covers offline contracts, route autocomplete fixture replay,
+app-state/cache behavior, fake live search orchestration, visible-text result
+extraction, local cdp smoke, and Google Flights evidence capture.
 
 Local cdp smoke target:
 
@@ -109,9 +109,9 @@ scripts/
 ```
 
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
-`project`, `dates`, `evidence`, `codec`, `doctor`, unsupported/deferred exit
-codes, isolated editable `uv tool install --editable --link-mode symlink .`
-smoke behavior, domain/service invariants, generic `tfs`/`tfu` wire decode
-round trips, fake live form interaction planning, and cdp adapter command
-construction and stop-state handling. Live tests cover local cdp smoke and
-Google Flights evidence capture.
+`project`, `route`, `dates`, `evidence`, `codec`, `doctor`,
+unsupported/deferred/ambiguous exit codes, isolated editable `uv tool install
+--editable --link-mode symlink .` smoke behavior, domain/service invariants,
+generic `tfs`/`tfu` wire decode round trips, fake live form interaction
+planning, and cdp adapter command construction and stop-state handling. Live
+tests cover local cdp smoke and Google Flights evidence capture.

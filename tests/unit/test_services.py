@@ -251,6 +251,35 @@ def test_replay_selected_itinerary_visible_text_fixture_extracts_detail_fields()
     assert payload["evidence"]["source_surfaces"] == ["selected-itinerary-visible-text"]
 
 
+def test_resolve_route_offline_fixture_returns_airport_choice() -> None:
+    exit_code, payload = services.resolve_route("CPH", FIXTURES)
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["input_text"] == "CPH"
+    assert payload["selected"]["code_or_id"] == "CPH"
+    assert payload["selected"]["kind"] == "airport_code"
+    assert payload["choices"] == [payload["selected"]]
+    assert payload["unsupported"] == []
+    assert payload["evidence"]["fixture_id"] == "route-autocomplete-choices-20260607"
+
+
+def test_resolve_route_offline_fixture_returns_ambiguous_candidates() -> None:
+    exit_code, payload = services.resolve_route("Washington DC", FIXTURES)
+
+    assert exit_code == 2
+    assert payload["status"] == "ambiguous"
+    assert payload["selected"] is None
+    assert payload["ambiguity_reason"] == "multi_airport_city_autocomplete"
+    assert [choice["code_or_id"] for choice in payload["choices"]] == [
+        "/m/0rh6k",
+        "DCA",
+        "IAD",
+        "BWI",
+    ]
+    assert all(choice["evidence"]["source_surfaces"] for choice in payload["choices"])
+
+
 def test_blocked_fixture_returns_stop_exit_code() -> None:
     exit_code, payload = services.replay_fixture(FIXTURES / "blocked_headless_fixture.json")
 
