@@ -127,6 +127,68 @@ class PriceCache:
             "age_seconds": age_seconds,
         }
 
+    def get_fresh_prices_for_dates(
+        self,
+        *,
+        query_id: str,
+        departure_date: str,
+        return_date: str | None,
+        currency: str,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        now_utc = _as_utc(now or datetime.now(UTC))
+        if return_date is None:
+            return_filter = "return_date IS NULL"
+            params: tuple[Any, ...] = (query_id, departure_date, currency)
+        else:
+            return_filter = "return_date = ?"
+            params = (query_id, departure_date, currency, return_date)
+        with sqlite3.connect(self.database_path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                f"""
+                SELECT
+                    cache_key,
+                    query_id,
+                    departure_date,
+                    return_date,
+                    currency,
+                    price_amount,
+                    price_payload,
+                    captured_at,
+                    source_run_id
+                FROM flight_price_cache
+                WHERE query_id = ?
+                  AND departure_date = ?
+                  AND currency = ?
+                  AND {return_filter}
+                ORDER BY price_amount ASC, captured_at DESC
+                """,
+                params,
+            ).fetchall()
+
+        fresh_rows: list[dict[str, Any]] = []
+        for row in rows:
+            captured_at = datetime.fromisoformat(row["captured_at"])
+            age_seconds = int((now_utc - _as_utc(captured_at)).total_seconds())
+            if age_seconds > self.max_age_seconds:
+                continue
+            fresh_rows.append(
+                {
+                    "cache_key": row["cache_key"],
+                    "query_id": row["query_id"],
+                    "departure_date": row["departure_date"],
+                    "return_date": row["return_date"],
+                    "currency": row["currency"],
+                    "price_amount": row["price_amount"],
+                    "price_payload": json.loads(row["price_payload"]),
+                    "captured_at": row["captured_at"],
+                    "source_run_id": row["source_run_id"],
+                    "age_seconds": age_seconds,
+                }
+            )
+        return fresh_rows
+
 
 def init_app_state(root: Path | None = None) -> AppState:
     state_root = (root or default_app_state_root()).expanduser().resolve()

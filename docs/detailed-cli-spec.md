@@ -270,6 +270,9 @@ Rules:
 - `one_way` requires only departure date/window.
 - Date-window scans must state the generated date-pair count and any pruning
   from date grid or price graph helper surfaces.
+- Date-window scans must account for every generated pair as `fresh_cache`,
+  `probed`, `unsupported`, or `skipped` with evidence. A scan must not rank a
+  pair unless a fresh cache observation or probe result supplies a visible price.
 - Date grid and price graph can narrow candidate pairs, but final itinerary
   output must come from primary results or selected itinerary evidence.
 
@@ -356,6 +359,8 @@ Absence behavior:
 - `query_id`
 - `generated_pairs`
 - `probed_pairs`
+- `coverage_counts`
+- `pair_coverage`
 - `ranked_pairs`
 - `ranking_policy`
 - `unsupported`
@@ -370,6 +375,15 @@ Each ranked pair includes:
 - result count when available
 - top result summary
 - scoring explanation
+- evidence references
+
+Each pair coverage entry includes:
+
+- departure date
+- return date when round trip
+- status: `fresh_cache`, `probed`, `unsupported`, or `skipped`
+- observation count and best observed price when available
+- unsupported reason or skipped reason when unavailable
 - evidence references
 
 ### ItineraryDetail

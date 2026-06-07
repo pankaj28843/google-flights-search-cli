@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 import os
 import subprocess
 from pathlib import Path
 from typing import Any
+
+from gflights.app_state import PriceCache, init_app_state
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -134,6 +137,62 @@ def test_dates_scan_offline_fixtures_returns_json_array_with_explanations() -> N
         assert item["ranked_pairs"]
         assert "scoring_explanation" in item["ranked_pairs"][0]
         assert item["evidence"]["source_surfaces"]
+
+
+def test_dates_scan_project_root_uses_fresh_cache_without_live_browser(tmp_path: Path) -> None:
+    state = init_app_state(tmp_path / "state")
+    PriceCache(state.database_path).put_price(
+        cache_key="cached-date-scan-cph-del",
+        query_id="cached-date-scan",
+        departure_date="2026-10-01",
+        return_date="2026-11-24",
+        currency="EUR",
+        price_amount=701,
+        price_payload={
+            "result_id": "cached-date-scan-result",
+            "price": {"amount": 701, "currency": "EUR", "text": "EUR 701"},
+            "carriers": ["Air India"],
+            "duration_minutes": 870,
+            "stops": {"count": 1, "text": "1 stop"},
+        },
+        captured_at=datetime.now(UTC),
+        source_run_id="gf-cache-date-scan",
+    )
+    intent_path = tmp_path / "intent.json"
+    intent_path.write_text(
+        json.dumps(
+            {
+                "query_id": "cached-date-scan",
+                "origin": {"text": "Delhi", "kind": "city_or_airport"},
+                "destination": {"text": "Copenhagen", "kind": "city_or_airport"},
+                "trip_type": "round_trip",
+                "departure_window": {"start": "2026-10-01", "end": "2026-10-01"},
+                "return_window": {"start": "2026-11-24", "end": "2026-11-24"},
+                "passengers": {"adults": 2},
+                "cabin": "economy",
+                "currency": "EUR",
+                "language": "en",
+                "sort": "price",
+            }
+        )
+    )
+
+    result = run_cli(
+        "dates",
+        "scan",
+        "--input-json",
+        str(intent_path),
+        "--project-root",
+        str(state.root),
+        "--json",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = assert_json_stdout(result)
+    assert payload[0]["coverage_counts"]["fresh_cache"] == 1
+    assert payload[0]["pair_coverage"][0]["status"] == "fresh_cache"
+    assert payload[0]["ranked_pairs"][0]["best_observed_price"]["amount"] == 701
+    assert payload[0]["ranked_pairs"][0]["evidence"]["source_surfaces"] == ["sqlite-cache"]
 
 
 def test_evidence_replay_parses_saved_fixture_offline() -> None:

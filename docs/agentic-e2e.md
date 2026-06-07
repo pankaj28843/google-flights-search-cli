@@ -29,6 +29,8 @@ agentic contract for the first implementation. It asserts:
 - `project init --path <tmp> --json` creates app-state files under `<tmp>/`
 - `intent parse --input-json <array> --json` preserves JSON-array order
 - `dates scan --offline-fixtures` returns JSON-array date-scan explanations
+- `dates scan --project-root` can rank from fresh SQLite cache observations
+  without opening a browser in default validation
 - `evidence replay` parses redacted offline fixtures
 - `evidence replay` extracts visible-text primary result fixtures into result
   rows

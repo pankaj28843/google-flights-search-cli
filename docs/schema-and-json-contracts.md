@@ -79,6 +79,25 @@ SQLite cache payloads contain sanitized price-observation fields derived from
 parsed result rows. They must not store raw browser stdout, raw network request
 payloads, cookies, storage, or full cdp JSON artifacts.
 
+## Date Scan Command
+
+Date-window scans:
+
+```bash
+gflights dates scan --input-json <intent.json> --project-root <state-root> --json
+```
+
+When `--project-root` is supplied, `dates scan` expands the requested date
+windows and checks the state SQLite cache for fresh price observations before
+attempting or requiring any live probe. Output includes `coverage_counts` and
+`pair_coverage`; every generated date pair is represented as `fresh_cache`,
+`probed`, `unsupported`, or `skipped` with evidence. `ranked_pairs` may contain
+only pairs backed by a fresh cache row or a probe result with a visible price.
+
+`--offline-fixtures` remains the deterministic bootstrap/replay path for the
+older e2e contract. Default validation does not probe live Google Flights from
+`dates scan`.
+
 ## Status Values
 
 Allowed command status values:

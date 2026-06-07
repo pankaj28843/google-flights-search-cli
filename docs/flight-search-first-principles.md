@@ -83,6 +83,12 @@ duration, layovers, carriers, baggage, emissions, and facilities.
 Ranking based on airline preference or senior comfort must be an explained
 post-result ranking unless a live Google Flights filter has been proven.
 
+Date-window ranking must account for every generated date pair before producing
+agent-facing recommendations. Fresh cache observations may support ranking for
+at most the configured cache age; missing pairs must be probed, marked
+unsupported, or explicitly skipped with evidence instead of hidden behind a
+placeholder rank.
+
 ## Itinerary Facts
 
 Itinerary output can include visible provider options, baggage text, carriers,

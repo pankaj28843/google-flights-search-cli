@@ -145,12 +145,19 @@ def route_resolve_command(json_output: bool = typer.Option(False, "--json")) -> 
 @dates_app.command("scan")
 def dates_scan_command(
     input_json: Path = typer.Option(..., "--input-json"),
-    offline_fixtures: Path = typer.Option(..., "--offline-fixtures"),
+    offline_fixtures: Path | None = typer.Option(None, "--offline-fixtures"),
+    project_root: Path | None = typer.Option(None, "--project-root"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     del json_output
     try:
-        emit(services.scan_dates(input_json, offline_fixtures))
+        emit(
+            services.scan_dates(
+                input_json,
+                offline_fixtures,
+                project_root=project_root,
+            )
+        )
     except services.ServiceError as error:
         emit_service_error(error)
 

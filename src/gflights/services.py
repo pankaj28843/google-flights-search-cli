@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
-from gflights.app_state import DEFAULT_CACHE_MAX_AGE_SECONDS, init_app_state
+from gflights.app_state import DEFAULT_CACHE_MAX_AGE_SECONDS, AppState, PriceCache, init_app_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
 from gflights.result_extraction import extract_primary_results
+
+DatePairProbe = Callable[[SearchIntent], dict[str, Any]]
 
 
 class ServiceError(Exception):
@@ -75,8 +78,36 @@ def parse_intents(path: Path) -> list[dict[str, Any]]:
     return [{"status": "ok", **intent.model_dump(mode="json")} for intent in load_intents(path)]
 
 
-def scan_dates(input_json: Path, offline_fixtures: Path) -> list[dict[str, Any]]:
-    return [_date_scan_result(intent, offline_fixtures) for intent in load_intents(input_json)]
+def scan_dates(
+    input_json: Path,
+    offline_fixtures: Path | None = None,
+    *,
+    project_root: Path | None = None,
+    now: datetime | None = None,
+    date_pair_probe: DatePairProbe | None = None,
+) -> list[dict[str, Any]]:
+    intents = load_intents(input_json)
+    if (
+        offline_fixtures is not None
+        and project_root is None
+        and now is None
+        and date_pair_probe is None
+    ):
+        return [_date_scan_result(intent, offline_fixtures) for intent in intents]
+
+    state = init_app_state(project_root)
+    cache = PriceCache(state.database_path)
+    observed_at = now or datetime.now(UTC)
+    return [
+        _date_scan_live_or_cache_result(
+            intent,
+            state=state,
+            cache=cache,
+            now=observed_at,
+            date_pair_probe=date_pair_probe,
+        )
+        for intent in intents
+    ]
 
 
 def _date_scan_result(intent: SearchIntent, offline_fixtures: Path) -> dict[str, Any]:
@@ -127,6 +158,349 @@ def _inclusive_days(start: str, end: str) -> int:
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
     return max((end_date - start_date).days + 1, 1)
+
+
+def _date_scan_live_or_cache_result(
+    intent: SearchIntent,
+    *,
+    state: AppState,
+    cache: PriceCache,
+    now: datetime,
+    date_pair_probe: DatePairProbe | None,
+) -> dict[str, Any]:
+    pairs = _date_pairs(intent)
+    counts = {"fresh_cache": 0, "probed": 0, "unsupported": 0, "skipped": 0}
+    pair_coverage: list[dict[str, Any]] = []
+    ranked_pairs: list[dict[str, Any]] = []
+    unsupported: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    source_surfaces = {"sqlite-cache", "docs/detailed-cli-spec.md"}
+    artifacts = {str(state.database_path)}
+
+    for departure_date, return_date in pairs:
+        fresh_prices = cache.get_fresh_prices_for_dates(
+            query_id=intent.query_id,
+            departure_date=departure_date,
+            return_date=return_date,
+            currency=intent.currency,
+            now=now,
+        )
+        if fresh_prices:
+            counts["fresh_cache"] += 1
+            best = fresh_prices[0]
+            evidence = {
+                "run_id": best["source_run_id"],
+                "source_surfaces": ["sqlite-cache"],
+                "artifacts": [str(state.database_path)],
+            }
+            price = _price_object(
+                best["price_payload"],
+                fallback_amount=best["price_amount"],
+                currency=best["currency"],
+            )
+            pair_coverage.append(
+                {
+                    "departure_date": departure_date,
+                    "return_date": return_date,
+                    "status": "fresh_cache",
+                    "observations": len(fresh_prices),
+                    "best_observed_price": price,
+                    "evidence": evidence,
+                }
+            )
+            ranked_pairs.append(
+                _ranked_pair(
+                    departure_date=departure_date,
+                    return_date=return_date,
+                    result=best["price_payload"],
+                    price=price,
+                    result_count=len(fresh_prices),
+                    evidence=evidence,
+                    source="fresh_cache",
+                )
+            )
+            continue
+
+        if date_pair_probe is not None:
+            concrete_intent = _concrete_intent(intent, departure_date, return_date)
+            probe_payload = date_pair_probe(concrete_intent)
+            evidence = _probe_evidence(probe_payload)
+            source_surfaces.update(evidence["source_surfaces"])
+            artifacts.update(evidence["artifacts"])
+            priced_results = _priced_results(probe_payload.get("results"))
+            if priced_results:
+                counts["probed"] += 1
+                best_result = priced_results[0]
+                price = _price_object(best_result, currency=intent.currency)
+                pair_coverage.append(
+                    {
+                        "departure_date": departure_date,
+                        "return_date": return_date,
+                        "status": "probed",
+                        "observation_status": probe_payload.get("status", "unknown"),
+                        "observations": len(priced_results),
+                        "best_observed_price": price,
+                        "evidence": evidence,
+                    }
+                )
+                ranked_pairs.append(
+                    _ranked_pair(
+                        departure_date=departure_date,
+                        return_date=return_date,
+                        result=best_result,
+                        price=price,
+                        result_count=len(priced_results),
+                        evidence=evidence,
+                        source="live_probe",
+                    )
+                )
+                continue
+
+            if probe_payload.get("status") == "unsupported":
+                counts["unsupported"] += 1
+                pair_unsupported = _pair_unsupported(
+                    probe_payload,
+                    departure_date=departure_date,
+                    return_date=return_date,
+                )
+                unsupported.extend(pair_unsupported)
+                pair_coverage.append(
+                    {
+                        "departure_date": departure_date,
+                        "return_date": return_date,
+                        "status": "unsupported",
+                        "unsupported": pair_unsupported,
+                        "evidence": evidence,
+                    }
+                )
+                continue
+
+            counts["probed"] += 1
+            pair_coverage.append(
+                {
+                    "departure_date": departure_date,
+                    "return_date": return_date,
+                    "status": "probed",
+                    "observation_status": probe_payload.get("status", "unknown"),
+                    "observations": 0,
+                    "evidence": evidence,
+                }
+            )
+            warnings.append(
+                f"date pair {departure_date}/{return_date or ''} was probed but returned no priced rows"
+            )
+            continue
+
+        counts["skipped"] += 1
+        evidence = {
+            "run_id": "date-scan-live-or-cache",
+            "source_surfaces": ["docs/detailed-cli-spec.md"],
+            "artifacts": [],
+        }
+        pair_coverage.append(
+            {
+                "departure_date": departure_date,
+                "return_date": return_date,
+                "status": "skipped",
+                "reason": "no fresh cache entry and no live date-pair probe adapter was supplied",
+                "evidence": evidence,
+            }
+        )
+        warnings.append(
+            f"date pair {departure_date}/{return_date or ''} needs a live probe or fresh cache"
+        )
+
+    ranked_pairs.sort(
+        key=lambda pair: (
+            pair["best_observed_price"]["amount"],
+            pair["scoring_explanation"]["components"][1]["value"],
+        )
+    )
+    status = (
+        "ok"
+        if ranked_pairs and counts["skipped"] == 0 and counts["unsupported"] == 0
+        else "experimental"
+    )
+    return {
+        "query_id": intent.query_id,
+        "status": status,
+        "generated_pairs": len(pairs),
+        "probed_pairs": counts["probed"],
+        "coverage_counts": counts,
+        "pair_coverage": pair_coverage,
+        "ranked_pairs": ranked_pairs,
+        "ranking_policy": "live_or_fresh_cache_price",
+        "unsupported": unsupported,
+        "warnings": warnings,
+        "cache": {
+            "database_path": str(state.database_path),
+            "fresh_pairs_used": counts["fresh_cache"],
+            "max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
+        },
+        "evidence": {
+            "run_id": "date-scan-live-or-cache",
+            "source_surfaces": sorted(source_surfaces),
+            "artifacts": sorted(artifacts),
+        },
+    }
+
+
+def _date_pairs(intent: SearchIntent) -> list[tuple[str, str | None]]:
+    departures = _date_values(intent.departure_window.start, intent.departure_window.end)
+    if intent.trip_type == "round_trip" and intent.return_window is not None:
+        returns = _date_values(intent.return_window.start, intent.return_window.end)
+        return [(departure, return_date) for departure in departures for return_date in returns]
+    return [(departure, None) for departure in departures]
+
+
+def _date_values(start: str, end: str) -> list[str]:
+    start_date = date.fromisoformat(start)
+    end_date = date.fromisoformat(end)
+    days = max((end_date - start_date).days + 1, 1)
+    return [(start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
+
+
+def _concrete_intent(
+    intent: SearchIntent,
+    departure_date: str | int,
+    return_date: str | int | None,
+) -> SearchIntent:
+    departure_value = _date_string(departure_date)
+    return_value = _date_string(return_date) if return_date is not None else None
+    payload = intent.model_dump(mode="json")
+    payload["departure_window"] = {"start": departure_value, "end": departure_value}
+    payload["return_window"] = (
+        {"start": return_value, "end": return_value}
+        if intent.trip_type == "round_trip" and return_value is not None
+        else None
+    )
+    return SearchIntent.model_validate(payload)
+
+
+def _date_string(value: str | int) -> str:
+    if isinstance(value, str):
+        return value
+    return date.fromordinal(value).isoformat()
+
+
+def _price_object(
+    result: dict[str, Any],
+    *,
+    fallback_amount: Any | None = None,
+    currency: str,
+) -> dict[str, Any]:
+    price = result.get("price")
+    if isinstance(price, dict) and price.get("amount") is not None:
+        return {
+            "amount": price["amount"],
+            "currency": price.get("currency") or currency,
+            "text": price.get("text") or str(price["amount"]),
+        }
+    amount = result.get("amount", fallback_amount)
+    return {
+        "amount": amount,
+        "currency": result.get("currency") or currency,
+        "text": result.get("text") or str(amount),
+    }
+
+
+def _priced_results(results: Any) -> list[dict[str, Any]]:
+    if not isinstance(results, list):
+        return []
+    priced = [
+        result
+        for result in results
+        if isinstance(result, dict)
+        and isinstance(result.get("price"), dict)
+        and result["price"].get("amount") is not None
+    ]
+    return sorted(
+        priced,
+        key=lambda result: (
+            result["price"]["amount"],
+            int(result.get("duration_minutes") or 999999),
+            _stop_count(result),
+        ),
+    )
+
+
+def _stop_count(result: dict[str, Any]) -> int:
+    stops = result.get("stops")
+    if isinstance(stops, dict) and stops.get("count") is not None:
+        return int(stops["count"])
+    return 999999
+
+
+def _ranked_pair(
+    *,
+    departure_date: str,
+    return_date: str | None,
+    result: dict[str, Any],
+    price: dict[str, Any],
+    result_count: int,
+    evidence: dict[str, Any],
+    source: str,
+) -> dict[str, Any]:
+    return {
+        "departure_date": departure_date,
+        "return_date": return_date,
+        "best_observed_price": price,
+        "result_count": result_count,
+        "top_result_summary": {
+            "result_id": result.get("result_id"),
+            "carriers": result.get("carriers", []),
+            "duration_minutes": result.get("duration_minutes"),
+            "stops": result.get("stops"),
+        },
+        "scoring_explanation": {
+            "policy": "live_or_fresh_cache_price",
+            "components": [
+                {"name": "price", "value": price["amount"]},
+                {"name": "source", "value": source},
+            ],
+        },
+        "evidence": evidence,
+    }
+
+
+def _probe_evidence(payload: dict[str, Any]) -> dict[str, Any]:
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict):
+        return {
+            "run_id": "date-pair-probe",
+            "source_surfaces": ["date-pair-probe"],
+            "artifacts": [],
+        }
+    surfaces = evidence.get("source_surfaces")
+    artifacts = evidence.get("artifacts")
+    return {
+        "run_id": str(evidence.get("run_id") or "date-pair-probe"),
+        "source_surfaces": [str(item) for item in surfaces] if isinstance(surfaces, list) else [],
+        "artifacts": [str(item) for item in artifacts] if isinstance(artifacts, list) else [],
+    }
+
+
+def _pair_unsupported(
+    payload: dict[str, Any],
+    *,
+    departure_date: str,
+    return_date: str | None,
+) -> list[dict[str, Any]]:
+    unsupported = payload.get("unsupported")
+    if not isinstance(unsupported, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for entry in unsupported:
+        if not isinstance(entry, dict):
+            continue
+        items.append(
+            {
+                **entry,
+                "departure_date": departure_date,
+                "return_date": return_date,
+            }
+        )
+    return items
 
 
 def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
