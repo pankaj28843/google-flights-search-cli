@@ -92,6 +92,8 @@ gflights search --input-json <intent.json> --browser-mode headless --json
 ## Test Layers
 
 - Domain tests for value objects and ranking rules.
+- Optional analysis adapter tests use injected fake pandas so default
+  validation does not require the `analysis` extra.
 - Service tests for use cases with fake adapters.
 - CLI tests for stdout JSON, stderr diagnostics, and exit codes.
 - Fixture replay tests for deterministic evidence.

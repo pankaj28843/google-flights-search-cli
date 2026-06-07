@@ -308,6 +308,11 @@ feature. Its explanation includes price, duration, stops, preferred-airline
 match state, senior-comfort weight, emissions when visible, a numeric score,
 and `google_flights_filters_applied: false`.
 
+Optional tabular analysis may use pandas through an adapter outside the pure
+domain core. The core date-scan JSON remains the stable contract; pandas-backed
+tables are derived views for agents that need tabular comparison or export.
+Default validation must pass without pandas installed.
+
 ### Sorting
 
 Supported sort values:

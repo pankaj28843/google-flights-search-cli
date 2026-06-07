@@ -103,6 +103,11 @@ When `ranking_policy` is `comfort_aware_v1`, each ranked pair has a
 and component entries for price, duration, stops, preferred-airline status,
 senior-comfort weight, and emissions when visible.
 
+The optional analysis adapter can flatten `dates scan` output into table rows.
+If pandas is unavailable, it returns `status: "unavailable"` with an install
+hint instead of importing pandas from the pure domain core or failing default
+validation.
+
 ## Status Values
 
 Allowed command status values:
