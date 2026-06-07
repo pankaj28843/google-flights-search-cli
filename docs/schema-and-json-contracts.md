@@ -47,13 +47,17 @@ Live evidence capture:
 gflights search --input-json <intent.json> --browser-mode headless --json
 ```
 
-The command opens Google Flights with language and currency context, writes a
-state-local `runs/<run-id>/` evidence bundle, and returns one of:
+The command accepts either one `SearchIntent` object or a JSON array of
+`SearchIntent` objects. Single-object input returns one JSON object. JSON-array
+input returns a JSON array in the same order, with one output object per input
+intent. The command opens Google Flights with language and currency context,
+writes a state-local `runs/<run-id>/` evidence bundle, and returns one of:
 
 - `ok` with weak confidence and primary result rows when visible text contains
-  parseable primary search rows,
+  parseable primary search rows plus a `cache.price_observations_written`
+  count for the fresh SQLite observations written from priced rows,
 - `experimental` with weak confidence when cdp evidence capture succeeds but
-  no primary rows are extractable yet, or
+  no primary rows are extractable yet, with zero price observations written, or
 - `blocked` with exit code `4` and headed fallback guidance when a browser stop
   state appears.
 
@@ -62,6 +66,10 @@ state-local `runs/<run-id>/` evidence bundle, and returns one of:
 remains accepted as a compatibility flag. `--live-form` additionally attempts
 fake-tested, evidence-scoped form interactions before capture; live form mode is
 experimental, and nested itinerary/provider extraction remains deferred.
+
+SQLite cache payloads contain sanitized price-observation fields derived from
+parsed result rows. They must not store raw browser stdout, raw network request
+payloads, cookies, storage, or full cdp JSON artifacts.
 
 ## Status Values
 

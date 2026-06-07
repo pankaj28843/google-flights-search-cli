@@ -37,18 +37,26 @@ def test_live_google_flights_search_smoke_captures_task_scoped_artifacts(
 
     assert result.returncode in {0, 4}, result.stderr
     payload = json.loads(result.stdout)
-    assert payload["live_mode"] is True
-    assert payload["browser_mode"] == "headless"
-    assert payload["status"] in {"ok", "experimental", "blocked"}
-    assert payload["evidence"]["run_id"].startswith("gf-")
-    assert (tmp_path / "runs" / payload["evidence"]["run_id"]).is_dir()
-    for artifact in payload["evidence"]["artifacts"]:
-        assert Path(artifact).is_file()
+    assert isinstance(payload, list)
+    assert [item["query_id"] for item in payload] == [
+        "del-cph-senior-oct-nov",
+        "cph-lko-oneway-jun",
+    ]
+    for item in payload:
+        assert item["live_mode"] is True
+        assert item["browser_mode"] == "headless"
+        assert item["status"] in {"ok", "experimental", "blocked"}
+        assert item["evidence"]["run_id"].startswith("gf-")
+        assert (tmp_path / "runs" / item["evidence"]["run_id"]).is_dir()
+        for artifact in item["evidence"]["artifacts"]:
+            assert Path(artifact).is_file()
 
     if result.returncode == 4:
-        assert payload["fallback"]["recommended_browser_mode"] == "headed"
-    elif payload["status"] == "experimental":
-        assert payload["unsupported"][0]["field"] == "live_result_extraction"
-    else:
-        assert payload["status"] == "ok"
-        assert payload["results"]
+        assert any(
+            item.get("fallback", {}).get("recommended_browser_mode") == "headed" for item in payload
+        )
+    for item in payload:
+        if item["status"] == "experimental":
+            assert item["unsupported"][0]["field"] == "live_result_extraction"
+        if item["status"] == "ok":
+            assert item["results"]

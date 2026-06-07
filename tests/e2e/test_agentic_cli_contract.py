@@ -232,6 +232,26 @@ def test_deferred_live_google_filter_exits_unsupported() -> None:
     )
 
 
+def test_search_offline_accepts_json_array_and_preserves_order() -> None:
+    result = run_cli(
+        "search",
+        "--input-json",
+        str(INTENTS),
+        "--offline-fixtures",
+        str(FIXTURES),
+        "--json",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = assert_json_stdout(result)
+    assert isinstance(payload, list)
+    assert [item["query_id"] for item in payload] == [
+        "del-cph-senior-oct-nov",
+        "cph-lko-oneway-jun",
+    ]
+    assert all(item["status"] == "ok" for item in payload)
+
+
 def test_make_install_editable_exposes_agent_entrypoint(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.update(

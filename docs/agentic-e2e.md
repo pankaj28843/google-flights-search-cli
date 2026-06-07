@@ -38,6 +38,7 @@ agentic contract for the first implementation. It asserts:
   against the generic Python codec, and keeps confidence non-`proven`
 - `search` defaults to live cdp when `--offline-fixtures` is absent, with fake
   adapters used in unit tests so default validation stays offline
+- `search --offline-fixtures` accepts JSON-array input and preserves input order
 - deferred live Google filter requests exit `3`
 - an isolated `uv tool install --editable --link-mode symlink . --force`
   exposes `gflights`, then `gflights doctor --json` proves the installed entry

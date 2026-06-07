@@ -85,7 +85,11 @@ def search_command(
                 6,
             )
             return
-        exit_code, payload = services.search_offline(input_json, offline_fixtures)
+        try:
+            exit_code, payload = services.search_offline(input_json, offline_fixtures)
+        except services.ServiceError as error:
+            emit_service_error(error)
+            return
         emit(payload, exit_code)
         return
 

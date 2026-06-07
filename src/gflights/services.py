@@ -248,8 +248,25 @@ def _codec_stale_warnings(
     return warnings
 
 
-def search_offline(input_json: Path, offline_fixtures: Path) -> tuple[int, dict[str, Any]]:
-    intent = SearchIntent.model_validate(load_json(input_json))
+def search_offline(
+    input_json: Path, offline_fixtures: Path
+) -> tuple[int, dict[str, Any] | list[dict[str, Any]]]:
+    intents = load_intents(input_json)
+    if len(intents) == 1:
+        return _search_offline_intent(intents[0], offline_fixtures)
+
+    outputs: list[dict[str, Any]] = []
+    exit_codes: list[int] = []
+    for intent in intents:
+        exit_code, payload = _search_offline_intent(intent, offline_fixtures)
+        exit_codes.append(exit_code)
+        outputs.append(payload)
+    return _aggregate_exit_code(exit_codes), outputs
+
+
+def _search_offline_intent(
+    intent: SearchIntent, offline_fixtures: Path
+) -> tuple[int, dict[str, Any]]:
     google_filters = intent.google_filters or {}
     if (
         google_filters.get("require_live_google_filter")
@@ -288,6 +305,13 @@ def search_offline(input_json: Path, offline_fixtures: Path) -> tuple[int, dict[
             "artifacts": [str(offline_fixtures)],
         },
     }
+
+
+def _aggregate_exit_code(exit_codes: list[int]) -> int:
+    for exit_code in (6, 5, 4, 3, 2):
+        if exit_code in exit_codes:
+            return exit_code
+    return 0
 
 
 def doctor_report() -> dict[str, Any]:

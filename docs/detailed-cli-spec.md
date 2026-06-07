@@ -195,9 +195,10 @@ The canonical input object is:
 }
 ```
 
-`dates scan` accepts one `SearchIntent` or a JSON array of `SearchIntent`-like
-dicts. Output order must correspond to input order unless a command explicitly
-returns ranked results within each query.
+`search` and `dates scan` accept one `SearchIntent` or a JSON array of
+`SearchIntent`-like dicts. Single-object input returns one output object.
+JSON-array input returns one output object per input item in input order unless
+a command explicitly returns ranked results within each query.
 
 ### Trip Type
 
@@ -519,7 +520,7 @@ Slice 07 must write red tests before implementation code for:
 - CLI help exposing atomic commands
 - JSON Schema export
 - app-state init
-- JSON array input validation
+- JSON array input validation and one-output-per-search-intent behavior
 - offline fixture replay
 - date-window scan output shape
 - headless default and headed fallback recommendation

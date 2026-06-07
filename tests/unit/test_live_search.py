@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
 
+from gflights.app_state import PriceCache
 from gflights.browser import BrowserMode, CdpResult
 from gflights.live_search import run_live_search
 
@@ -77,6 +79,29 @@ def write_intent(path: Path) -> Path:
         )
     )
     return intent_path
+
+
+def successful_capture_results(
+    snapshot_payload: dict[str, object] | None = None,
+) -> list[CdpResult]:
+    return [
+        cdp_result(
+            ["open"],
+            {
+                "ok": True,
+                "page": {
+                    "id": "page-1",
+                    "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                },
+            },
+        ),
+        cdp_result(["wait"], {"ok": True}),
+        cdp_result(
+            ["snapshot"],
+            snapshot_payload or {"ok": True, "items": [{"text": "Flights"}]},
+        ),
+        cdp_result(["network"], {"ok": True, "requests": []}),
+    ]
 
 
 def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
@@ -195,6 +220,59 @@ def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> Non
     run_root = tmp_path / "runs" / "gf-test-wait-retry"
     assert (run_root / "wait.json").is_file()
     assert (run_root / "wait-retry-1.json").is_file()
+
+
+def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {
+                    "ok": False,
+                    "code": "connection_failed",
+                    "message": "snapshot target page-1: cdp Runtime.evaluate failed: Cannot find default execution context (-32000)",
+                },
+                status="tool_error",
+                exit_code=6,
+            ),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-snapshot-retry",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    assert payload["evidence"]["source_surfaces"] == [
+        "cdp:open",
+        "cdp:wait",
+        "cdp:snapshot",
+        "cdp:snapshot:retry",
+        "cdp:network",
+    ]
+    run_root = tmp_path / "runs" / "gf-test-snapshot-retry"
+    assert (run_root / "snapshot.json").is_file()
+    assert (run_root / "snapshot-retry-1.json").is_file()
 
 
 def test_live_search_stops_on_blocked_headless_state(tmp_path: Path) -> None:
@@ -327,6 +405,79 @@ def test_live_search_extracts_primary_results_from_snapshot_payload(tmp_path: Pa
     assert payload["results"][0]["evidence"]["artifacts"] == [
         str(tmp_path / "runs" / "gf-test-results" / "snapshot.json")
     ]
+
+
+def test_live_search_writes_extracted_result_prices_to_sqlite_cache(tmp_path: Path) -> None:
+    fixture = json.loads((FIXTURES / "primary_results_visible_text_fixture.json").read_text())
+    adapter = FakeCdpAdapter(successful_capture_results(fixture["snapshot"]))
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-cache",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    with sqlite3.connect(tmp_path / "cache.sqlite") as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """
+            SELECT cache_key, query_id, departure_date, return_date, currency,
+                   price_amount, price_payload, source_run_id
+            FROM flight_price_cache
+            ORDER BY price_amount
+            """
+        ).fetchall()
+
+    assert len(rows) == 2
+    first = rows[0]
+    assert first["query_id"] == "live-cph-del"
+    assert first["departure_date"] == "2026-10-01"
+    assert first["return_date"] == "2026-11-24"
+    assert first["currency"] == "EUR"
+    assert first["price_amount"] == 3206
+    assert first["source_run_id"] == "gf-test-cache"
+    assert "live-cph-del" in first["cache_key"]
+    assert "2026-10-01" in first["cache_key"]
+    cached_payload = json.loads(first["price_payload"])
+    assert cached_payload["price"] == {"amount": 3206, "currency": "EUR", "text": "€3,206"}
+    assert cached_payload["result_id"] == "visible-text-result-1"
+    assert cached_payload["carriers"] == ["KLM", "IndiGo"]
+    assert "requests" not in cached_payload
+    assert "stdout" not in cached_payload
+    assert "json_payload" not in cached_payload
+    assert PriceCache(tmp_path / "cache.sqlite").get_fresh_price(first["cache_key"]) is not None
+
+
+def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            *successful_capture_results(),
+            *successful_capture_results(),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=FIXTURES / "search_intents.json",
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+        )
+    )
+
+    assert exit_code == 0
+    assert isinstance(payload, list)
+    assert [item["query_id"] for item in payload] == [
+        "del-cph-senior-oct-nov",
+        "cph-lko-oneway-jun",
+    ]
+    assert len(adapter.calls) == 8
 
 
 def test_live_search_stops_on_form_interaction_stop_state(tmp_path: Path) -> None:
