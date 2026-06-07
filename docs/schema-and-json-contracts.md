@@ -62,6 +62,14 @@ writes a state-local `runs/<run-id>/` evidence bundle, and returns one of:
   state appears.
 
 `search` uses live cdp by default when `--offline-fixtures` is absent.
+For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
+search first opens a populated Google Flights URL using fixture-backed `tfs`
+and, when needed, short sort `tfu` query state. The output includes
+`query_population.status = "encoded"`, confidence, populated parameter names,
+source surfaces, and evidence references. Inputs outside the supported encoded
+surface still open the Google Flights shell and return
+`query_population.status = "unsupported"` with an actionable unsupported field
+such as `departure_window`, `destination`, `cabin`, or `trip_type`.
 `--offline-fixtures` is the explicit deterministic replay path. `--live-cdp`
 remains accepted as a compatibility flag. `--live-form` additionally attempts
 fake-tested, evidence-scoped form interactions before capture; live form mode is

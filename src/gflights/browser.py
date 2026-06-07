@@ -87,6 +87,21 @@ class CdpAdapter:
         if process.returncode != 0:
             payload = _json_object(process.stdout)
             message = payload.get("message") if payload is not None else None
+            if _is_resource_budget_payload(payload):
+                stop_state = str(payload.get("code"))
+                return CdpResult(
+                    argv=argv,
+                    browser_mode=browser_mode,
+                    returncode=process.returncode,
+                    stdout=process.stdout,
+                    stderr=process.stderr,
+                    status="blocked",
+                    exit_code=4,
+                    json_payload=payload,
+                    stop_state=stop_state,
+                    fallback=_headed_fallback(browser_mode, "blocked", stop_state),
+                    error=process.stderr or str(message or f"cdp exited with {process.returncode}"),
+                )
             return CdpResult(
                 argv=argv,
                 browser_mode=browser_mode,
@@ -160,6 +175,15 @@ def _json_object(text: str) -> dict[str, Any] | None:
     if isinstance(payload, dict):
         return payload
     return None
+
+
+def _is_resource_budget_payload(payload: dict[str, Any] | None) -> bool:
+    if payload is None:
+        return False
+    return (
+        payload.get("code") == "browser_resource_budget_exceeded"
+        or payload.get("err_class") == "resource_budget"
+    )
 
 
 def _headed_fallback(

@@ -105,6 +105,28 @@ def test_cdp_adapter_preserves_nonzero_json_stdout() -> None:
     assert result.error == "missing context"
 
 
+def test_cdp_adapter_maps_resource_budget_to_browser_stop() -> None:
+    runner = FakeRunner(
+        ProcessResult(
+            returncode=3,
+            stdout='{"ok":false,"code":"browser_resource_budget_exceeded","err_class":"resource_budget","message":"browser resource budget exceeded: 25/25 tabs"}',
+            stderr="",
+        )
+    )
+    adapter = CdpAdapter(runner=runner)
+
+    result = asyncio.run(adapter.run_json(["open", "https://www.google.com/travel/flights"]))
+
+    assert result.status == "blocked"
+    assert result.stop_state == "browser_resource_budget_exceeded"
+    assert result.exit_code == 4
+    assert result.fallback == {
+        "recommended_browser_mode": "headed",
+        "reason": "headless blocked or human confirmation required",
+    }
+    assert "browser resource budget exceeded" in result.error
+
+
 def test_cdp_adapter_reports_timeout() -> None:
     runner = FakeRunner(error=asyncio.TimeoutError())
     adapter = CdpAdapter(runner=runner)

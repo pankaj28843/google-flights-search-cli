@@ -419,6 +419,20 @@ Constraints:
 - If a fixture contradicts a hypothesis, return `stale_fixture` or
   `unsupported`; do not fall back to guessing.
 
+Implementation scope admitted from the strong evidence set:
+
+- The live search shell may construct populated `tfs` for concrete one-way or
+  round-trip searches with one concrete departure date, one concrete return date
+  when required, evidence-backed route endpoints, observed passenger category
+  values, and observed economy/business cabin values.
+- The live search shell may construct short sort `tfu` for observed non-default
+  sort values: price, departure time, arrival time, duration, and emissions.
+- Top-flights direct live URLs should omit `tfu` until absent `tfu`,
+  `tfu.2.1 = 0`, and `tfu.2.1 = 1` reload equivalence is proven.
+- Unsupported encoded query-state inputs must stay explicit in JSON through
+  `query_population.status = "unsupported"` rather than silently falling back to
+  a guessed URL.
+
 Network state:
 
 - `GetShoppingResults` is a primary-results RPC candidate and support surface.

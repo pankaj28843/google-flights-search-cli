@@ -81,10 +81,39 @@ def write_intent(path: Path) -> Path:
     return intent_path
 
 
+def write_lucknow_oneway_intent(path: Path) -> Path:
+    intent_path = path / "intent.json"
+    intent_path.write_text(
+        json.dumps(
+            {
+                "query_id": "live-cph-lko",
+                "origin": {"text": "CPH", "kind": "airport_code"},
+                "destination": {"text": "Lucknow", "kind": "city_or_airport"},
+                "trip_type": "one_way",
+                "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
+                "return_window": None,
+                "passengers": {
+                    "adults": 1,
+                    "children": 0,
+                    "infants_in_seat": 0,
+                    "infants_on_lap": 0,
+                },
+                "cabin": "economy",
+                "currency": "EUR",
+                "language": "en",
+                "sort": "price",
+            }
+        )
+    )
+    return intent_path
+
+
 def successful_capture_results(
     snapshot_payload: dict[str, object] | None = None,
+    *,
+    query_settle: bool = False,
 ) -> list[CdpResult]:
-    return [
+    results = [
         cdp_result(
             ["open"],
             {
@@ -96,12 +125,19 @@ def successful_capture_results(
             },
         ),
         cdp_result(["wait"], {"ok": True}),
-        cdp_result(
-            ["snapshot"],
-            snapshot_payload or {"ok": True, "items": [{"text": "Flights"}]},
-        ),
-        cdp_result(["network"], {"ok": True, "requests": []}),
     ]
+    if query_settle:
+        results.append(cdp_result(["network-idle"], {"ok": True}))
+    results.extend(
+        [
+            cdp_result(
+                ["snapshot"],
+                snapshot_payload or {"ok": True, "items": [{"text": "Flights"}]},
+            ),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+    return results
 
 
 def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
@@ -141,9 +177,11 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
     assert payload["browser_mode"] == "headless"
     assert payload["live_mode"] is True
     assert payload["results"] == []
+    assert payload["query_population"]["status"] == "encoded"
     assert payload["unsupported"][0]["field"] == "live_result_extraction"
     assert payload["evidence"]["run_id"] == "gf-test-live-search"
-    assert payload["evidence"]["source_surfaces"] == [
+    assert payload["evidence"]["source_surfaces"][0] == "query-state:tfs"
+    assert payload["evidence"]["source_surfaces"][1:] == [
         "cdp:open",
         "cdp:wait",
         "cdp:snapshot",
@@ -152,20 +190,72 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
 
     run_root = tmp_path / "runs" / "gf-test-live-search"
     assert (run_root / "intent.json").is_file()
+    assert (run_root / "query-state.json").is_file()
     assert (run_root / "command-log.json").is_file()
     assert (run_root / "open.json").is_file()
     assert (run_root / "snapshot.json").is_file()
     assert (run_root / "network.json").is_file()
-    assert adapter.calls == [
-        (
-            ["open", "https://www.google.com/travel/flights?hl=en&curr=EUR"],
-            "headless",
-            30.0,
-        ),
+    assert adapter.calls[0][0][0] == "open"
+    assert adapter.calls[0][0][1].startswith("https://www.google.com/travel/flights?")
+    assert "tfs=" in adapter.calls[0][0][1]
+    assert adapter.calls[1:] == [
         (["wait", "load-state", "domcontentloaded", "--target", "page-1"], "headless", 30.0),
         (["snapshot", "--target", "page-1", "--limit", "80"], "headless", 30.0),
         (["network", "--target", "page-1", "--limit", "50", "--wait", "1s"], "headless", 30.0),
     ]
+
+
+def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?tfs=encoded&tfu=encoded&hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_lucknow_oneway_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-query-state",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    opened_url = adapter.calls[0][0][1]
+    assert opened_url.startswith("https://www.google.com/travel/flights?")
+    assert "tfs=CBwQAhokEgoyMDI2LTA2LTE1" in opened_url
+    assert "tfu=EgYIAhAAGAA" in opened_url
+    assert "hl=en" in opened_url
+    assert "curr=EUR" in opened_url
+    assert payload["query_population"]["status"] == "encoded"
+    assert payload["query_population"]["confidence"] == "strong"
+    assert "query-state:tfs" in payload["evidence"]["source_surfaces"]
+    assert "query-state:tfu" in payload["evidence"]["source_surfaces"]
+    assert "cdp:wait:query-network-idle" in payload["evidence"]["source_surfaces"]
+    assert adapter.calls[2] == (
+        ["wait", "network-idle", "--target", "page-1", "--idle", "1s"],
+        "headless",
+        5.0,
+    )
+    assert payload["unsupported"][0]["field"] == "live_result_extraction"
+    assert (tmp_path / "runs" / "gf-test-query-state" / "query-state.json").is_file()
+    assert (tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json").is_file()
 
 
 def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> None:
@@ -209,7 +299,8 @@ def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> Non
 
     assert exit_code == 0
     assert payload["status"] == "experimental"
-    assert payload["evidence"]["source_surfaces"] == [
+    assert payload["evidence"]["source_surfaces"][0] == "query-state:tfs"
+    assert payload["evidence"]["source_surfaces"][1:] == [
         "cdp:open",
         "cdp:wait",
         "cdp:wait:retry",
@@ -263,7 +354,8 @@ def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) ->
 
     assert exit_code == 0
     assert payload["status"] == "experimental"
-    assert payload["evidence"]["source_surfaces"] == [
+    assert payload["evidence"]["source_surfaces"][0] == "query-state:tfs"
+    assert payload["evidence"]["source_surfaces"][1:] == [
         "cdp:open",
         "cdp:wait",
         "cdp:snapshot",
@@ -273,6 +365,51 @@ def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) ->
     run_root = tmp_path / "runs" / "gf-test-snapshot-retry"
     assert (run_root / "snapshot.json").is_file()
     assert (run_root / "snapshot-retry-1.json").is_file()
+
+
+def test_live_search_keeps_snapshot_output_when_network_capture_fails(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(
+                ["network"],
+                {
+                    "ok": False,
+                    "code": "connection_failed",
+                    "message": "capture network target page-1: daemon read i/o timeout",
+                },
+                status="tool_error",
+                exit_code=6,
+            ),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-network-timeout",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    assert payload["evidence"]["source_surfaces"][-1] == "cdp:network"
+    assert any("network evidence capture failed" in warning for warning in payload["warnings"])
+    assert (tmp_path / "runs" / "gf-test-network-timeout" / "network.json").is_file()
 
 
 def test_live_search_stops_on_blocked_headless_state(tmp_path: Path) -> None:
@@ -458,7 +595,7 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
     adapter = FakeCdpAdapter(
         [
             *successful_capture_results(),
-            *successful_capture_results(),
+            *successful_capture_results(query_settle=True),
         ]
     )
 
@@ -477,7 +614,34 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
         "del-cph-senior-oct-nov",
         "cph-lko-oneway-jun",
     ]
-    assert len(adapter.calls) == 8
+    assert len(adapter.calls) == 9
+
+
+def test_live_search_reports_query_population_boundary_per_batch_item(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            *successful_capture_results(),
+            *successful_capture_results(query_settle=True),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=FIXTURES / "search_intents.json",
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+        )
+    )
+
+    assert exit_code == 0
+    assert isinstance(payload, list)
+    assert payload[0]["query_population"]["status"] == "unsupported"
+    assert payload[0]["unsupported"][0]["field"] == "departure_window"
+    assert "tfs=" not in payload[0]["target_url"]
+    assert payload[1]["query_population"]["status"] == "encoded"
+    assert "tfs=" in payload[1]["target_url"]
+    assert payload[1]["unsupported"][0]["field"] == "live_result_extraction"
 
 
 def test_live_search_stops_on_form_interaction_stop_state(tmp_path: Path) -> None:
