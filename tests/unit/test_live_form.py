@@ -11,12 +11,15 @@ def intent(
     trip_type: str = "round_trip",
     cabin: str = "business",
     passengers: PassengerParty | None = None,
+    origin: dict[str, object] | None = None,
+    destination: dict[str, object] | None = None,
 ) -> SearchIntent:
     return SearchIntent.model_validate(
         {
             "query_id": "form-cph-del",
-            "origin": RouteEndpoint(text="CPH", kind="airport_code").model_dump(),
-            "destination": RouteEndpoint(text="DEL", kind="airport_code").model_dump(),
+            "origin": origin or RouteEndpoint(text="CPH", kind="airport_code").model_dump(),
+            "destination": destination
+            or RouteEndpoint(text="DEL", kind="airport_code").model_dump(),
             "trip_type": trip_type,
             "departure_window": DateWindow(start="2026-10-01", end="2026-10-01").model_dump(),
             "return_window": None
@@ -113,3 +116,61 @@ def test_plan_live_form_interaction_defers_unproven_cabin_classes() -> None:
     assert error.value.field == "cabin"
     assert error.value.value == "premium_economy"
     assert "deferred" in error.value.reason
+
+
+def test_plan_live_form_interaction_uses_selected_route_choice_text() -> None:
+    plan = plan_live_form_interaction(
+        intent(
+            cabin="economy",
+            passengers=PassengerParty(adults=1, children=0, infants_in_seat=0, infants_on_lap=0),
+            destination={
+                "text": "Washington DC",
+                "kind": "city_or_airport",
+                "selected": {
+                    "text": "Washington, USA",
+                    "kind": "city",
+                    "display_name": "Washington, USA",
+                    "code_or_id": "/m/0rh6k",
+                    "confidence": "strong",
+                    "evidence": {
+                        "source_surfaces": [
+                            "route-autocomplete-visible-text",
+                            "protobuf-decode-report",
+                        ],
+                        "artifacts": [
+                            "route_autocomplete_choices_fixture.json",
+                            "decode-report.md",
+                        ],
+                    },
+                },
+            },
+        ),
+        page_id="page-1",
+    )
+
+    destination_fill = next(step for step in plan.steps if step.name == "destination-fill")
+    destination_select = next(step for step in plan.steps if step.name == "destination-select")
+    assert destination_fill.args == [
+        "fill",
+        "Where to?",
+        "Washington, USA",
+        "--by",
+        "label",
+        "--exact",
+        "--target",
+        "page-1",
+        "--wait-text",
+        "Washington, USA",
+    ]
+    assert destination_select.args == [
+        "press",
+        "Enter",
+        "Where to?",
+        "--by",
+        "label",
+        "--exact",
+        "--target",
+        "page-1",
+        "--wait-text",
+        "Washington, USA",
+    ]

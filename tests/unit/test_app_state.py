@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from gflights.app_state import PriceCache, init_app_state
+from gflights.app_state import CACHE_MAX_AGE_ENV, CACHE_SCHEMA_VERSION, PriceCache, init_app_state
 
 
 def test_init_app_state_creates_config_and_sqlite_cache(tmp_path: Path) -> None:
@@ -29,13 +29,25 @@ def test_init_app_state_creates_config_and_sqlite_cache(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
+        index_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index'"
+            ).fetchall()
+        }
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
     assert "flight_price_cache" in table_names
+    assert "idx_flight_price_cache_dates" in index_names
+    assert journal_mode == "wal"
+    assert user_version == CACHE_SCHEMA_VERSION
 
 
 def test_init_app_state_preserves_existing_config_values(tmp_path: Path) -> None:
     state = init_app_state(tmp_path)
     original = json.loads(state.config_path.read_text())
     original["browser_default_mode"] = "headed"
+    original["cache_max_age_seconds"] = 8 * 60 * 60
     original["custom_note"] = "keep user configuration"
     state.config_path.write_text(json.dumps(original, indent=2) + "\n")
 
@@ -44,8 +56,21 @@ def test_init_app_state_preserves_existing_config_values(tmp_path: Path) -> None
     assert reloaded.config["browser_default_mode"] == "headed"
     assert reloaded.config["custom_note"] == "keep user configuration"
     assert reloaded.config["live_google_flights_by_default"] is True
-    assert reloaded.config["cache_max_age_seconds"] == 6 * 60 * 60
+    assert reloaded.config["cache_max_age_seconds"] == 8 * 60 * 60
+    assert reloaded.cache_max_age_seconds == 8 * 60 * 60
     assert json.loads(state.config_path.read_text()) == reloaded.config
+
+
+def test_init_app_state_allows_env_cache_age_override(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(CACHE_MAX_AGE_ENV, str(7 * 60 * 60))
+
+    state = init_app_state(tmp_path)
+
+    assert state.config["cache_max_age_seconds"] == 7 * 60 * 60
+    assert state.cache_max_age_seconds == 7 * 60 * 60
 
 
 def test_price_cache_returns_only_entries_at_most_six_hours_old(tmp_path: Path) -> None:

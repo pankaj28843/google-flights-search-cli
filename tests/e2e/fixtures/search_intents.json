@@ -24,7 +24,21 @@
   {
     "query_id": "cph-lko-oneway-jun",
     "origin": {"text": "CPH", "kind": "airport_code"},
-    "destination": {"text": "Lucknow", "kind": "city_or_airport"},
+    "destination": {
+      "text": "Lucknow",
+      "kind": "city_or_airport",
+      "selected": {
+        "text": "Lucknow, Uttar Pradesh, India",
+        "kind": "city",
+        "display_name": "Lucknow, Uttar Pradesh, India",
+        "code_or_id": "/m/022tq4",
+        "confidence": "strong",
+        "evidence": {
+          "source_surfaces": ["route-autocomplete-visible-text", "protobuf-decode-report"],
+          "artifacts": ["route_autocomplete_choices_fixture.json", "decode-report.md"]
+        }
+      }
+    },
     "trip_type": "one_way",
     "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
     "return_window": null,

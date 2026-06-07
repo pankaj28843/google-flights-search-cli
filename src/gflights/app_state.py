@@ -12,7 +12,10 @@ from typing import Any
 
 APP_HOME_ENV = "GFLIGHTS_SEARCH_HOME"
 GOOGLE_FLIGHTS_LIVE_ENV = "GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE"
+CACHE_MAX_AGE_ENV = "GFLIGHTS_CACHE_MAX_AGE_SECONDS"
 DEFAULT_CACHE_MAX_AGE_SECONDS = 6 * 60 * 60
+CACHE_SCHEMA_VERSION = 1
+SQLITE_BUSY_TIMEOUT_MS = 5_000
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,7 @@ class AppState:
     artifact_root: Path
     fixture_root: Path
     config: dict[str, Any]
+    cache_max_age_seconds: int
 
 
 class PriceCache:
@@ -51,7 +55,7 @@ class PriceCache:
         source_run_id: str,
     ) -> None:
         captured_at_utc = _as_utc(captured_at)
-        with sqlite3.connect(self.database_path) as connection:
+        with _connect_database(self.database_path) as connection:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO flight_price_cache (
@@ -87,7 +91,7 @@ class PriceCache:
         now: datetime | None = None,
     ) -> dict[str, Any] | None:
         now_utc = _as_utc(now or datetime.now(UTC))
-        with sqlite3.connect(self.database_path) as connection:
+        with _connect_database(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             row = connection.execute(
                 """
@@ -143,7 +147,7 @@ class PriceCache:
         else:
             return_filter = "return_date = ?"
             params = (query_id, departure_date, currency, return_date)
-        with sqlite3.connect(self.database_path) as connection:
+        with _connect_database(self.database_path) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 f"""
@@ -203,6 +207,8 @@ def init_app_state(root: Path | None = None) -> AppState:
     _init_database(database_path)
     ensure_live_environment()
 
+    existing_config = _load_existing_config(config_path)
+    cache_max_age_seconds = _configured_cache_max_age_seconds(existing_config)
     defaults = {
         "version": 1,
         "browser_default_mode": "headless",
@@ -212,11 +218,11 @@ def init_app_state(root: Path | None = None) -> AppState:
     }
     config = {
         **defaults,
-        **_load_existing_config(config_path),
+        **existing_config,
         "version": 1,
         "live_google_flights_by_default": True,
         "google_flights_live_env": "1",
-        "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
+        "cache_max_age_seconds": cache_max_age_seconds,
         "database_path": str(database_path),
         "artifacts_root": str(artifact_root),
         "fixture_root": str(fixture_root),
@@ -231,6 +237,7 @@ def init_app_state(root: Path | None = None) -> AppState:
         artifact_root=artifact_root,
         fixture_root=fixture_root,
         config=config,
+        cache_max_age_seconds=cache_max_age_seconds,
     )
 
 
@@ -245,6 +252,10 @@ def ensure_live_environment() -> None:
     os.environ[GOOGLE_FLIGHTS_LIVE_ENV] = "1"
 
 
+def price_cache_for_state(state: AppState) -> PriceCache:
+    return PriceCache(state.database_path, max_age_seconds=state.cache_max_age_seconds)
+
+
 def _load_existing_config(config_path: Path) -> dict[str, Any]:
     if not config_path.is_file():
         return {}
@@ -257,9 +268,23 @@ def _load_existing_config(config_path: Path) -> dict[str, Any]:
     return {}
 
 
+def _configured_cache_max_age_seconds(config: dict[str, Any]) -> int:
+    raw_value: Any = os.environ.get(CACHE_MAX_AGE_ENV)
+    if raw_value is None:
+        raw_value = config.get("cache_max_age_seconds", DEFAULT_CACHE_MAX_AGE_SECONDS)
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return DEFAULT_CACHE_MAX_AGE_SECONDS
+    if value <= 0:
+        return DEFAULT_CACHE_MAX_AGE_SECONDS
+    return value
+
+
 def _init_database(database_path: Path) -> None:
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(database_path) as connection:
+    with _connect_database(database_path) as connection:
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS flight_price_cache (
@@ -281,6 +306,29 @@ def _init_database(database_path: Path) -> None:
             ON flight_price_cache(captured_at)
             """
         )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flight_price_cache_dates
+            ON flight_price_cache(
+                query_id,
+                departure_date,
+                return_date,
+                currency,
+                price_amount,
+                captured_at
+            )
+            """
+        )
+        connection.execute(f"PRAGMA user_version = {CACHE_SCHEMA_VERSION}")
+
+
+def _connect_database(database_path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(
+        database_path,
+        timeout=SQLITE_BUSY_TIMEOUT_MS / 1000,
+    )
+    connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    return connection
 
 
 def _as_utc(value: datetime) -> datetime:

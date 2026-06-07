@@ -180,6 +180,42 @@ def test_scan_dates_without_cache_or_probe_records_skipped_pairs(
     assert all(pair["evidence"]["source_surfaces"] for pair in result["pair_coverage"])
 
 
+def test_scan_dates_uses_configured_cache_max_age(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 6, 7, 12, 0, tzinfo=UTC)
+    state = init_app_state(tmp_path / "state")
+    config = json.loads(state.config_path.read_text())
+    config["cache_max_age_seconds"] = 8 * 60 * 60
+    state.config_path.write_text(json.dumps(config, indent=2) + "\n")
+    PriceCache(state.database_path).put_price(
+        cache_key="seven-hour-del-cph-2026-10-01-2026-11-24",
+        query_id="del-cph-window",
+        departure_date="2026-10-01",
+        return_date="2026-11-24",
+        currency="EUR",
+        price_amount=650,
+        price_payload={
+            "result_id": "seven-hour-ai-650",
+            "price": {"amount": 650, "currency": "EUR", "text": "EUR 650"},
+        },
+        captured_at=now - timedelta(hours=7),
+        source_run_id="gf-cache-seven-hour",
+    )
+
+    results = services.scan_dates(
+        _write_single_pair_intent(tmp_path),
+        FIXTURES,
+        project_root=state.root,
+        now=now,
+    )
+
+    result = results[0]
+    assert result["coverage_counts"]["fresh_cache"] == 1
+    assert result["pair_coverage"][0]["status"] == "fresh_cache"
+    assert result["ranked_pairs"][0]["best_observed_price"]["amount"] == 650
+
+
 def test_replay_fixture_returns_result_evidence() -> None:
     exit_code, payload = services.replay_fixture(FIXTURES / "offline_results_fixture.json")
 
@@ -327,6 +363,104 @@ def test_search_returns_unsupported_for_deferred_live_layover_filter() -> None:
     assert payload["unsupported"][0]["field"] == "google_filters.maximum_layover_minutes"
 
 
+def test_search_offline_blocks_ambiguous_route_text_without_selected_choice(
+    tmp_path: Path,
+) -> None:
+    intent_path = _write_lucknow_intent(tmp_path, selected_destination=None)
+
+    exit_code, payload = services.search_offline(intent_path, FIXTURES)
+
+    assert exit_code == 2
+    assert payload["status"] == "ambiguous"
+    assert payload["query_id"] == "cph-lucknow-ambiguous"
+    assert payload["route_ambiguities"][0]["field"] == "destination"
+    assert [choice["code_or_id"] for choice in payload["route_ambiguities"][0]["choices"]] == [
+        "/m/022tq4",
+        "LKO",
+    ]
+    assert payload["results"] == []
+
+
+def test_search_offline_accepts_selected_route_choice_for_ambiguous_text(
+    tmp_path: Path,
+) -> None:
+    intent_path = _write_lucknow_intent(
+        tmp_path,
+        selected_destination=_lucknow_city_choice(),
+    )
+
+    exit_code, payload = services.search_offline(intent_path, FIXTURES)
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["route_resolution"]["status"] == "ok"
+    assert payload["route_resolution"]["selected_fields"] == ["destination"]
+
+
+def test_search_offline_reports_route_ambiguity_per_batch_item(
+    tmp_path: Path,
+) -> None:
+    intent_path = tmp_path / "mixed-route-intents.json"
+    intent_path.write_text(
+        json.dumps(
+            [
+                _cph_del_intent(),
+                _lucknow_intent_payload(selected_destination=None),
+            ]
+        )
+    )
+
+    exit_code, payload = services.search_offline(intent_path, FIXTURES)
+
+    assert exit_code == 2
+    assert isinstance(payload, list)
+    assert [item["query_id"] for item in payload] == [
+        "cph-del-selected",
+        "cph-lucknow-ambiguous",
+    ]
+    assert [item["status"] for item in payload] == ["ok", "ambiguous"]
+    assert payload[1]["route_ambiguities"][0]["field"] == "destination"
+
+
+def test_search_offline_rejects_unresolved_route_text_without_guessing(
+    tmp_path: Path,
+) -> None:
+    exit_code, payload = services.search_offline(_write_unknown_city_intent(tmp_path), FIXTURES)
+
+    assert exit_code == 3
+    assert payload["status"] == "unsupported"
+    assert payload["query_id"] == "cph-unknown-route"
+    assert payload["results"] == []
+    assert payload["route_resolution"]["status"] == "unsupported"
+    assert payload["unsupported"][0]["field"] == "route.resolve.input_text"
+
+
+def test_scan_dates_blocks_ambiguous_route_text_without_selected_choice(
+    tmp_path: Path,
+) -> None:
+    result = services.scan_dates(
+        _write_lucknow_intent(tmp_path, selected_destination=None),
+        FIXTURES,
+    )[0]
+
+    assert result["status"] == "ambiguous"
+    assert result["generated_pairs"] == 0
+    assert result["ranked_pairs"] == []
+    assert result["route_ambiguities"][0]["field"] == "destination"
+
+
+def test_scan_dates_rejects_unresolved_route_text_without_pairs(
+    tmp_path: Path,
+) -> None:
+    result = services.scan_dates(_write_unknown_city_intent(tmp_path), FIXTURES)[0]
+
+    assert result["status"] == "unsupported"
+    assert result["generated_pairs"] == 0
+    assert result["ranked_pairs"] == []
+    assert result["route_resolution"]["status"] == "unsupported"
+    assert result["unsupported"][0]["field"] == "route.resolve.input_text"
+
+
 def test_project_init_creates_config_and_artifact_root(tmp_path: Path) -> None:
     payload = services.init_project(tmp_path)
     config = json.loads((tmp_path / "config.json").read_text())
@@ -369,3 +503,119 @@ def _write_window_intent(path: Path) -> Path:
         )
     )
     return intent_path
+
+
+def _write_single_pair_intent(path: Path) -> Path:
+    intent_path = path / "single-pair-intent.json"
+    intent_path.write_text(
+        json.dumps(
+            {
+                "query_id": "del-cph-window",
+                "origin": {"text": "Delhi", "kind": "city_or_airport"},
+                "destination": {"text": "Copenhagen", "kind": "city_or_airport"},
+                "trip_type": "round_trip",
+                "departure_window": {"start": "2026-10-01", "end": "2026-10-01"},
+                "return_window": {"start": "2026-11-24", "end": "2026-11-24"},
+                "passengers": {"adults": 2},
+                "cabin": "economy",
+                "currency": "EUR",
+                "language": "en",
+                "sort": "price",
+            }
+        )
+    )
+    return intent_path
+
+
+def _write_lucknow_intent(
+    path: Path,
+    *,
+    selected_destination: dict[str, object] | None,
+) -> Path:
+    intent_path = path / "lucknow-intent.json"
+    intent_path.write_text(json.dumps(_lucknow_intent_payload(selected_destination)))
+    return intent_path
+
+
+def _write_unknown_city_intent(path: Path) -> Path:
+    intent_path = path / "unknown-city-intent.json"
+    intent_path.write_text(
+        json.dumps(
+            {
+                "query_id": "cph-unknown-route",
+                "origin": {"text": "CPH", "kind": "airport_code"},
+                "destination": {"text": "Atlantis", "kind": "city_or_airport"},
+                "trip_type": "one_way",
+                "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
+                "return_window": None,
+                "passengers": {"adults": 1},
+                "cabin": "economy",
+                "currency": "EUR",
+                "language": "en",
+                "sort": "price",
+            }
+        )
+    )
+    return intent_path
+
+
+def _lucknow_intent_payload(
+    selected_destination: dict[str, object] | None,
+) -> dict[str, object]:
+    destination: dict[str, object] = {"text": "Lucknow", "kind": "city_or_airport"}
+    if selected_destination is not None:
+        destination["selected"] = selected_destination
+    return {
+        "query_id": "cph-lucknow-ambiguous",
+        "origin": {"text": "CPH", "kind": "airport_code"},
+        "destination": destination,
+        "trip_type": "one_way",
+        "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
+        "return_window": None,
+        "passengers": {
+            "adults": 1,
+            "children": 0,
+            "infants_in_seat": 0,
+            "infants_on_lap": 0,
+        },
+        "cabin": "economy",
+        "currency": "EUR",
+        "language": "en",
+        "sort": "price",
+    }
+
+
+def _cph_del_intent() -> dict[str, object]:
+    return {
+        "query_id": "cph-del-selected",
+        "origin": {"text": "CPH", "kind": "airport_code"},
+        "destination": {"text": "DEL", "kind": "airport_code"},
+        "trip_type": "one_way",
+        "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
+        "return_window": None,
+        "passengers": {"adults": 1},
+        "cabin": "economy",
+        "currency": "EUR",
+        "language": "en",
+        "sort": "price",
+    }
+
+
+def _lucknow_city_choice() -> dict[str, object]:
+    return {
+        "text": "Lucknow, Uttar Pradesh, India",
+        "kind": "city",
+        "display_name": "Lucknow, Uttar Pradesh, India",
+        "code_or_id": "/m/022tq4",
+        "confidence": "strong",
+        "evidence": {
+            "source_surfaces": [
+                "route-autocomplete-visible-text",
+                "protobuf-decode-report",
+            ],
+            "artifacts": [
+                "route_autocomplete_choices_fixture.json",
+                "decode-report.md",
+            ],
+        },
+    }

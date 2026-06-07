@@ -6,7 +6,7 @@ import base64
 from dataclasses import dataclass
 from typing import Any
 
-from gflights.domain import SearchIntent
+from gflights.domain import RouteChoice, RouteEndpoint, SearchIntent
 
 
 class UnsupportedQueryState(ValueError):
@@ -32,14 +32,6 @@ class QueryEndpoint:
     encoded_value: str
 
 
-_CITY_OR_AIRPORT_ENDPOINTS = {
-    "copenhagen": QueryEndpoint(1, "CPH"),
-    "delhi": QueryEndpoint(1, "DEL"),
-    "new delhi": QueryEndpoint(1, "DEL"),
-    "lucknow": QueryEndpoint(3, "/m/022tq4"),
-    "washington": QueryEndpoint(3, "/m/0rh6k"),
-    "washington dc": QueryEndpoint(3, "/m/0rh6k"),
-}
 _CABIN_VALUES = {
     "economy": 1,
     "business": 3,
@@ -68,8 +60,8 @@ def build_query_state(intent: SearchIntent) -> EncodedQueryState:
     """Build supported populated Google Flights query parameters."""
 
     _validate_concrete_dates(intent)
-    origin = _endpoint(intent.origin.text, intent.origin.kind, field="origin")
-    destination = _endpoint(intent.destination.text, intent.destination.kind, field="destination")
+    origin = _endpoint(intent.origin, field="origin")
+    destination = _endpoint(intent.destination, field="destination")
     cabin = _cabin(intent)
 
     params = {
@@ -120,26 +112,38 @@ def _validate_concrete_dates(intent: SearchIntent) -> None:
             )
 
 
-def _endpoint(text: str, kind: str, *, field: str) -> QueryEndpoint:
-    if kind == "airport_code":
-        airport_code = text.strip().upper()
+def _endpoint(endpoint: RouteEndpoint, *, field: str) -> QueryEndpoint:
+    if endpoint.selected is not None:
+        return _selected_endpoint(endpoint.selected, field=field)
+
+    if endpoint.kind == "airport_code":
+        airport_code = endpoint.text.strip().upper()
         if len(airport_code) != 3 or not airport_code.isalpha():
             raise UnsupportedQueryState(
                 f"{field}.text",
-                text,
+                endpoint.text,
                 "airport-code query-state encoding requires a three-letter IATA code",
             )
         return QueryEndpoint(1, airport_code)
 
-    key = " ".join(text.casefold().split())
-    endpoint = _CITY_OR_AIRPORT_ENDPOINTS.get(key)
-    if endpoint is None:
-        raise UnsupportedQueryState(
-            field,
-            {"text": text, "kind": kind},
-            "city-or-airport query-state encoding is limited to evidence-backed autocomplete choices",
-        )
-    return endpoint
+    raise UnsupportedQueryState(
+        field,
+        endpoint.model_dump(mode="json"),
+        "city-or-airport query-state encoding requires a selected route choice from route resolve",
+    )
+
+
+def _selected_endpoint(choice: RouteChoice, *, field: str) -> QueryEndpoint:
+    code_or_id = choice.code_or_id
+    if choice.kind == "airport_code" and code_or_id is not None:
+        return QueryEndpoint(1, code_or_id.strip().upper())
+    if code_or_id and code_or_id.startswith("/"):
+        return QueryEndpoint(3, code_or_id)
+    raise UnsupportedQueryState(
+        f"{field}.selected",
+        choice.model_dump(mode="json"),
+        "selected route choice needs a visible airport code or reviewed decoded city id for query-state encoding",
+    )
 
 
 def _cabin(intent: SearchIntent) -> int:

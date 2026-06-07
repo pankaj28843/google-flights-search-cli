@@ -10,6 +10,7 @@ build/
 # Runtime artifacts are task-scoped and normally uncommitted.
 artifacts/*
 !artifacts/README.md
+tmp/
 
 # Local project configs created by future CLI commands.
 .gflights/

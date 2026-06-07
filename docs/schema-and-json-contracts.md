@@ -38,6 +38,44 @@ runs may override that location with `GFLIGHTS_SEARCH_HOME` or by passing
 cache stores flight-price observations so a route/date/currency combination can
 reuse only data that is at most six hours old. Commands that write files should
 return artifact, fixture, database, or run paths in JSON.
+Users may set `cache_max_age_seconds` in `config.json` or
+`GFLIGHTS_CACHE_MAX_AGE_SECONDS` in the environment to use a different freshness
+window for the current run.
+
+## SearchIntent Route Endpoints
+
+`SearchIntent.origin` and `SearchIntent.destination` are route endpoint objects:
+
+```json
+{
+  "text": "Lucknow",
+  "kind": "city_or_airport",
+  "selected": {
+    "text": "Lucknow, Uttar Pradesh, India",
+    "kind": "city",
+    "display_name": "Lucknow, Uttar Pradesh, India",
+    "code_or_id": "/m/022tq4",
+    "confidence": "strong",
+    "evidence": {
+      "source_surfaces": ["route-autocomplete-visible-text", "protobuf-decode-report"],
+      "artifacts": ["route_autocomplete_choices_fixture.json", "decode-report.md"]
+    }
+  }
+}
+```
+
+`selected` is optional for bare airport-code endpoints whose `text` is a
+visible IATA code. It is required when a city/city-like endpoint must be encoded
+into query state or when `search`/`dates scan` would otherwise need to guess
+from ambiguous route text.
+
+`RouteChoice` fields are stable JSON contract fields: `text`, `kind`,
+`display_name`, `code_or_id`, `confidence`, and `evidence`. Airport choices must
+carry a visible three-letter IATA `code_or_id`. Every selected `RouteChoice`
+must carry non-empty `evidence.source_surfaces` and `evidence.artifacts`.
+City choices may carry a reviewed decoded Google Flights city id only when that
+id comes from a separate decode/protobuf evidence surface; otherwise the choice
+remains usable for form interaction but not for direct query-state encoding.
 
 ## Live Evidence Command
 
@@ -51,7 +89,8 @@ The command accepts either one `SearchIntent` object or a JSON array of
 `SearchIntent` objects. Single-object input returns one JSON object. JSON-array
 input returns a JSON array in the same order, with one output object per input
 intent. The command opens Google Flights with language and currency context,
-writes a state-local `runs/<run-id>/` evidence bundle, and returns one of:
+writes a state-local `runs/<run-id>/` evidence bundle, records
+`managed-tab-close.json` when it owns a page target, and returns one of:
 
 - `ok` with weak confidence and primary result rows when visible text contains
   parseable primary search rows plus a `cache.price_observations_written`
@@ -66,8 +105,9 @@ For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
 search first opens a populated Google Flights URL using fixture-backed `tfs`
 and, when needed, short sort `tfu` query state. The output includes
 `query_population.status = "encoded"`, confidence, populated parameter names,
-source surfaces, and evidence references. Inputs outside the supported encoded
-surface still open the Google Flights shell and return
+source surfaces, and evidence references. City/city-like route inputs need a
+`selected` route choice before this encoded path is allowed. Inputs outside the
+supported encoded surface still open the Google Flights shell and return
 `query_population.status = "unsupported"` with an actionable unsupported field
 such as `departure_window`, `destination`, `cabin`, or `trip_type`.
 `--offline-fixtures` is the explicit deterministic replay path. `--live-cdp`
@@ -105,10 +145,23 @@ When a reviewed match has multiple candidates, the command exits `2` with
 candidate `choices`. Each choice must carry `text`, `kind`, `display_name`,
 `code_or_id`, `confidence`, and `evidence`.
 
+`search` and `dates scan` may call the same route-resolution service before
+probing. If a `city_or_airport` endpoint has no `selected` choice and the
+resolver finds multiple candidates, the command exits `2` with
+`status: "ambiguous"` and `route_ambiguities`. Each ambiguity item names the
+input field (`origin` or `destination`), input text, ambiguity reason, ordered
+choices, and evidence. JSON-array search input preserves item order and reports
+ambiguity per affected item instead of failing the whole batch.
+If route fixtures cannot resolve a `city_or_airport` endpoint at all, `search`
+and `dates scan` exit `3` with `status: "unsupported"` and the route resolver's
+`unsupported` entries. They must not continue with date-pair generation or
+offline search bootstrap behavior for an unproven route.
+
 When `--offline-fixtures` is omitted, route resolution opens the live Google
 Flights shell through cdp, fills the route autocomplete field, writes
 task-scoped route evidence under the state root, and stops on browser safety
-boundaries.
+boundaries. When it owns a page target, its run bundle includes
+`managed-tab-close.json`.
 
 If visible autocomplete evidence contains parser-backed choices, the command
 returns the same `ok` or `ambiguous` shape as offline route resolution. Airport
@@ -152,6 +205,14 @@ only pairs backed by a fresh cache row or a probe result with a visible price.
 `--offline-fixtures` remains the deterministic bootstrap/replay path for the
 older e2e contract. Default validation does not probe live Google Flights from
 `dates scan`.
+
+When `dates scan` receives route fixtures and a route endpoint is ambiguous
+without a selected route choice, it returns exit `2`, `status: "ambiguous"`,
+and `route_ambiguities` before generating ranked pairs. This keeps date
+recommendations from being built on unresolved Google Flights route semantics.
+When route fixtures cannot resolve a route endpoint, `dates scan` returns exit
+`3`, `status: "unsupported"`, `generated_pairs: 0`, and the resolver's
+`unsupported` entries.
 
 When `ranking_policy` is `comfort_aware_v1`, each ranked pair has a
 `scoring_explanation` with `score`, `google_flights_filters_applied: false`,
@@ -217,7 +278,8 @@ captures a visible-text snapshot, and returns either:
 The command must not click provider `Continue` controls, enter provider
 checkout, enter payment or personal data, or attempt account login. Default
 validation covers this with fake cdp adapters; live runs remain explicit and
-task-scoped.
+task-scoped. When the command owns a page target, its run bundle includes
+`managed-tab-close.json`.
 
 ## Status Values
 

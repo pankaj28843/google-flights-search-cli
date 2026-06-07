@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from gflights.app_state import DEFAULT_CACHE_MAX_AGE_SECONDS, AppState, PriceCache, init_app_state
+from gflights.app_state import AppState, PriceCache, init_app_state, price_cache_for_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
 from gflights.itinerary_extraction import extract_selected_itinerary
@@ -57,7 +57,7 @@ def init_project(path: Path) -> dict[str, Any]:
         "artifacts_root": str(state.artifact_root),
         "fixture_root": str(state.fixture_root),
         "run_root": str(state.run_root),
-        "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
+        "cache_max_age_seconds": state.cache_max_age_seconds,
     }
 
 
@@ -103,7 +103,7 @@ def scan_dates(
         return [_date_scan_result(intent, offline_fixtures) for intent in intents]
 
     state = init_app_state(project_root)
-    cache = PriceCache(state.database_path)
+    cache = price_cache_for_state(state)
     observed_at = now or datetime.now(UTC)
     return [
         _date_scan_live_or_cache_result(
@@ -112,12 +112,26 @@ def scan_dates(
             cache=cache,
             now=observed_at,
             date_pair_probe=date_pair_probe,
+            route_fixtures=offline_fixtures,
         )
         for intent in intents
     ]
 
 
+def exit_code_for_payload(payload: dict[str, Any] | list[dict[str, Any]]) -> int:
+    outputs = payload if isinstance(payload, list) else [payload]
+    return _aggregate_exit_code(
+        [_exit_code_for_status(str(item.get("status"))) for item in outputs]
+    )
+
+
 def _date_scan_result(intent: SearchIntent, offline_fixtures: Path) -> dict[str, Any]:
+    route_resolution = _route_resolution_for_intent(intent, offline_fixtures)
+    if route_resolution["status"] == "ambiguous":
+        return _date_scan_route_ambiguity_result(intent, route_resolution)
+    if route_resolution["status"] == "unsupported":
+        return _date_scan_route_unsupported_result(intent, route_resolution)
+
     departure_count = _inclusive_days(intent.departure_window.start, intent.departure_window.end)
     if intent.trip_type == "round_trip" and intent.return_window is not None:
         return_count = _inclusive_days(intent.return_window.start, intent.return_window.end)
@@ -158,6 +172,7 @@ def _date_scan_result(intent: SearchIntent, offline_fixtures: Path) -> dict[str,
             "source_surfaces": ["offline-fixtures"],
             "artifacts": [str(offline_fixtures)],
         },
+        "route_resolution": route_resolution,
     }
 
 
@@ -174,7 +189,15 @@ def _date_scan_live_or_cache_result(
     cache: PriceCache,
     now: datetime,
     date_pair_probe: DatePairProbe | None,
+    route_fixtures: Path | None,
 ) -> dict[str, Any]:
+    if route_fixtures is not None:
+        route_resolution = _route_resolution_for_intent(intent, route_fixtures)
+        if route_resolution["status"] == "ambiguous":
+            return _date_scan_route_ambiguity_result(intent, route_resolution)
+        if route_resolution["status"] == "unsupported":
+            return _date_scan_route_unsupported_result(intent, route_resolution)
+
     pairs = _date_pairs(intent)
     counts = {"fresh_cache": 0, "probed": 0, "unsupported": 0, "skipped": 0}
     pair_coverage: list[dict[str, Any]] = []
@@ -337,7 +360,7 @@ def _date_scan_live_or_cache_result(
         "cache": {
             "database_path": str(state.database_path),
             "fresh_pairs_used": counts["fresh_cache"],
-            "max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
+            "max_age_seconds": state.cache_max_age_seconds,
         },
         "evidence": {
             "run_id": "date-scan-live-or-cache",
@@ -499,6 +522,163 @@ def _pair_unsupported(
             }
         )
     return items
+
+
+def _route_resolution_for_intent(
+    intent: SearchIntent,
+    offline_fixtures: Path,
+) -> dict[str, Any]:
+    ambiguities: list[dict[str, Any]] = []
+    resolved_fields: list[str] = []
+    selected_fields: list[str] = []
+    unsupported: list[dict[str, Any]] = []
+    source_surfaces = {"offline-fixtures"}
+    artifacts = {str(offline_fixtures)}
+
+    for field in ("origin", "destination"):
+        endpoint = getattr(intent, field)
+        if endpoint.selected is not None:
+            selected_fields.append(field)
+            selected_evidence = endpoint.selected.evidence or {}
+            surfaces = selected_evidence.get("source_surfaces")
+            if isinstance(surfaces, list):
+                source_surfaces.update(str(item) for item in surfaces)
+            evidence_artifacts = selected_evidence.get("artifacts")
+            if isinstance(evidence_artifacts, list):
+                artifacts.update(str(item) for item in evidence_artifacts)
+            continue
+        if endpoint.kind != "city_or_airport":
+            continue
+
+        exit_code, payload = resolve_route(endpoint.text, offline_fixtures)
+        artifacts.update(str(item) for item in _payload_artifacts(payload))
+        surfaces = payload.get("evidence", {}).get("source_surfaces")
+        if isinstance(surfaces, list):
+            source_surfaces.update(str(item) for item in surfaces)
+
+        if exit_code == 0:
+            resolved_fields.append(field)
+            continue
+        if exit_code == 2:
+            ambiguities.append(
+                {
+                    "field": field,
+                    "input_text": endpoint.text,
+                    "ambiguity_reason": payload.get("ambiguity_reason") or "multiple_route_choices",
+                    "choices": payload.get("choices", []),
+                    "evidence": payload.get("evidence", {}),
+                }
+            )
+            continue
+        unsupported.extend(payload.get("unsupported", []))
+
+    status = "unsupported" if unsupported else "ambiguous" if ambiguities else "ok"
+    return {
+        "status": status,
+        "selected_fields": selected_fields,
+        "resolved_fields": resolved_fields,
+        "route_ambiguities": ambiguities,
+        "unsupported": unsupported,
+        "evidence": {
+            "run_id": "route-resolution-preflight",
+            "source_surfaces": sorted(source_surfaces),
+            "artifacts": sorted(artifacts),
+        },
+    }
+
+
+def _search_route_ambiguity_payload(
+    intent: SearchIntent,
+    route_resolution: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "query_id": intent.query_id,
+        "status": "ambiguous",
+        "confidence": "unknown",
+        "results": [],
+        "route_ambiguities": route_resolution["route_ambiguities"],
+        "unsupported": [],
+        "warnings": ["selected route choice is required before search"],
+        "route_resolution": route_resolution,
+        "evidence": route_resolution["evidence"],
+    }
+
+
+def _date_scan_route_ambiguity_result(
+    intent: SearchIntent,
+    route_resolution: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "query_id": intent.query_id,
+        "status": "ambiguous",
+        "generated_pairs": 0,
+        "probed_pairs": 0,
+        "coverage_counts": {
+            "fresh_cache": 0,
+            "probed": 0,
+            "unsupported": 0,
+            "skipped": 0,
+        },
+        "pair_coverage": [],
+        "ranked_pairs": [],
+        "ranking_policy": "not_applicable_route_ambiguity",
+        "route_ambiguities": route_resolution["route_ambiguities"],
+        "unsupported": [],
+        "warnings": ["selected route choice is required before date scanning"],
+        "route_resolution": route_resolution,
+        "evidence": route_resolution["evidence"],
+    }
+
+
+def _search_route_unsupported_payload(
+    intent: SearchIntent,
+    route_resolution: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "query_id": intent.query_id,
+        "status": "unsupported",
+        "confidence": "unknown",
+        "results": [],
+        "route_ambiguities": route_resolution["route_ambiguities"],
+        "unsupported": route_resolution["unsupported"],
+        "warnings": ["route choice could not be resolved from reviewed evidence"],
+        "route_resolution": route_resolution,
+        "evidence": route_resolution["evidence"],
+    }
+
+
+def _date_scan_route_unsupported_result(
+    intent: SearchIntent,
+    route_resolution: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "query_id": intent.query_id,
+        "status": "unsupported",
+        "generated_pairs": 0,
+        "probed_pairs": 0,
+        "coverage_counts": {
+            "fresh_cache": 0,
+            "probed": 0,
+            "unsupported": 0,
+            "skipped": 0,
+        },
+        "pair_coverage": [],
+        "ranked_pairs": [],
+        "ranking_policy": "not_applicable_route_unsupported",
+        "route_ambiguities": route_resolution["route_ambiguities"],
+        "unsupported": route_resolution["unsupported"],
+        "warnings": ["route choice could not be resolved from reviewed evidence"],
+        "route_resolution": route_resolution,
+        "evidence": route_resolution["evidence"],
+    }
+
+
+def _payload_artifacts(payload: dict[str, Any]) -> list[str]:
+    evidence = payload.get("evidence")
+    if not isinstance(evidence, dict):
+        return []
+    artifacts = evidence.get("artifacts")
+    return [str(item) for item in artifacts] if isinstance(artifacts, list) else []
 
 
 def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
@@ -719,6 +899,12 @@ def search_offline(
 def _search_offline_intent(
     intent: SearchIntent, offline_fixtures: Path
 ) -> tuple[int, dict[str, Any]]:
+    route_resolution = _route_resolution_for_intent(intent, offline_fixtures)
+    if route_resolution["status"] == "ambiguous":
+        return 2, _search_route_ambiguity_payload(intent, route_resolution)
+    if route_resolution["status"] == "unsupported":
+        return 3, _search_route_unsupported_payload(intent, route_resolution)
+
     google_filters = intent.google_filters or {}
     if (
         google_filters.get("require_live_google_filter")
@@ -756,6 +942,7 @@ def _search_offline_intent(
             "source_surfaces": ["offline-fixtures"],
             "artifacts": [str(offline_fixtures)],
         },
+        "route_resolution": route_resolution,
     }
 
 
@@ -793,6 +980,20 @@ def _aggregate_exit_code(exit_codes: list[int]) -> int:
     return 0
 
 
+def _exit_code_for_status(status: str) -> int:
+    if status == "tool_error":
+        return 6
+    if status == "stale_fixture":
+        return 5
+    if status == "blocked":
+        return 4
+    if status in {"unsupported", "deferred"}:
+        return 3
+    if status == "ambiguous":
+        return 2
+    return 0
+
+
 def doctor_report() -> dict[str, Any]:
     state = init_app_state()
     return {
@@ -811,7 +1012,7 @@ def doctor_report() -> dict[str, Any]:
             "config_path": str(state.config_path),
             "database_path": str(state.database_path),
             "run_root": str(state.run_root),
-            "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
+            "cache_max_age_seconds": state.cache_max_age_seconds,
         },
         "toolchain": {
             "python_project": True,

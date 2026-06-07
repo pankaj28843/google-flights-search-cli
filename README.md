@@ -15,7 +15,8 @@ Runtime state defaults to `~/.gflights-search`: `config.json`, `cache.sqlite`,
 and task-scoped `runs/` evidence bundles live there unless `GFLIGHTS_SEARCH_HOME`
 or an explicit state path overrides it. The default config sets
 `GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1` and keeps cached flight-price observations
-fresh for at most six hours.
+fresh for at most six hours. Set `cache_max_age_seconds` in `config.json` or
+`GFLIGHTS_CACHE_MAX_AGE_SECONDS` for a run-specific freshness override.
 
 ## Validation
 

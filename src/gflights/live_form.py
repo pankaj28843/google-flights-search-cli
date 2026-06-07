@@ -41,13 +41,31 @@ def plan_live_form_interaction(intent: SearchIntent, *, page_id: str) -> LiveFor
 
     steps.extend(
         [
-            _fill_label("origin-fill", "Where from?", intent.origin.text, page_id=page_id),
-            _press_label(
-                "origin-select", "Where from?", "Enter", intent.origin.text, page_id=page_id
+            _fill_label(
+                "origin-fill",
+                "Where from?",
+                _route_form_text(intent.origin),
+                page_id=page_id,
             ),
-            _fill_label("destination-fill", "Where to?", intent.destination.text, page_id=page_id),
             _press_label(
-                "destination-select", "Where to?", "Enter", intent.destination.text, page_id=page_id
+                "origin-select",
+                "Where from?",
+                "Enter",
+                _route_form_text(intent.origin),
+                page_id=page_id,
+            ),
+            _fill_label(
+                "destination-fill",
+                "Where to?",
+                _route_form_text(intent.destination),
+                page_id=page_id,
+            ),
+            _press_label(
+                "destination-select",
+                "Where to?",
+                "Enter",
+                _route_form_text(intent.destination),
+                page_id=page_id,
             ),
             _fill_label(
                 "departure-fill",
@@ -105,17 +123,17 @@ def validate_live_form_support(intent: SearchIntent) -> None:
             intent.cabin,
             "premium economy and first live cabin interaction are deferred until focused evidence proves them",
         )
-    if intent.origin.kind != "airport_code":
+    if intent.origin.kind != "airport_code" and intent.origin.selected is None:
         raise UnsupportedLiveForm(
             "origin.kind",
             intent.origin.kind,
-            "live route interaction is limited to airport-code inputs until autocomplete disambiguation is implemented",
+            "live route interaction for city-or-airport inputs requires a selected route choice",
         )
-    if intent.destination.kind != "airport_code":
+    if intent.destination.kind != "airport_code" and intent.destination.selected is None:
         raise UnsupportedLiveForm(
             "destination.kind",
             intent.destination.kind,
-            "live route interaction is limited to airport-code inputs until autocomplete disambiguation is implemented",
+            "live route interaction for city-or-airport inputs requires a selected route choice",
         )
     if intent.departure_window.start != intent.departure_window.end:
         raise UnsupportedLiveForm(
@@ -223,6 +241,13 @@ def _fill_label(name: str, label: str, value: str, *, page_id: str) -> LiveFormS
         source_surface=f"cdp:form:{name}",
         artifact_name=f"form-{name}.json",
     )
+
+
+def _route_form_text(endpoint: Any) -> str:
+    selected = getattr(endpoint, "selected", None)
+    if selected is None:
+        return endpoint.text
+    return selected.text or selected.display_name
 
 
 def _press_label(

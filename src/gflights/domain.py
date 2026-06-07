@@ -29,11 +29,59 @@ Sort = Literal[
     "duration",
     "emissions",
 ]
+RouteChoiceKind = Literal["airport_code", "city", "city_or_airport", "station"]
+
+
+class RouteChoice(BaseModel):
+    text: str
+    kind: RouteChoiceKind
+    display_name: str
+    code_or_id: str | None = None
+    confidence: Confidence = "weak"
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_choice_code(self) -> RouteChoice:
+        source_surfaces = _evidence_values(self.evidence, "source_surfaces")
+        artifacts = _evidence_values(self.evidence, "artifacts")
+        if not source_surfaces or not artifacts:
+            raise ValueError(
+                "route choices require evidence.source_surfaces and evidence.artifacts"
+            )
+
+        code_or_id = (self.code_or_id or "").strip()
+        if self.kind == "airport_code":
+            code = code_or_id.upper()
+            if len(code) != 3 or not code.isalpha():
+                raise ValueError("airport route choices require a visible three-letter IATA code")
+            self.code_or_id = code
+            return self
+
+        if code_or_id:
+            self.code_or_id = code_or_id
+        if code_or_id.startswith("/") and not _has_decoded_route_id_evidence(
+            source_surfaces, artifacts
+        ):
+            raise ValueError("decoded city route ids require decode/protobuf evidence")
+        return self
 
 
 class RouteEndpoint(BaseModel):
     text: str
     kind: Literal["airport_code", "city_or_airport"]
+    selected: RouteChoice | None = None
+
+
+def _evidence_values(evidence: dict[str, Any], key: str) -> list[str]:
+    values = evidence.get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(value) for value in values if str(value).strip()]
+
+
+def _has_decoded_route_id_evidence(source_surfaces: list[str], artifacts: list[str]) -> bool:
+    evidence_text = " ".join([*source_surfaces, *artifacts]).casefold()
+    return "decode" in evidence_text or "protobuf" in evidence_text
 
 
 class DateWindow(BaseModel):

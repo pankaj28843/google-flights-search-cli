@@ -254,6 +254,14 @@ The route resolver must return choices with:
 - `confidence`
 - `evidence`
 
+When a route choice is supplied back in `SearchIntent.origin.selected` or
+`SearchIntent.destination.selected`, the selected object must use the same
+normalized `RouteChoice` shape. `evidence.source_surfaces` and
+`evidence.artifacts` must be non-empty. Airport choices may use a visible
+three-letter IATA code. City choices may use a Google Flights city id such as
+`/m/...` only when the evidence names a reviewed decode/protobuf surface; visible
+autocomplete text alone is not enough to support direct query-state encoding.
+
 Ambiguous autocomplete input must return `ambiguous` and candidate choices
 instead of selecting silently.
 
@@ -267,7 +275,9 @@ When `--offline-fixtures` contains a reviewed
 `route_autocomplete_choices` fixture, the command returns `ok` with
 `selected` for a single evidence-backed airport/city choice, or `ambiguous`
 with `selected: null` and `choices` for multi-airport or similarly named
-locations.
+locations. If route fixtures cannot resolve a `city_or_airport` endpoint,
+search and date-scan workflows must return `unsupported` instead of continuing
+with a guessed route.
 
 When `--offline-fixtures` is absent, `gflights route resolve` opens the live
 Google Flights shell through cdp, fills the route autocomplete field, records
@@ -294,6 +304,9 @@ Rules:
 - `one_way` requires only departure date/window.
 - Date-window scans must state the generated date-pair count and any pruning
   from date grid or price graph helper surfaces.
+- Date-window scans must return `generated_pairs: 0` with `unsupported` or
+  `ambiguous` status when route preflight cannot produce an evidence-backed
+  route choice.
 - Date-window scans must account for every generated pair as `fresh_cache`,
   `probed`, `unsupported`, or `skipped` with evidence. A scan must not rank a
   pair unless a fresh cache observation or probe result supplies a visible price.
@@ -543,6 +556,9 @@ Implementation policy:
   evidence, or explicitly requested.
 - Record browser mode, target page id, URL, command, run id, and artifacts for
   every live capture.
+- Close CLI-managed page targets after evidence capture and record
+  `managed-tab-close.json`; cleanup failures are warnings/artifacts, not
+  replacements for valid domain results.
 - `cdp --browser-mode headed pages --json` is an accepted tab-discovery surface
   for headed exploration.
 
@@ -559,7 +575,10 @@ Default use:
 - `project init` creates `config.json`, `cache.sqlite`, `artifacts/`,
   `fixtures/`, and `runs/` under the app-state root.
 - `config.json` sets live Google Flights search as the default and records a
-  six-hour maximum age for cached flight prices.
+  configurable maximum age for cached flight prices. The default is six hours;
+  `GFLIGHTS_CACHE_MAX_AGE_SECONDS` may override it for a run.
+- `cache.sqlite` uses the policy in `docs/cache-layer-policy.md`: SQLite WAL
+  mode, a busy timeout, schema version tracking, and date-scan lookup indexes.
 - Runtime evidence uses task-scoped run directories.
 - Raw browser/network/storage artifacts must be redacted before they become
   committed fixtures.

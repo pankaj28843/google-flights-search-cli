@@ -193,6 +193,17 @@ def test_schema_search_intent_json_contract() -> None:
         "sort",
     ]:
         assert property_name in schema["properties"]
+    route_endpoint = schema["$defs"]["RouteEndpoint"]
+    route_choice = schema["$defs"]["RouteChoice"]
+    assert "selected" in route_endpoint["properties"]
+    assert set(route_choice["properties"]) >= {
+        "text",
+        "kind",
+        "display_name",
+        "code_or_id",
+        "confidence",
+        "evidence",
+    }
 
 
 def test_project_init_creates_project_local_state(tmp_path: Path) -> None:
@@ -247,6 +258,43 @@ def test_dates_scan_offline_fixtures_returns_json_array_with_explanations() -> N
         assert item["ranked_pairs"]
         assert "scoring_explanation" in item["ranked_pairs"][0]
         assert item["evidence"]["source_surfaces"]
+
+
+def test_dates_scan_exits_unsupported_for_unresolved_route_text(tmp_path: Path) -> None:
+    intent_path = tmp_path / "unknown-route-intent.json"
+    intent_path.write_text(
+        json.dumps(
+            {
+                "query_id": "cph-unknown-route",
+                "origin": {"text": "CPH", "kind": "airport_code"},
+                "destination": {"text": "Atlantis", "kind": "city_or_airport"},
+                "trip_type": "one_way",
+                "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
+                "return_window": None,
+                "passengers": {"adults": 1},
+                "cabin": "economy",
+                "currency": "EUR",
+                "language": "en",
+                "sort": "price",
+            }
+        )
+    )
+
+    result = run_cli(
+        "dates",
+        "scan",
+        "--input-json",
+        str(intent_path),
+        "--offline-fixtures",
+        str(FIXTURES),
+        "--json",
+    )
+
+    assert result.returncode == 3, result.stderr
+    payload = assert_json_stdout(result)
+    assert payload[0]["status"] == "unsupported"
+    assert payload[0]["generated_pairs"] == 0
+    assert payload[0]["unsupported"][0]["field"] == "route.resolve.input_text"
 
 
 def test_dates_scan_project_root_uses_fresh_cache_without_live_browser(tmp_path: Path) -> None:

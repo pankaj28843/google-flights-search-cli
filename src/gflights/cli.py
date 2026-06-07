@@ -382,13 +382,12 @@ def dates_scan_command(
     """
     del json_output
     try:
-        emit(
-            services.scan_dates(
-                input_json,
-                offline_fixtures,
-                project_root=project_root,
-            )
+        payload = services.scan_dates(
+            input_json,
+            offline_fixtures,
+            project_root=project_root,
         )
+        emit(payload, services.exit_code_for_payload(payload))
     except services.ServiceError as error:
         emit_service_error(error)
 
