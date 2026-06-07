@@ -157,3 +157,23 @@ def test_headless_blocked_payload_recommends_headed_fallback() -> None:
         "recommended_browser_mode": "headed",
         "reason": "headless blocked or human confirmation required",
     }
+
+
+def test_headless_payment_boundary_recommends_headed_fallback() -> None:
+    runner = FakeRunner(
+        ProcessResult(
+            returncode=0,
+            stdout='{"status":"payment_or_booking_boundary"}',
+            stderr="",
+        )
+    )
+    adapter = CdpAdapter(runner=runner)
+
+    result = asyncio.run(adapter.run_json(["snapshot", "--target", "page-1"]))
+
+    assert result.status == "payment_or_booking_boundary"
+    assert result.exit_code == 4
+    assert result.fallback == {
+        "recommended_browser_mode": "headed",
+        "reason": "headless blocked or human confirmation required",
+    }

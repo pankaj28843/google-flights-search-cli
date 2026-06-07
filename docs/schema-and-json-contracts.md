@@ -140,6 +140,30 @@ include:
 Replay fixtures must not include raw browser URLs, raw network payloads, raw
 storage payloads, cookies, target IDs, or unredacted cdp artifacts.
 
+## Live Itinerary Inspect
+
+Live selected-itinerary inspection:
+
+```bash
+gflights itinerary inspect --booking-url <google-flights-booking-url> --json
+```
+
+The command opens the supplied Google Flights booking URL, waits for the page,
+captures a visible-text snapshot, and returns either:
+
+- `ok` with weak confidence and an `itinerary` object when selected-itinerary
+  detail fields are parseable from visible text,
+- `experimental` with weak confidence when the snapshot is captured but no
+  detail segments are parseable, or
+- a stop-state status with exit code `4` when cdp reports checkout, payment,
+  login, personal-data, access-control, unusual-traffic, or human-required
+  boundaries.
+
+The command must not click provider `Continue` controls, enter provider
+checkout, enter payment or personal data, or attempt account login. Default
+validation covers this with fake cdp adapters; live runs remain explicit and
+task-scoped.
+
 ## Status Values
 
 Allowed command status values:

@@ -36,6 +36,9 @@ agentic contract for the first implementation. It asserts:
   rows
 - `evidence replay` extracts selected-itinerary visible-text fixtures into
   structured itinerary detail fields without entering provider checkout
+- `itinerary inspect` exposes a live cdp command surface whose stop-state
+  behavior is fake-adapter tested, including provider checkout and personal-data
+  boundaries
 - `doctor --json` reports headless default and live-search-by-default config
 - blocked headless replay returns exit `4` and headed fallback guidance
 - `codec decode --fixture` reports raw wire paths, verifies fixture hypotheses

@@ -17,6 +17,8 @@ BLOCKED_STOP_STATES = {
     "login_required",
     "unusual_traffic",
     "human_required",
+    "payment_or_booking_boundary",
+    "personal_data_required",
     "permission_required",
 }
 

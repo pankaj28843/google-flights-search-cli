@@ -88,3 +88,42 @@ def test_search_live_form_uses_live_cdp_by_default(tmp_path: Path, monkeypatch: 
 
     assert result.exit_code == 0, result.output
     assert calls[0]["interact_with_form"] is True
+
+
+def test_itinerary_inspect_uses_headless_live_cdp_by_default(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_live_itinerary_inspection(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 4, {
+            "status": "payment_or_booking_boundary",
+            "warnings": [],
+            "itinerary": None,
+        }
+
+    monkeypatch.setattr(
+        cli,
+        "run_live_itinerary_inspection",
+        fake_run_live_itinerary_inspection,
+    )
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "itinerary",
+            "inspect",
+            "--booking-url",
+            "https://www.google.com/travel/flights/booking?tfs=redacted",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 4, result.output
+    assert json.loads(result.stdout)["status"] == "payment_or_booking_boundary"
+    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["project_root"] == tmp_path

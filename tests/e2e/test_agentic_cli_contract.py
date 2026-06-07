@@ -62,6 +62,16 @@ def test_help_lists_atomic_command_families() -> None:
         assert command in help_text
 
 
+def test_itinerary_inspect_help_exposes_live_agent_options() -> None:
+    result = run_cli("itinerary", "inspect", "--help")
+
+    assert result.returncode == 0, result.stderr
+    help_text = f"{result.stdout}\n{result.stderr}"
+    assert "--booking-url" in help_text
+    assert "--browser-mode" in help_text
+    assert "--project-root" in help_text
+
+
 def test_schema_search_intent_json_contract() -> None:
     result = run_cli("schema", "--model", "search-intent", "--json")
 

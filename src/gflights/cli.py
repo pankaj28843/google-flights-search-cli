@@ -11,6 +11,7 @@ import typer
 
 from gflights import services
 from gflights.browser import BrowserMode
+from gflights.live_itinerary import run_live_itinerary_inspection
 from gflights.live_search import run_live_search
 
 app = typer.Typer(
@@ -163,16 +164,21 @@ def dates_scan_command(
 
 
 @itinerary_app.command("inspect")
-def itinerary_inspect_command(json_output: bool = typer.Option(False, "--json")) -> None:
+def itinerary_inspect_command(
+    booking_url: str = typer.Option(..., "--booking-url"),
+    browser_mode: BrowserMode = typer.Option("headless", "--browser-mode"),
+    project_root: Path | None = typer.Option(None, "--project-root"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
     del json_output
-    emit(
-        {
-            "status": "unsupported",
-            "unsupported": [{"field": "itinerary.inspect.live", "status": "deferred"}],
-            "warnings": [],
-        },
-        3,
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_inspection(
+            booking_url=booking_url,
+            browser_mode=browser_mode,
+            project_root=project_root,
+        )
     )
+    emit(payload, exit_code)
 
 
 @evidence_app.command("replay")

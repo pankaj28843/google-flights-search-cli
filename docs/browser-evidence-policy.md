@@ -49,6 +49,12 @@ is an additional explicit experimental mode that uses observed accessible labels
 and visible concepts, records one artifact per form step, and stops on browser
 safety boundaries instead of bypassing them.
 
+`gflights itinerary inspect --booking-url <url> --json` is the live
+selected-itinerary path. It opens an existing Google Flights booking URL,
+captures visible selected-itinerary text, and must not click provider
+`Continue` controls or enter checkout. Default validation uses fake cdp adapter
+tests for this command.
+
 ## Required Artifacts
 
 Each live run must capture:
