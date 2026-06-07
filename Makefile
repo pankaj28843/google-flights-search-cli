@@ -1,4 +1,4 @@
-.PHONY: validate lint format-check test
+.PHONY: validate lint format-check test live-cdp
 
 validate:
 	./scripts/validate-harness.sh
@@ -11,3 +11,6 @@ format-check:
 
 test:
 	uv run pytest
+
+live-cdp:
+	GFLIGHTS_RUN_LIVE_CDP=1 uv run pytest -m live_cdp

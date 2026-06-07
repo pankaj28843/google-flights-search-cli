@@ -14,6 +14,21 @@ Implemented live probes default to headless mode. Headed mode is allowed when:
 
 Record browser mode for every run.
 
+## Adapter Validation
+
+Default validation uses fake subprocess tests for the cdp adapter and must not
+start browser sessions or contact Google Flights.
+
+Opt-in local cdp smoke is available through:
+
+```bash
+make live-cdp
+```
+
+That smoke checks local `cdp doctor` and `cdp pages` through the adapter in
+headless mode. It does not open Google Flights. Google Flights live evidence
+refreshes require separate task-scoped runs and artifacts.
+
 ## Required Artifacts
 
 Each live run must capture:

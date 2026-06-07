@@ -3,9 +3,10 @@
 Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
 and fixture replay.
 
-Current phase: first green offline CLI core. The behavior spec is written and
-the Python project passes the agentic e2e contract against offline fixtures.
-Live Google Flights behavior has not started yet.
+Current phase: cdp adapter bootstrap. The behavior spec is written, the Python
+project passes the offline agentic contract, and the cdp subprocess adapter has
+fake-runner plus opt-in local cdp smoke coverage. Live Google Flights behavior
+has not started yet.
 
 ## Validation
 
@@ -26,6 +27,15 @@ uv run ruff format --check .
 ```
 
 Current expected result: 25 tests pass, including 11 offline e2e contract tests.
+
+Opt-in local cdp smoke:
+
+```bash
+make live-cdp
+```
+
+Current expected result: 2 `live_cdp` tests pass against local `cdp doctor` and
+`cdp pages`. This does not open Google Flights.
 
 ## Behavior Contract
 
@@ -60,5 +70,6 @@ scripts/
 
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
 `project`, `dates`, `evidence`, `codec`, `doctor`, unsupported/deferred exit
-codes, and isolated editable `uv tool install --editable --link-mode symlink .`
-smoke behavior.
+codes, isolated editable `uv tool install --editable --link-mode symlink .`
+smoke behavior, domain/service invariants, and cdp adapter command construction
+and stop-state handling.

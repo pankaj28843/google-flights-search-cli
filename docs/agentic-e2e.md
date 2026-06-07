@@ -47,8 +47,18 @@ Current expected result:
 uv run pytest
 ```
 
-Result: 25 tests pass in the full suite, including these 11 e2e contract tests.
-Live Google Flights smoke tests remain separate and opt-in.
+Default result: 31 tests pass and 2 `live_cdp` tests skip in the full suite,
+including these 11 e2e contract tests. Live Google Flights smoke tests remain
+separate and opt-in.
+
+Opt-in local cdp smoke:
+
+```bash
+make live-cdp
+```
+
+Result: 2 `live_cdp` tests pass against local `cdp doctor` and `cdp pages`.
+This smoke does not open Google Flights.
 
 ## Test Layers
 
