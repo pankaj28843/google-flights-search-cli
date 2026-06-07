@@ -1,0 +1,19 @@
+{
+  "fixture_id": "tfu-price-sort-20260607",
+  "fixture_type": "codec_decode",
+  "run_id": "gf-20260607-104222-slice02-url-counterexamples",
+  "capture_date": "2026-06-07",
+  "source_surface": "url_parameter",
+  "key": "tfu",
+  "raw_value": "EgYIAhAAGAA",
+  "confidence": "strong",
+  "redaction_status": "raw-url-parameter-only",
+  "expected": {
+    "status": "ok",
+    "confidence": "strong",
+    "must_not_emit_confidence": "proven",
+    "wire_paths": [
+      {"path": "tfu.2.1", "value": 2, "hypothesis": "price sort"}
+    ]
+  }
+}

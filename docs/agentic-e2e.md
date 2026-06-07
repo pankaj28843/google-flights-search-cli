@@ -18,6 +18,29 @@ Write failing tests for:
 - deterministic exit codes
 - `uv tool install --editable --link-mode symlink .` exposes the CLI entry point
 
+## Current Red Bootstrap
+
+The current `tests/e2e/test_agentic_cli_contract.py` suite is intentionally red
+until production CLI behavior starts. It asserts:
+
+- root help lists the atomic command families
+- `schema --model search-intent --json` emits the `SearchIntent` JSON Schema
+- `project init --path <tmp> --json` creates `.gflights/` state
+- `intent parse --input-json <array> --json` preserves JSON-array order
+- `dates scan --offline-fixtures` returns JSON-array date-scan explanations
+- `evidence replay` parses redacted offline fixtures
+- `doctor --json` reports headless default and no-live-default validation
+- blocked headless replay returns exit `4` and headed fallback guidance
+- `codec decode --fixture` reports raw wire paths and non-`proven` confidence
+- deferred live Google filter requests exit `3`
+- an isolated `uv tool install --editable --link-mode symlink . --force`
+  exposes `gflights`, then `gflights doctor --json` proves the installed entry
+  point behavior
+
+The editable install test sets `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`, and
+`UV_CACHE_DIR` to temporary directories so it does not write to the user's global
+tool install location.
+
 ## Test Layers
 
 - Domain tests for value objects and ranking rules.

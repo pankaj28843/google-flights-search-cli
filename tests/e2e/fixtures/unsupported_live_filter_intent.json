@@ -1,0 +1,22 @@
+{
+  "query_id": "unsupported-google-max-layover-filter",
+  "origin": {"text": "CPH", "kind": "airport_code"},
+  "destination": {"text": "DEL", "kind": "airport_code"},
+  "trip_type": "round_trip",
+  "departure_window": {"start": "2026-10-01", "end": "2026-10-01"},
+  "return_window": {"start": "2026-11-24", "end": "2026-11-24"},
+  "passengers": {
+    "adults": 1,
+    "children": 0,
+    "infants_in_seat": 0,
+    "infants_on_lap": 0
+  },
+  "cabin": "economy",
+  "currency": "EUR",
+  "language": "en",
+  "sort": "top_flights",
+  "google_filters": {
+    "maximum_layover_minutes": 180,
+    "require_live_google_filter": true
+  }
+}

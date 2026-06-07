@@ -1,0 +1,24 @@
+{
+  "fixture_id": "cph-lko-primary-results-dom-20260607",
+  "fixture_type": "primary_results_dom",
+  "run_id": "gf-20260607-073838-04-result-controls-cheap-dates",
+  "capture_date": "2026-06-07",
+  "source_surface": "primary-results-dom",
+  "scenario": "CPH to Lucknow round trip, June 15 to June 22, EUR",
+  "confidence": "strong",
+  "redaction_status": "redacted",
+  "expected": {
+    "status": "ok",
+    "results": [
+      {
+        "result_id": "fixture-result-1",
+        "source_surface": "primary-results-dom",
+        "confidence": "strong",
+        "carriers": ["KLM", "IndiGo"],
+        "price": {"amount": 1708, "currency": "EUR"},
+        "duration_text": "17 hr 45 min",
+        "emissions": {"text": "467 kg CO2e"}
+      }
+    ]
+  }
+}

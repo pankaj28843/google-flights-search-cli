@@ -1,0 +1,19 @@
+{
+  "fixture_id": "headless-blocked-policy-20260607",
+  "fixture_type": "blocked_stop_state",
+  "run_id": "policy-fixture",
+  "capture_date": "2026-06-07",
+  "source_surface": "browser-stop-state",
+  "scenario": "headless browser blocked before safe Google Flights evidence",
+  "confidence": "weak",
+  "redaction_status": "synthetic-policy-fixture",
+  "expected": {
+    "status": "blocked",
+    "exit_code": 4,
+    "browser_mode": "headless",
+    "fallback": {
+      "recommended_browser_mode": "headed",
+      "reason": "headless blocked or human confirmation required"
+    }
+  }
+}

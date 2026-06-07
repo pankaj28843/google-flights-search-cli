@@ -1,0 +1,46 @@
+[
+  {
+    "query_id": "del-cph-senior-oct-nov",
+    "origin": {"text": "Delhi", "kind": "city_or_airport"},
+    "destination": {"text": "Copenhagen", "kind": "city_or_airport"},
+    "trip_type": "round_trip",
+    "departure_window": {"start": "2026-10-01", "end": "2026-10-07"},
+    "return_window": {"start": "2026-11-24", "end": "2026-11-30"},
+    "passengers": {
+      "adults": 2,
+      "children": 0,
+      "infants_in_seat": 0,
+      "infants_on_lap": 0
+    },
+    "traveler_profiles": [{"kind": "senior", "comfort_weight": "high"}],
+    "cabin": "economy",
+    "airline_preferences": [{"airline": "Air India", "mode": "preferred"}],
+    "consider_all_airlines": true,
+    "currency": "EUR",
+    "language": "en",
+    "location": null,
+    "sort": "top_flights"
+  },
+  {
+    "query_id": "cph-lko-oneway-jun",
+    "origin": {"text": "CPH", "kind": "airport_code"},
+    "destination": {"text": "Lucknow", "kind": "city_or_airport"},
+    "trip_type": "one_way",
+    "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
+    "return_window": null,
+    "passengers": {
+      "adults": 1,
+      "children": 0,
+      "infants_in_seat": 0,
+      "infants_on_lap": 0
+    },
+    "traveler_profiles": [],
+    "cabin": "economy",
+    "airline_preferences": [],
+    "consider_all_airlines": true,
+    "currency": "EUR",
+    "language": "en",
+    "location": null,
+    "sort": "price"
+  }
+]
