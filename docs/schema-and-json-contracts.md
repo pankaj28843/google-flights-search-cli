@@ -33,6 +33,24 @@ This creates:
 The same globally installed CLI must be usable across projects. Commands that
 write files should return artifact, fixture, or run paths in JSON.
 
+## Live Evidence Command
+
+Opt-in live evidence capture:
+
+```bash
+gflights search --input-json <intent.json> --live-cdp --project-root <project-root> --browser-mode headless --json
+```
+
+The command opens Google Flights with language and currency context, writes a
+project-local `.gflights/runs/<run-id>/` evidence bundle, and returns either:
+
+- `experimental` with weak confidence when cdp evidence capture succeeds, or
+- `blocked` with exit code `4` and headed fallback guidance when a browser stop
+  state appears.
+
+This command must not be run unless `--live-cdp` is explicit. It does not claim
+durable itinerary result extraction yet.
+
 ## Status Values
 
 Allowed command status values:

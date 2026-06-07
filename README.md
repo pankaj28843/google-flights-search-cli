@@ -3,10 +3,10 @@
 Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
 and fixture replay.
 
-Current phase: cdp adapter bootstrap. The behavior spec is written, the Python
-project passes the offline agentic contract, and the cdp subprocess adapter has
-fake-runner plus opt-in local cdp smoke coverage. Live Google Flights behavior
-has not started yet.
+Current phase: opt-in live evidence capture. The behavior spec is written, the
+Python project passes the offline agentic contract, and `gflights search
+--live-cdp` can open Google Flights in headless mode to capture task-scoped cdp
+evidence without claiming durable result extraction.
 
 ## Validation
 
@@ -26,7 +26,8 @@ uv run ruff check .
 uv run ruff format --check .
 ```
 
-Current expected result: 25 tests pass, including 11 offline e2e contract tests.
+Current expected result: 33 tests pass and 3 opt-in live tests skip, including
+11 offline e2e contract tests.
 
 Opt-in local cdp smoke:
 
@@ -36,6 +37,16 @@ make live-cdp
 
 Current expected result: 2 `live_cdp` tests pass against local `cdp doctor` and
 `cdp pages`. This does not open Google Flights.
+
+Opt-in Google Flights smoke:
+
+```bash
+make live-google-flights
+```
+
+Current expected result: opens Google Flights in headless mode and returns
+`experimental` evidence capture output, or exits `4` with a structured stop
+state and headed fallback recommendation.
 
 ## Behavior Contract
 
@@ -74,4 +85,5 @@ The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
 `project`, `dates`, `evidence`, `codec`, `doctor`, unsupported/deferred exit
 codes, isolated editable `uv tool install --editable --link-mode symlink .`
 smoke behavior, domain/service invariants, and cdp adapter command construction
-and stop-state handling.
+and stop-state handling. Opt-in tests cover local cdp smoke and Google Flights
+evidence capture.

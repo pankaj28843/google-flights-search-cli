@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 import typer
 
 from gflights import services
+from gflights.browser import BrowserMode
+from gflights.live_search import run_live_search
 
 app = typer.Typer(
     help="Evidence-backed Google Flights search CLI.",
@@ -62,10 +65,38 @@ def doctor_command(json_output: bool = typer.Option(False, "--json")) -> None:
 @app.command("search")
 def search_command(
     input_json: Path = typer.Option(..., "--input-json"),
-    offline_fixtures: Path = typer.Option(..., "--offline-fixtures"),
+    offline_fixtures: Path | None = typer.Option(None, "--offline-fixtures"),
+    live_cdp: bool = typer.Option(False, "--live-cdp"),
+    browser_mode: BrowserMode = typer.Option("headless", "--browser-mode"),
+    project_root: Path = typer.Option(Path("."), "--project-root"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     del json_output
+    if live_cdp:
+        try:
+            exit_code, payload = asyncio.run(
+                run_live_search(
+                    input_json=input_json,
+                    project_root=project_root,
+                    browser_mode=browser_mode,
+                )
+            )
+        except services.ServiceError as error:
+            emit_service_error(error)
+            return
+        emit(payload, exit_code)
+        return
+
+    if offline_fixtures is None:
+        emit(
+            {
+                "status": "tool_error",
+                "warnings": [],
+                "error": "search requires --offline-fixtures or explicit --live-cdp",
+            },
+            6,
+        )
+        return
     exit_code, payload = services.search_offline(input_json, offline_fixtures)
     emit(payload, exit_code)
 

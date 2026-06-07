@@ -29,6 +29,17 @@ That smoke checks local `cdp doctor` and `cdp pages` through the adapter in
 headless mode. It does not open Google Flights. Google Flights live evidence
 refreshes require separate task-scoped runs and artifacts.
 
+Opt-in Google Flights smoke is available through:
+
+```bash
+make live-google-flights
+```
+
+This opens Google Flights in headless mode, writes project-local
+`.gflights/runs/<run-id>/` artifacts, and returns either `experimental` evidence
+capture output or a structured stop state. It must not be part of default
+validation.
+
 ## Required Artifacts
 
 Each live run must capture:

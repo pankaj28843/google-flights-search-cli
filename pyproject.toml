@@ -31,6 +31,7 @@ gflights = "gflights.cli:main"
 testpaths = ["tests"]
 markers = [
   "live_cdp: opt-in tests that may touch a live browser or Google Flights",
+  "live_google_flights: opt-in tests that open Google Flights through cdp",
 ]
 
 [tool.ruff]

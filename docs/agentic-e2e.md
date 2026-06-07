@@ -47,7 +47,7 @@ Current expected result:
 uv run pytest
 ```
 
-Default result: 31 tests pass and 2 `live_cdp` tests skip in the full suite,
+Default result: 33 tests pass and 3 opt-in live tests skip in the full suite,
 including these 11 e2e contract tests. Live Google Flights smoke tests remain
 separate and opt-in.
 
@@ -59,6 +59,22 @@ make live-cdp
 
 Result: 2 `live_cdp` tests pass against local `cdp doctor` and `cdp pages`.
 This smoke does not open Google Flights.
+
+Opt-in Google Flights smoke:
+
+```bash
+make live-google-flights
+```
+
+This opens Google Flights only when `GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1` is set
+by the Makefile target. It records task-scoped run artifacts and accepts either
+`experimental` evidence capture or a structured browser stop state.
+
+The command path under test is:
+
+```bash
+gflights search --input-json <intent.json> --live-cdp --project-root <tmp> --browser-mode headless --json
+```
 
 ## Test Layers
 
