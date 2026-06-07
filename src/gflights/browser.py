@@ -85,6 +85,8 @@ class CdpAdapter:
             )
 
         if process.returncode != 0:
+            payload = _json_object(process.stdout)
+            message = payload.get("message") if payload is not None else None
             return CdpResult(
                 argv=argv,
                 browser_mode=browser_mode,
@@ -93,7 +95,8 @@ class CdpAdapter:
                 stderr=process.stderr,
                 status="tool_error",
                 exit_code=6,
-                error=process.stderr or f"cdp exited with {process.returncode}",
+                json_payload=payload,
+                error=process.stderr or str(message or f"cdp exited with {process.returncode}"),
             )
 
         try:
@@ -147,6 +150,16 @@ def _format_timeout(timeout_seconds: float) -> str:
     if seconds.is_integer():
         return f"{int(seconds)}s"
     return f"{seconds:g}s"
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(text or "{}")
+    except json.JSONDecodeError:
+        return None
+    if isinstance(payload, dict):
+        return payload
+    return None
 
 
 def _headed_fallback(

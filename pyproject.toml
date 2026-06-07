@@ -30,8 +30,8 @@ gflights = "gflights.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "live_cdp: opt-in tests that may touch a live browser or Google Flights",
-  "live_google_flights: opt-in tests that open Google Flights through cdp",
+  "live_cdp: manually selected tests that may touch a live browser or Google Flights",
+  "live_google_flights: tests that open Google Flights through the default live cdp search path",
 ]
 
 [tool.ruff]

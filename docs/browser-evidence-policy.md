@@ -1,11 +1,13 @@
 # Browser Evidence Policy
 
-Live Google Flights probing is an explicit evidence workflow, not part of
-normal validation.
+Live Google Flights probing is the default value path for `gflights search`
+when offline fixtures are not supplied. It is still not part of normal
+validation.
 
 ## Browser Modes
 
-Implemented live probes default to headless mode. Headed mode is allowed when:
+Implemented live probes default to headless cdp mode. Headed mode is allowed
+when:
 
 - headless is blocked
 - visual confirmation is required
@@ -16,8 +18,9 @@ Record browser mode for every run.
 
 ## Adapter Validation
 
-Default validation uses fake subprocess tests for the cdp adapter and must not
-start browser sessions or contact Google Flights.
+Default validation uses fake subprocess tests for the cdp adapter, fake live
+form tests, and fixture replay. It must not start browser sessions or contact
+Google Flights.
 
 Opt-in local cdp smoke is available through:
 
@@ -29,16 +32,22 @@ That smoke checks local `cdp doctor` and `cdp pages` through the adapter in
 headless mode. It does not open Google Flights. Google Flights live evidence
 refreshes require separate task-scoped runs and artifacts.
 
-Opt-in Google Flights smoke is available through:
+Google Flights smoke is available through:
 
 ```bash
 make live-google-flights
 ```
 
-This opens Google Flights in headless mode, writes project-local
-`.gflights/runs/<run-id>/` artifacts, and returns either `experimental` evidence
-capture output or a structured stop state. It must not be part of default
-validation.
+This opens Google Flights in headless mode through the default live search path,
+writes state-local `runs/<run-id>/` artifacts under `~/.gflights-search` or
+`GFLIGHTS_SEARCH_HOME`, and returns visible-text result rows when extractable,
+`experimental` evidence capture output when rows are not extractable, or a
+structured stop state. It must not be part of default validation.
+
+`--offline-fixtures` is the explicit deterministic replay path. `--live-form`
+is an additional explicit experimental mode that uses observed accessible labels
+and visible concepts, records one artifact per form step, and stops on browser
+safety boundaries instead of bypassing them.
 
 ## Required Artifacts
 

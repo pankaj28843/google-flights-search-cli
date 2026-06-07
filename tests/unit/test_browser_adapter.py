@@ -82,6 +82,29 @@ def test_cdp_adapter_captures_nonzero_stderr() -> None:
     assert result.exit_code == 6
 
 
+def test_cdp_adapter_preserves_nonzero_json_stdout() -> None:
+    runner = FakeRunner(
+        ProcessResult(
+            returncode=3,
+            stdout='{"ok":false,"code":"connection_failed","message":"missing context"}',
+            stderr="",
+        )
+    )
+    adapter = CdpAdapter(runner=runner)
+
+    result = asyncio.run(adapter.run_json(["wait", "load-state", "domcontentloaded"]))
+
+    assert result.status == "tool_error"
+    assert result.returncode == 3
+    assert result.exit_code == 6
+    assert result.json_payload == {
+        "ok": False,
+        "code": "connection_failed",
+        "message": "missing context",
+    }
+    assert result.error == "missing context"
+
+
 def test_cdp_adapter_reports_timeout() -> None:
     runner = FakeRunner(error=asyncio.TimeoutError())
     adapter = CdpAdapter(runner=runner)

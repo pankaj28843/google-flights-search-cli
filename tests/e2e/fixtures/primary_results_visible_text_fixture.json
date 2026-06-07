@@ -1,0 +1,39 @@
+{
+  "fixture_id": "cph-lko-visible-text-primary-results-20260607",
+  "fixture_type": "primary_results_visible_text",
+  "run_id": "gf-20260607-113947-slice02-populated-trip-cabin",
+  "capture_date": "2026-06-07",
+  "source_surface": "primary-results-visible-text",
+  "source_artifact": "research/runs/gf-20260607-113947-slice02-populated-trip-cabin/populated-roundtrip-business-visible-text.json",
+  "scenario": "CPH to Lucknow round trip, June 15 to June 22, EUR, business",
+  "confidence": "strong",
+  "redaction_status": "redacted",
+  "snapshot": {
+    "ok": true,
+    "text": {
+      "url": "https://www.google.com/travel/flights/search?tfs=redacted&tfu=redacted&hl=en&curr=EUR",
+      "title": "Copenhagen to Lucknow | Google Flights",
+      "selector": "body",
+      "text": "Search results 11 results returned. Top departing flights Ranked based on price and convenience Prices include required taxes + fees for 1 adult. Optional charges and bag fees may apply. Sorted by top flights 11:50 AM \u2013 6:40 AM+1 KLM, IndiGo 15 hr 20 min CPH\u2013LKO 2 stops AMS, DEL 1,538 kg CO2e -17% emissions \u20ac3,206 round trip Business Class + Economy 8:10 AM \u2013 6:55 AM+1 Scandinavian Airlines, KLM, IndiGo 19 hr 15 min CPH\u2013LKO 2 stops AMS, BOM 1,989 kg CO2e +7% emissions \u20ac3,306 round trip Business Class + Economy Track prices Date grid Price graph"
+    }
+  },
+  "expected": {
+    "status": "ok",
+    "result_count": 2,
+    "first_result": {
+      "source_surface": "primary-results-visible-text",
+      "confidence": "strong",
+      "origin_airports": ["CPH"],
+      "destination_airports": ["LKO"],
+      "departure_times": ["11:50 AM"],
+      "arrival_times": ["6:40 AM+1"],
+      "carriers": ["KLM", "IndiGo"],
+      "duration_text": "15 hr 20 min",
+      "duration_minutes": 920,
+      "stops": {"count": 2, "text": "2 stops"},
+      "layovers": ["AMS", "DEL"],
+      "price": {"amount": 3206, "currency": "EUR", "text": "\u20ac3,206"},
+      "emissions": {"text": "1,538 kg CO2e -17% emissions"}
+    }
+  }
+}

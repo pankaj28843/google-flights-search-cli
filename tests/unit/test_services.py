@@ -54,6 +54,21 @@ def test_replay_fixture_returns_result_evidence() -> None:
     assert payload["evidence"]["run_id"] == "gf-20260607-073838-04-result-controls-cheap-dates"
 
 
+def test_replay_visible_text_fixture_extracts_primary_result_rows() -> None:
+    exit_code, payload = services.replay_fixture(
+        FIXTURES / "primary_results_visible_text_fixture.json"
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["results"][0]["carriers"] == ["KLM", "IndiGo"]
+    assert payload["results"][0]["duration_minutes"] == 920
+    assert payload["results"][0]["stops"] == {"count": 2, "text": "2 stops"}
+    assert payload["results"][0]["price"] == {"amount": 3206, "currency": "EUR", "text": "€3,206"}
+    assert payload["results"][0]["source_surface"] == "primary-results-visible-text"
+    assert payload["evidence"]["source_surfaces"] == ["primary-results-visible-text"]
+
+
 def test_blocked_fixture_returns_stop_exit_code() -> None:
     exit_code, payload = services.replay_fixture(FIXTURES / "blocked_headless_fixture.json")
 
@@ -103,12 +118,13 @@ def test_search_returns_unsupported_for_deferred_live_layover_filter() -> None:
 
 def test_project_init_creates_config_and_artifact_root(tmp_path: Path) -> None:
     payload = services.init_project(tmp_path)
-    config = json.loads((tmp_path / ".gflights" / "config.json").read_text())
+    config = json.loads((tmp_path / "config.json").read_text())
 
     assert payload["status"] == "ok"
-    assert (tmp_path / ".gflights" / "artifacts").is_dir()
-    assert (tmp_path / ".gflights" / "fixtures").is_dir()
-    assert (tmp_path / ".gflights" / "runs").is_dir()
+    assert (tmp_path / "artifacts").is_dir()
+    assert (tmp_path / "fixtures").is_dir()
+    assert (tmp_path / "runs").is_dir()
     assert config["browser_default_mode"] == "headless"
-    assert config["fixture_root"] == str(tmp_path / ".gflights" / "fixtures")
-    assert config["run_root"] == str(tmp_path / ".gflights" / "runs")
+    assert config["live_google_flights_by_default"] is True
+    assert config["fixture_root"] == str(tmp_path / "fixtures")
+    assert config["run_root"] == str(tmp_path / "runs")

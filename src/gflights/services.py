@@ -9,8 +9,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from gflights.app_state import DEFAULT_CACHE_MAX_AGE_SECONDS, init_app_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
+from gflights.result_extraction import extract_primary_results
 
 
 class ServiceError(Exception):
@@ -34,30 +36,18 @@ def json_schema_for(model: str) -> dict[str, Any]:
 
 
 def init_project(path: Path) -> dict[str, Any]:
-    project_root = path.resolve()
-    config_root = project_root / ".gflights"
-    artifacts_root = config_root / "artifacts"
-    fixture_root = config_root / "fixtures"
-    run_root = config_root / "runs"
-    for directory in (artifacts_root, fixture_root, run_root):
-        directory.mkdir(parents=True, exist_ok=True)
-    config_path = config_root / "config.json"
-    config = {
-        "version": 1,
-        "artifacts_root": str(artifacts_root),
-        "fixture_root": str(fixture_root),
-        "run_root": str(run_root),
-        "live_google_flights_by_default": False,
-        "browser_default_mode": "headless",
-    }
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    project_root = path.expanduser().resolve()
+    state = init_app_state(project_root)
     return {
         "status": "ok",
         "project_root": str(project_root),
-        "config_path": str(config_path),
-        "artifacts_root": str(artifacts_root),
-        "fixture_root": str(fixture_root),
-        "run_root": str(run_root),
+        "app_state_root": str(state.root),
+        "config_path": str(state.config_path),
+        "database_path": str(state.database_path),
+        "artifacts_root": str(state.artifact_root),
+        "fixture_root": str(state.fixture_root),
+        "run_root": str(state.run_root),
+        "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
     }
 
 
@@ -155,6 +145,22 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
             "browser_mode": expected["browser_mode"],
             "fallback": expected["fallback"],
             "confidence": fixture["confidence"],
+            "evidence": evidence,
+        }
+
+    if fixture["fixture_type"] == "primary_results_visible_text":
+        results = extract_primary_results(
+            fixture.get("snapshot", {}),
+            source_surface=fixture["source_surface"],
+            evidence_artifact=fixture.get("source_artifact", str(path)),
+            confidence=fixture["confidence"],
+        )
+        return 0, {
+            "status": expected["status"] if results else "no_results",
+            "confidence": fixture["confidence"] if results else "unknown",
+            "results": results,
+            "unsupported": [],
+            "warnings": [] if results else ["no primary result rows found in visible text fixture"],
             "evidence": evidence,
         }
 
@@ -285,6 +291,7 @@ def search_offline(input_json: Path, offline_fixtures: Path) -> tuple[int, dict[
 
 
 def doctor_report() -> dict[str, Any]:
+    state = init_app_state()
     return {
         "status": "ok",
         "browser": {
@@ -292,8 +299,16 @@ def doctor_report() -> dict[str, Any]:
             "headed_fallback_allowed": True,
         },
         "validation": {
-            "live_google_flights_by_default": False,
+            "live_google_flights_by_default": True,
+            "google_flights_live_env": "1",
             "default_command": "make validate",
+        },
+        "app_state": {
+            "root": str(state.root),
+            "config_path": str(state.config_path),
+            "database_path": str(state.database_path),
+            "run_root": str(state.run_root),
+            "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
         },
         "toolchain": {
             "python_project": True,

@@ -89,12 +89,13 @@ def test_project_init_creates_project_local_state(tmp_path: Path) -> None:
     payload = assert_json_stdout(result)
     assert payload["status"] == "ok"
     assert payload["project_root"] == str(tmp_path)
-    assert (tmp_path / ".gflights" / "config.json").is_file()
-    assert (tmp_path / ".gflights" / "artifacts").is_dir()
-    assert (tmp_path / ".gflights" / "fixtures").is_dir()
-    assert (tmp_path / ".gflights" / "runs").is_dir()
-    assert payload["fixture_root"] == str(tmp_path / ".gflights" / "fixtures")
-    assert payload["run_root"] == str(tmp_path / ".gflights" / "runs")
+    assert (tmp_path / "config.json").is_file()
+    assert (tmp_path / "cache.sqlite").is_file()
+    assert (tmp_path / "artifacts").is_dir()
+    assert (tmp_path / "fixtures").is_dir()
+    assert (tmp_path / "runs").is_dir()
+    assert payload["fixture_root"] == str(tmp_path / "fixtures")
+    assert payload["run_root"] == str(tmp_path / "runs")
 
 
 def test_intent_parse_accepts_json_array_and_preserves_order() -> None:
@@ -147,15 +148,39 @@ def test_evidence_replay_parses_saved_fixture_offline() -> None:
     assert payload["results"][0]["carriers"] == ["KLM", "IndiGo"]
 
 
-def test_doctor_reports_headless_default_and_offline_validation_policy() -> None:
-    result = run_cli("doctor", "--json")
+def test_evidence_replay_extracts_visible_text_primary_results() -> None:
+    result = run_cli(
+        "evidence",
+        "replay",
+        str(FIXTURES / "primary_results_visible_text_fixture.json"),
+        "--json",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = assert_json_stdout(result)
+    assert payload["status"] == "ok"
+    assert payload["confidence"] == "strong"
+    assert payload["results"][0]["source_surface"] == "primary-results-visible-text"
+    assert payload["results"][0]["carriers"] == ["KLM", "IndiGo"]
+    assert payload["results"][0]["price"] == {"amount": 3206, "currency": "EUR", "text": "€3,206"}
+
+
+def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) -> None:
+    result = run_cli(
+        "doctor",
+        "--json",
+        env={"GFLIGHTS_SEARCH_HOME": str(tmp_path / "app-state")},
+    )
 
     assert result.returncode == 0, result.stderr
     payload = assert_json_stdout(result)
     assert payload["status"] == "ok"
     assert payload["browser"]["default_mode"] == "headless"
     assert payload["browser"]["headed_fallback_allowed"] is True
-    assert payload["validation"]["live_google_flights_by_default"] is False
+    assert payload["validation"]["live_google_flights_by_default"] is True
+    assert payload["app_state"]["config_path"] == str(tmp_path / "app-state" / "config.json")
+    assert payload["app_state"]["database_path"] == str(tmp_path / "app-state" / "cache.sqlite")
+    assert payload["app_state"]["cache_max_age_seconds"] == 6 * 60 * 60
 
 
 def test_blocked_headless_fixture_recommends_headed_fallback() -> None:
@@ -207,7 +232,7 @@ def test_deferred_live_google_filter_exits_unsupported() -> None:
     )
 
 
-def test_editable_uv_tool_install_exposes_agent_entrypoint(tmp_path: Path) -> None:
+def test_make_install_editable_exposes_agent_entrypoint(tmp_path: Path) -> None:
     env = os.environ.copy()
     env.update(
         {
@@ -218,7 +243,7 @@ def test_editable_uv_tool_install_exposes_agent_entrypoint(tmp_path: Path) -> No
         }
     )
     install = subprocess.run(
-        ["uv", "tool", "install", "--editable", "--link-mode", "symlink", ".", "--force"],
+        ["make", "install-editable"],
         cwd=ROOT,
         env=env,
         text=True,

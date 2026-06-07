@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 
@@ -14,9 +13,6 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_live_google_flights_search_smoke_captures_task_scoped_artifacts(
     tmp_path: Path,
 ) -> None:
-    if os.environ.get("GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE") != "1":
-        pytest.skip("set GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1 to open Google Flights")
-
     result = subprocess.run(
         [
             "uv",
@@ -26,7 +22,6 @@ def test_live_google_flights_search_smoke_captures_task_scoped_artifacts(
             "search",
             "--input-json",
             str(ROOT / "tests/e2e/fixtures/search_intents.json"),
-            "--live-cdp",
             "--project-root",
             str(tmp_path),
             "--browser-mode",
@@ -44,13 +39,16 @@ def test_live_google_flights_search_smoke_captures_task_scoped_artifacts(
     payload = json.loads(result.stdout)
     assert payload["live_mode"] is True
     assert payload["browser_mode"] == "headless"
-    assert payload["status"] in {"experimental", "blocked"}
+    assert payload["status"] in {"ok", "experimental", "blocked"}
     assert payload["evidence"]["run_id"].startswith("gf-")
-    assert (tmp_path / ".gflights" / "runs" / payload["evidence"]["run_id"]).is_dir()
+    assert (tmp_path / "runs" / payload["evidence"]["run_id"]).is_dir()
     for artifact in payload["evidence"]["artifacts"]:
         assert Path(artifact).is_file()
 
     if result.returncode == 4:
         assert payload["fallback"]["recommended_browser_mode"] == "headed"
-    else:
+    elif payload["status"] == "experimental":
         assert payload["unsupported"][0]["field"] == "live_result_extraction"
+    else:
+        assert payload["status"] == "ok"
+        assert payload["results"]

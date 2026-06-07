@@ -15,41 +15,53 @@ The command returns a JSON Schema object for the canonical `SearchIntent`
 contract. Future schemas should be added as new model names rather than by
 changing the meaning of `search-intent`.
 
-## Project State
+## App State
 
-Per-project setup:
+User-local setup:
 
 ```bash
-gflights project init --path <project-root> --json
+gflights project init --path <app-state-root> --json
 ```
 
-This creates:
+By default, runtime state lives under `~/.gflights-search`. Tests and isolated
+runs may override that location with `GFLIGHTS_SEARCH_HOME` or by passing
+`--path` to `project init`. The state root contains:
 
-- `.gflights/config.json`
-- `.gflights/artifacts/`
-- `.gflights/fixtures/`
-- `.gflights/runs/`
+- `config.json`
+- `cache.sqlite`
+- `artifacts/`
+- `fixtures/`
+- `runs/`
 
-The same globally installed CLI must be usable across projects. Commands that
-write files should return artifact, fixture, or run paths in JSON.
+`config.json` sets `live_google_flights_by_default: true`,
+`google_flights_live_env: "1"`, and `cache_max_age_seconds: 21600`. The SQLite
+cache stores flight-price observations so a route/date/currency combination can
+reuse only data that is at most six hours old. Commands that write files should
+return artifact, fixture, database, or run paths in JSON.
 
 ## Live Evidence Command
 
-Opt-in live evidence capture:
+Live evidence capture:
 
 ```bash
-gflights search --input-json <intent.json> --live-cdp --project-root <project-root> --browser-mode headless --json
+gflights search --input-json <intent.json> --browser-mode headless --json
 ```
 
 The command opens Google Flights with language and currency context, writes a
-project-local `.gflights/runs/<run-id>/` evidence bundle, and returns either:
+state-local `runs/<run-id>/` evidence bundle, and returns one of:
 
-- `experimental` with weak confidence when cdp evidence capture succeeds, or
+- `ok` with weak confidence and primary result rows when visible text contains
+  parseable primary search rows,
+- `experimental` with weak confidence when cdp evidence capture succeeds but
+  no primary rows are extractable yet, or
 - `blocked` with exit code `4` and headed fallback guidance when a browser stop
   state appears.
 
-This command must not be run unless `--live-cdp` is explicit. It does not claim
-durable itinerary result extraction yet.
+`search` uses live cdp by default when `--offline-fixtures` is absent.
+`--offline-fixtures` is the explicit deterministic replay path. `--live-cdp`
+remains accepted as a compatibility flag. `--live-form` additionally attempts
+fake-tested, evidence-scoped form interactions before capture; live form mode is
+experimental, and nested itinerary/provider extraction remains deferred.
 
 ## Status Values
 

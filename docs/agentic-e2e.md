@@ -8,7 +8,7 @@ Write failing tests for:
 
 - CLI help lists atomic commands
 - `schema --model search-intent --json` emits JSON Schema
-- `project init` creates project-local config and artifact roots
+- `project init` creates app-state config, SQLite cache, and artifact roots
 - `intent parse --input-json` validates a JSON array of dicts
 - `dates scan --offline-fixtures` returns JSON array output with explanations
 - `evidence replay` parses saved fixtures offline
@@ -26,14 +26,18 @@ agentic contract for the first implementation. It asserts:
 
 - root help lists the atomic command families
 - `schema --model search-intent --json` emits the `SearchIntent` JSON Schema
-- `project init --path <tmp> --json` creates `.gflights/` state
+- `project init --path <tmp> --json` creates app-state files under `<tmp>/`
 - `intent parse --input-json <array> --json` preserves JSON-array order
 - `dates scan --offline-fixtures` returns JSON-array date-scan explanations
 - `evidence replay` parses redacted offline fixtures
-- `doctor --json` reports headless default and no-live-default validation
+- `evidence replay` extracts visible-text primary result fixtures into result
+  rows
+- `doctor --json` reports headless default and live-search-by-default config
 - blocked headless replay returns exit `4` and headed fallback guidance
 - `codec decode --fixture` reports raw wire paths, verifies fixture hypotheses
   against the generic Python codec, and keeps confidence non-`proven`
+- `search` defaults to live cdp when `--offline-fixtures` is absent, with fake
+  adapters used in unit tests so default validation stays offline
 - deferred live Google filter requests exit `3`
 - an isolated `uv tool install --editable --link-mode symlink . --force`
   exposes `gflights`, then `gflights doctor --json` proves the installed entry
@@ -49,9 +53,10 @@ Current expected result:
 uv run pytest
 ```
 
-Default result: 38 tests pass and 3 opt-in live tests skip in the full suite,
-including these 11 e2e contract tests. Live Google Flights smoke tests remain
-separate and opt-in.
+Default result includes the offline e2e contract tests plus unit coverage for
+app-state/cache behavior, visible-text result extraction, and fake live
+orchestration. Live Google Flights is the normal search path; deterministic
+tests use fakes or fixtures where needed.
 
 Opt-in local cdp smoke:
 
@@ -62,20 +67,21 @@ make live-cdp
 Result: 2 `live_cdp` tests pass against local `cdp doctor` and `cdp pages`.
 This smoke does not open Google Flights.
 
-Opt-in Google Flights smoke:
+Google Flights smoke:
 
 ```bash
 make live-google-flights
 ```
 
-This opens Google Flights only when `GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1` is set
-by the Makefile target. It records task-scoped run artifacts and accepts either
-`experimental` evidence capture or a structured browser stop state.
+The default config sets `GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1`. The smoke records
+task-scoped run artifacts and accepts visible-text result rows, `experimental`
+evidence capture when rows are not extractable, or a structured browser stop
+state.
 
 The command path under test is:
 
 ```bash
-gflights search --input-json <intent.json> --live-cdp --project-root <tmp> --browser-mode headless --json
+gflights search --input-json <intent.json> --browser-mode headless --json
 ```
 
 ## Test Layers

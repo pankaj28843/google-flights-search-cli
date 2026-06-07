@@ -1,19 +1,33 @@
-.PHONY: validate lint format-check test live-cdp live-google-flights
+UV ?= uv
+UV_TOOL_PACKAGE ?= .
+UV_TOOL_LINK_MODE ?= symlink
+
+.PHONY: validate lint format-check test install install-tool install-editable install-tool-editable live-cdp live-google-flights
 
 validate:
 	./scripts/validate-harness.sh
 
 lint:
-	uv run ruff check .
+	$(UV) run ruff check .
 
 format-check:
-	uv run ruff format --check .
+	$(UV) run ruff format --check .
 
 test:
-	uv run pytest
+	$(UV) run pytest
+
+install: install-tool
+
+install-tool:
+	$(UV) tool install --force $(UV_TOOL_PACKAGE)
+
+install-editable: install-tool-editable
+
+install-tool-editable:
+	$(UV) tool install --force --editable --link-mode $(UV_TOOL_LINK_MODE) $(UV_TOOL_PACKAGE)
 
 live-cdp:
-	GFLIGHTS_RUN_LIVE_CDP=1 uv run pytest -m live_cdp
+	GFLIGHTS_RUN_LIVE_CDP=1 $(UV) run pytest -m live_cdp
 
 live-google-flights:
-	GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1 uv run pytest -m live_google_flights
+	$(UV) run pytest -m live_google_flights

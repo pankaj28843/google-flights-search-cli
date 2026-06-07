@@ -100,7 +100,7 @@ agents must rely on JSON schemas and stable JSON output, not terminal prose.
 |---|---|---|---|
 | `gflights schema` | Emit JSON Schema for input/output models. | functional core + CLI shell | implementation policy |
 | `gflights intent parse` | Normalize JSON input and optionally parse text into a `SearchIntent`; ambiguous free text returns `ambiguous`. | service layer | implementation policy |
-| `gflights project init` | Create project-local config and artifact directories. | imperative shell | implementation policy |
+| `gflights project init` | Create app-state config, cache, and artifact directories. | imperative shell | implementation policy |
 | `gflights route resolve` | Resolve airport/city route choices through fixtures or live evidence. | service + shell adapter | observed route evidence |
 | `gflights dates scan` | Expand date windows into concrete date pairs, run or replay searches, and rank candidate combinations. | service layer + adapters | date/result evidence |
 | `gflights search` | Run one concrete search intent and return primary result rows plus evidence paths. | service + shell adapter | observed result evidence |
@@ -458,7 +458,7 @@ Imperative shell:
 - headed/headless browser mode choice
 - network capture and storage inspection
 - screenshots, DOM snapshots, command logs, and artifact writes
-- project-local config directory creation
+- user-local app-state directory creation
 - `uv`, `ruff`, pytest, and `gh` command checks
 
 No browser, network, filesystem, process, or repository side effect belongs in
@@ -476,15 +476,20 @@ Implementation policy:
 - `cdp --browser-mode headed pages --json` is an accepted tab-discovery surface
   for headed exploration.
 
-Default validation must not hit live Google Flights. Live probes are explicit
-refresh or smoke commands.
+Default validation must not hit live Google Flights. Normal CLI search may use
+the live Google Flights path; repository validation remains offline unless a
+live target or marker is selected.
 
-## Project And Artifact Policy
+## App State And Artifact Policy
 
-Per-project use:
+Default use:
 
-- `project init` creates `.gflights/` or an equivalent project-local config
-  root.
+- Runtime state lives under `~/.gflights-search` unless
+  `GFLIGHTS_SEARCH_HOME` or an explicit init path overrides it.
+- `project init` creates `config.json`, `cache.sqlite`, `artifacts/`,
+  `fixtures/`, and `runs/` under the app-state root.
+- `config.json` sets live Google Flights search as the default and records a
+  six-hour maximum age for cached flight prices.
 - Runtime evidence uses task-scoped run directories.
 - Raw browser/network/storage artifacts must be redacted before they become
   committed fixtures.
@@ -513,7 +518,7 @@ Slice 07 must write red tests before implementation code for:
 
 - CLI help exposing atomic commands
 - JSON Schema export
-- project-local init
+- app-state init
 - JSON array input validation
 - offline fixture replay
 - date-window scan output shape
@@ -523,7 +528,8 @@ Slice 07 must write red tests before implementation code for:
 - editable/symlinked `uv tool install` smoke behavior
 
 The first green implementation may use fixtures and fake adapters. Live Google
-Flights smoke tests must be opt-in.
+Flights is the default CLI value path; smoke tests may still be isolated by
+marker or task-scoped runs.
 
 ## Evidence Appendix
 

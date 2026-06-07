@@ -1,4 +1,4 @@
-"""Opt-in live Google Flights evidence orchestration."""
+"""Default live Google Flights evidence orchestration."""
 
 from __future__ import annotations
 
@@ -8,8 +8,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
+from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
-from gflights.services import init_project, load_intents
+from gflights.live_form import (
+    UnsupportedLiveForm,
+    plan_live_form_interaction,
+    validate_live_form_support,
+)
+from gflights.result_extraction import extract_primary_results
+from gflights.services import load_intents
 
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
 
@@ -17,18 +24,19 @@ GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
 async def run_live_search(
     *,
     input_json: Path,
-    project_root: Path,
+    project_root: Path | None = None,
     adapter: CdpAdapter | None = None,
     browser_mode: BrowserMode = "headless",
     run_id: str | None = None,
     timeout_seconds: float = 30.0,
+    interact_with_form: bool = False,
 ) -> tuple[int, dict[str, Any]]:
     adapter = adapter or CdpAdapter()
     intents = load_intents(input_json)
     intent = intents[0]
-    project = init_project(project_root)
+    state = init_app_state(project_root)
     run_id = run_id or _new_run_id(intent.query_id)
-    run_root = Path(project["run_root"]) / run_id
+    run_root = state.run_root / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     target_url = _google_flights_url(intent.language, intent.currency)
     _write_json(run_root / "intent.json", intent.model_dump(mode="json"))
@@ -36,6 +44,15 @@ async def run_live_search(
     executed: list[dict[str, Any]] = []
     artifacts: list[str] = [str(run_root / "intent.json")]
     source_surfaces: list[str] = []
+    if interact_with_form:
+        try:
+            validate_live_form_support(intent)
+        except UnsupportedLiveForm as exc:
+            _write_json(run_root / "command-log.json", executed)
+            artifacts.append(str(run_root / "command-log.json"))
+            return 3, _unsupported_live_form_payload(
+                intent.query_id, run_id, browser_mode, exc, artifacts, source_surfaces
+            )
 
     open_result = await _run_step(
         adapter=adapter,
@@ -69,7 +86,7 @@ async def run_live_search(
         )
 
     page_id = _page_id(open_result.json_payload)
-    await _run_step(
+    wait_result = await _run_step(
         adapter=adapter,
         args=["wait", "load-state", "domcontentloaded", "--target", page_id],
         browser_mode=browser_mode,
@@ -81,6 +98,71 @@ async def run_live_search(
         artifacts=artifacts,
         source_surfaces=source_surfaces,
     )
+    if _is_recoverable_wait_context_error(wait_result):
+        wait_result = await _run_step(
+            adapter=adapter,
+            args=["wait", "load-state", "domcontentloaded", "--target", page_id],
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            artifact_name="wait-retry-1.json",
+            source_surface="cdp:wait:retry",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+    if _is_stop_result(wait_result):
+        _write_json(run_root / "command-log.json", executed)
+        artifacts.append(str(run_root / "command-log.json"))
+        return wait_result.exit_code or 4, _stop_payload(
+            intent_query_id=intent.query_id,
+            run_id=run_id,
+            browser_mode=browser_mode,
+            result=wait_result,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            target_url=target_url,
+        )
+    if wait_result.status == "tool_error":
+        _write_json(run_root / "command-log.json", executed)
+        artifacts.append(str(run_root / "command-log.json"))
+        return 6, _tool_error_payload(
+            intent.query_id, run_id, browser_mode, wait_result, artifacts, source_surfaces
+        )
+
+    if interact_with_form:
+        for step in plan_live_form_interaction(intent, page_id=page_id).steps:
+            result = await _run_step(
+                adapter=adapter,
+                args=step.args,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                artifact_name=step.artifact_name,
+                source_surface=step.source_surface,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            )
+            if _is_stop_result(result):
+                _write_json(run_root / "command-log.json", executed)
+                artifacts.append(str(run_root / "command-log.json"))
+                return result.exit_code or 4, _stop_payload(
+                    intent_query_id=intent.query_id,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    target_url=target_url,
+                )
+            if result.status == "tool_error":
+                _write_json(run_root / "command-log.json", executed)
+                artifacts.append(str(run_root / "command-log.json"))
+                return 6, _tool_error_payload(
+                    intent.query_id, run_id, browser_mode, result, artifacts, source_surfaces
+                )
+
     snapshot_result = await _run_step(
         adapter=adapter,
         args=["snapshot", "--target", page_id, "--limit", "80"],
@@ -114,6 +196,38 @@ async def run_live_search(
                 intent.query_id, run_id, browser_mode, result, artifacts, source_surfaces
             )
 
+    extracted_results = extract_primary_results(
+        snapshot_result.json_payload or {},
+        source_surface="primary-results-visible-text",
+        evidence_artifact=str(run_root / "snapshot.json"),
+        confidence="weak",
+    )
+    if extracted_results:
+        return 0, {
+            "query_id": intent.query_id,
+            "status": "ok",
+            "confidence": "weak",
+            "live_mode": True,
+            "browser_mode": browser_mode,
+            "target_url": target_url,
+            "results": extracted_results,
+            "unsupported": [],
+            "warnings": [
+                "primary result rows were parsed from visible text evidence; missing optional fields are left empty or null",
+                *(
+                    ["live form interaction is experimental and limited to observed controls"]
+                    if interact_with_form
+                    else []
+                ),
+                "Google Flights URL query/protobuf encoding is not guessed",
+            ],
+            "evidence": {
+                "run_id": run_id,
+                "artifacts": artifacts,
+                "source_surfaces": source_surfaces,
+            },
+        }
+
     return 0, {
         "query_id": intent.query_id,
         "status": "experimental",
@@ -130,7 +244,12 @@ async def run_live_search(
             }
         ],
         "warnings": [
-            "live cdp mode is opt-in and evidence-capture only in this slice",
+            "live cdp mode is the default search path; no primary result rows were extracted from this snapshot",
+            *(
+                ["live form interaction is experimental and limited to observed controls"]
+                if interact_with_form
+                else []
+            ),
             "Google Flights URL query/protobuf encoding is not guessed",
         ],
         "evidence": {
@@ -251,8 +370,51 @@ def _tool_error_payload(
     }
 
 
+def _unsupported_live_form_payload(
+    query_id: str,
+    run_id: str,
+    browser_mode: BrowserMode,
+    error: UnsupportedLiveForm,
+    artifacts: list[str],
+    source_surfaces: list[str],
+) -> dict[str, Any]:
+    return {
+        "query_id": query_id,
+        "status": "unsupported",
+        "confidence": "unknown",
+        "live_mode": True,
+        "browser_mode": browser_mode,
+        "results": [],
+        "unsupported": [
+            {
+                "field": error.field,
+                "value": error.value,
+                "status": "deferred",
+                "reason": error.reason,
+            }
+        ],
+        "warnings": [],
+        "evidence": {
+            "run_id": run_id,
+            "artifacts": artifacts,
+            "source_surfaces": source_surfaces,
+        },
+    }
+
+
 def _is_stop_result(result: CdpResult) -> bool:
     return bool(result.fallback) or result.status in BLOCKED_STOP_STATES
+
+
+def _is_recoverable_wait_context_error(result: CdpResult) -> bool:
+    if result.status != "tool_error":
+        return False
+    payload = result.json_payload or {}
+    message = str(payload.get("message") or result.error or result.stdout)
+    return (
+        payload.get("code") == "connection_failed"
+        and "Cannot find default execution context" in message
+    )
 
 
 def _google_flights_url(language: str, currency: str) -> str:

@@ -18,7 +18,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 intent_app = typer.Typer(help="Parse and normalize agent search intents.")
-project_app = typer.Typer(help="Manage project-local CLI state.")
+project_app = typer.Typer(help="Manage user-local CLI state.")
 route_app = typer.Typer(help="Resolve city and airport route choices.")
 dates_app = typer.Typer(help="Scan date windows with offline fixtures or live adapters.")
 itinerary_app = typer.Typer(help="Inspect selected itinerary evidence.")
@@ -67,37 +67,40 @@ def search_command(
     input_json: Path = typer.Option(..., "--input-json"),
     offline_fixtures: Path | None = typer.Option(None, "--offline-fixtures"),
     live_cdp: bool = typer.Option(False, "--live-cdp"),
+    live_form: bool = typer.Option(False, "--live-form"),
     browser_mode: BrowserMode = typer.Option("headless", "--browser-mode"),
-    project_root: Path = typer.Option(Path("."), "--project-root"),
+    project_root: Path | None = typer.Option(None, "--project-root"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
     del json_output
-    if live_cdp:
-        try:
-            exit_code, payload = asyncio.run(
-                run_live_search(
-                    input_json=input_json,
-                    project_root=project_root,
-                    browser_mode=browser_mode,
-                )
+    del live_cdp
+    if offline_fixtures is not None:
+        if live_form:
+            emit(
+                {
+                    "status": "tool_error",
+                    "warnings": [],
+                    "error": "--live-form cannot be combined with --offline-fixtures",
+                },
+                6,
             )
-        except services.ServiceError as error:
-            emit_service_error(error)
             return
+        exit_code, payload = services.search_offline(input_json, offline_fixtures)
         emit(payload, exit_code)
         return
 
-    if offline_fixtures is None:
-        emit(
-            {
-                "status": "tool_error",
-                "warnings": [],
-                "error": "search requires --offline-fixtures or explicit --live-cdp",
-            },
-            6,
+    try:
+        exit_code, payload = asyncio.run(
+            run_live_search(
+                input_json=input_json,
+                project_root=project_root,
+                browser_mode=browser_mode,
+                interact_with_form=live_form,
+            )
         )
+    except services.ServiceError as error:
+        emit_service_error(error)
         return
-    exit_code, payload = services.search_offline(input_json, offline_fixtures)
     emit(payload, exit_code)
 
 

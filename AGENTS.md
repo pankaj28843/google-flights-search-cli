@@ -18,8 +18,11 @@ Read in this order:
 
 ## Current Phase
 
-The repository is in harness bootstrap. Production CLI implementation starts
-only after red e2e tests are written in the next implementation slice.
+The repository is in early implementation. Red e2e tests, the Python/uv CLI
+harness, live-cdp-by-default orchestration, app-state/cache setup, fake live
+form planning, visible-text result extraction, and bounded live smoke coverage
+exist. Keep new behavior evidence-backed and update the docs/contracts before
+expanding Google Flights support.
 
 ## Validation
 
@@ -28,11 +31,3 @@ Run:
 ```bash
 make validate
 ```
-
-Default validation must not hit live Google Flights.
-
-## Safety
-
-Do not automate account login, payment, booking, personal-data entry, provider
-checkout, unusual-traffic bypass, access-control bypass, or publication of raw
-browser/network/storage artifacts.
