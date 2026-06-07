@@ -40,6 +40,8 @@ Current expected result: 2 `live_cdp` tests pass against local `cdp doctor` and
 ## Behavior Contract
 
 Read `docs/detailed-cli-spec.md`.
+Read `docs/schema-and-json-contracts.md` for JSON Schema, status, confidence,
+exit-code, project-state, and stop-state contracts.
 
 The core rule is evidence before support: unsupported, deferred, ambiguous, and
 experimental behavior must be reported explicitly rather than guessed.

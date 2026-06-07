@@ -91,6 +91,10 @@ def test_project_init_creates_project_local_state(tmp_path: Path) -> None:
     assert payload["project_root"] == str(tmp_path)
     assert (tmp_path / ".gflights" / "config.json").is_file()
     assert (tmp_path / ".gflights" / "artifacts").is_dir()
+    assert (tmp_path / ".gflights" / "fixtures").is_dir()
+    assert (tmp_path / ".gflights" / "runs").is_dir()
+    assert payload["fixture_root"] == str(tmp_path / ".gflights" / "fixtures")
+    assert payload["run_root"] == str(tmp_path / ".gflights" / "runs")
 
 
 def test_intent_parse_accepts_json_array_and_preserves_order() -> None:

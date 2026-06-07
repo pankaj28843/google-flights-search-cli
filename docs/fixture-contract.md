@@ -42,3 +42,12 @@ message that points to:
 
 Default validation must replay fixtures without contacting Google Flights.
 Live refreshes must be explicit and task-scoped.
+
+## Project-Local Fixtures
+
+`gflights project init --path <project-root> --json` creates a project-local
+fixture root at `.gflights/fixtures/` and a run root at `.gflights/runs/`.
+
+Checked-in fixtures under repository `tests/` or `fixtures/` are for deterministic
+development. Project-local fixtures are for a user's own evidence refreshes and
+must not be published unless redacted and reviewed.

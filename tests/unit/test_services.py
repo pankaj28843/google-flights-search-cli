@@ -87,4 +87,8 @@ def test_project_init_creates_config_and_artifact_root(tmp_path: Path) -> None:
 
     assert payload["status"] == "ok"
     assert (tmp_path / ".gflights" / "artifacts").is_dir()
+    assert (tmp_path / ".gflights" / "fixtures").is_dir()
+    assert (tmp_path / ".gflights" / "runs").is_dir()
     assert config["browser_default_mode"] == "headless"
+    assert config["fixture_root"] == str(tmp_path / ".gflights" / "fixtures")
+    assert config["run_root"] == str(tmp_path / ".gflights" / "runs")

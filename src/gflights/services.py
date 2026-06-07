@@ -36,11 +36,16 @@ def init_project(path: Path) -> dict[str, Any]:
     project_root = path.resolve()
     config_root = project_root / ".gflights"
     artifacts_root = config_root / "artifacts"
-    artifacts_root.mkdir(parents=True, exist_ok=True)
+    fixture_root = config_root / "fixtures"
+    run_root = config_root / "runs"
+    for directory in (artifacts_root, fixture_root, run_root):
+        directory.mkdir(parents=True, exist_ok=True)
     config_path = config_root / "config.json"
     config = {
         "version": 1,
         "artifacts_root": str(artifacts_root),
+        "fixture_root": str(fixture_root),
+        "run_root": str(run_root),
         "live_google_flights_by_default": False,
         "browser_default_mode": "headless",
     }
@@ -50,6 +55,8 @@ def init_project(path: Path) -> dict[str, Any]:
         "project_root": str(project_root),
         "config_path": str(config_path),
         "artifacts_root": str(artifacts_root),
+        "fixture_root": str(fixture_root),
+        "run_root": str(run_root),
     }
 
 
