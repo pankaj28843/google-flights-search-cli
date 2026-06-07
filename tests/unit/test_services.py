@@ -204,6 +204,53 @@ def test_replay_visible_text_fixture_extracts_primary_result_rows() -> None:
     assert payload["evidence"]["source_surfaces"] == ["primary-results-visible-text"]
 
 
+def test_replay_selected_itinerary_visible_text_fixture_extracts_detail_fields() -> None:
+    exit_code, payload = services.replay_fixture(
+        FIXTURES / "selected_itinerary_visible_text_fixture.json"
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["confidence"] == "strong"
+    itinerary = payload["itinerary"]
+    assert itinerary["summary"]["total_price"] == {
+        "amount": 1708,
+        "currency": "EUR",
+        "text": "EUR 1,708",
+    }
+    assert itinerary["segments"][0]["flight_number"] == "KL 1268"
+    assert itinerary["segments"][0]["airline"] == "KLM"
+    assert itinerary["segments"][2]["flight_number"] == "6E 6026"
+    assert itinerary["segments"][5]["destination_airport"] == "CPH"
+    assert itinerary["layovers"][1] == {
+        "direction": "outbound",
+        "airport": "DEL",
+        "city": "New Delhi",
+        "duration_text": "3 hr 35 min",
+        "overnight": True,
+    }
+    assert itinerary["baggage"]["included"] == ["1 free carry-on", "1st checked bag free"]
+    assert "Bag fees may be higher at the airport." in itinerary["baggage"]["warnings"]
+    assert itinerary["emissions"]["segments"] == [
+        "64 kg CO2e",
+        "347 kg CO2e",
+        "57 kg CO2e",
+        "49 kg CO2e",
+        "339 kg CO2e",
+        "64 kg CO2e",
+    ]
+    assert "Wi-Fi for a fee" in itinerary["cabin_facilities"]
+    assert itinerary["booking_options"][0]["provider"] == "KLM"
+    assert itinerary["booking_options"][0]["boundary_control"] == "Continue"
+    assert itinerary["baggage_policy_links"][0]["url"].startswith("https://www.klm.co.uk/")
+    assert itinerary["terminal_info"]["status"] == "not_found"
+    assert itinerary["boundary"]["stop_state"] == "payment_or_booking_boundary"
+    assert itinerary["boundary"]["provider_continue_clicked"] is False
+    assert itinerary["boundary"]["payment_entered"] is False
+    assert payload["unsupported"] == []
+    assert payload["evidence"]["source_surfaces"] == ["selected-itinerary-visible-text"]
+
+
 def test_blocked_fixture_returns_stop_exit_code() -> None:
     exit_code, payload = services.replay_fixture(FIXTURES / "blocked_headless_fixture.json")
 

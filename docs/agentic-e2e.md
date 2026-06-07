@@ -34,6 +34,8 @@ agentic contract for the first implementation. It asserts:
 - `evidence replay` parses redacted offline fixtures
 - `evidence replay` extracts visible-text primary result fixtures into result
   rows
+- `evidence replay` extracts selected-itinerary visible-text fixtures into
+  structured itinerary detail fields without entering provider checkout
 - `doctor --json` reports headless default and live-search-by-default config
 - blocked headless replay returns exit `4` and headed fallback guidance
 - `codec decode --fixture` reports raw wire paths, verifies fixture hypotheses

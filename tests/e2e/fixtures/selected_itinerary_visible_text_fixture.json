@@ -1,0 +1,238 @@
+{
+  "fixture_id": "selected-itinerary-visible-text-20260607",
+  "fixture_type": "selected_itinerary_visible_text",
+  "run_id": "gf-20260607-073838-05-itinerary-detail-booking",
+  "capture_date": "2026-06-07",
+  "captured_at": "2026-06-07T07:38:38+02:00",
+  "source_surface": "selected-itinerary-visible-text",
+  "source_artifacts": [
+    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/after-return-select-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/after-outbound-details-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/after-return-details-visible-text.json",
+    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/notes.md"
+  ],
+  "scenario": {
+    "origin": "Copenhagen CPH",
+    "destination": "Lucknow LKO",
+    "trip_type": "round_trip",
+    "departure_date": "2026-06-15",
+    "return_date": "2026-06-22",
+    "passengers": {
+      "adults": 1
+    },
+    "cabin": "economy"
+  },
+  "confidence": "strong",
+  "redaction_status": "redacted",
+  "linked_behavior_requirement": "docs/detailed-cli-spec.md#itinerarydetail",
+  "redaction": {
+    "status": "redacted",
+    "notes": [
+      "Visible text was normalized from evidence notes and redacted body snapshots.",
+      "Raw browser URLs, storage payloads, network payloads, target IDs, and encoded query values are excluded."
+    ]
+  },
+  "snapshot": {
+    "items": [
+      {
+        "text": "Itinerary summary\nCopenhagen to Lucknow\nRound trip\nEconomy\n1 passenger\nEUR 1,708 Lowest total price\nSelected flights\nOutbound Mon, Jun 15\n467 kg CO2e -23% emissions\n9:25 AM Copenhagen Airport (CPH) to 10:55 AM Amsterdam Airport Schiphol (AMS)\nTravel time: 1 hr 30 min\nKLM Economy Boeing 737 flight KL 1268\nAverage legroom (30 in)\nIn-seat USB outlet\nEmissions estimate: 64 kg CO2e\nContrail warming potential: Medium\n3 hr 30 min layover Amsterdam (AMS)\n2:25 PM Amsterdam Airport Schiphol (AMS) to 1:55 AM+1 Indira Gandhi International Airport (DEL)\nTravel time: 8 hr\nKLM Economy Boeing 787-10 flight KL 871\nAverage legroom (31 in)\nWi-Fi for a fee\nIn-seat USB outlet\nOn-demand video\nEmissions estimate: 347 kg CO2e\nContrail warming potential: Medium\n3 hr 35 min layover New Delhi (DEL)\nOvernight layover\n5:30 AM+1 Indira Gandhi International Airport (DEL) to 6:40 AM+1 Chaudhary Charan Singh International Airport (LKO)\nTravel time: 1 hr 10 min\nIndiGo Economy Airbus A320 flight 6E 6026\nBelow average legroom (28 in)\nEmissions estimate: 57 kg CO2e\nContrail warming potential: Low\nReturn Mon, Jun 22\n452 kg CO2e -18% emissions\n11:20 PM Chaudhary Charan Singh International Airport (LKO) to 12:35 AM+1 Indira Gandhi International Airport (DEL)\nTravel time: 1 hr 15 min\nIndiGo Economy Airbus A320neo flight 6E 6480\nOften delayed by 30+ min\nBelow average legroom (28 in)\nEmissions estimate: 49 kg CO2e\nContrail warming potential: Low\n3 hr 20 min layover New Delhi (DEL)\nOvernight layover\n3:55 AM+1 Indira Gandhi International Airport (DEL) to 9:30 AM+1 Amsterdam Airport Schiphol (AMS)\nTravel time: 9 hr 5 min Overnight\nKLM Economy Boeing 787-10 flight KL 872\nAverage legroom (31 in)\nWi-Fi for a fee\nIn-seat USB outlet\nOn-demand video\nEmissions estimate: 339 kg CO2e\nContrail warming potential: Low\n3 hr 10 min layover Amsterdam (AMS)\n12:40 PM+1 Amsterdam Airport Schiphol (AMS) to 2:00 PM+1 Copenhagen Airport (CPH)\nTravel time: 1 hr 20 min\nKLM Economy Boeing 737 flight KL 1271\nAverage legroom (30 in)\nIn-seat USB outlet\nEmissions estimate: 64 kg CO2e\nContrail warming potential: Low\nBaggage\n1 free carry-on\n1st checked bag free\nBag fee info isn't available when booking with ebookers\nBaggage conditions apply to your entire trip.\nBag fees may be higher at the airport.\nKLM bag policy\nBooking options\nBook with KLM\nAirline\nEUR 1,708\nDKK 12,759\nContinue\nView options\nBook with ebookers\nEUR 1,756\nContinue\nView options\nPrices include required taxes + fees for 1 adult. Optional charges and bag fees may apply."
+      }
+    ]
+  },
+  "decoded_links": [
+    {
+      "text": "KLM bag policy",
+      "url": "https://www.klm.co.uk/information/baggage/checked-baggage-allowance"
+    }
+  ],
+  "expected": {
+    "status": "ok",
+    "confidence": "strong",
+    "itinerary": {
+      "summary": {
+        "origin": "Copenhagen",
+        "destination": "Lucknow",
+        "trip_type": "round_trip",
+        "cabin": "economy",
+        "passengers": "1 passenger",
+        "total_price": {
+          "amount": 1708,
+          "currency": "EUR",
+          "text": "EUR 1,708"
+        }
+      },
+      "segments": [
+        {
+          "direction": "outbound",
+          "origin_airport": "CPH",
+          "destination_airport": "AMS",
+          "airline": "KLM",
+          "flight_number": "KL 1268",
+          "aircraft": "Boeing 737",
+          "duration_text": "1 hr 30 min"
+        },
+        {
+          "direction": "outbound",
+          "origin_airport": "AMS",
+          "destination_airport": "DEL",
+          "airline": "KLM",
+          "flight_number": "KL 871",
+          "aircraft": "Boeing 787-10",
+          "duration_text": "8 hr"
+        },
+        {
+          "direction": "outbound",
+          "origin_airport": "DEL",
+          "destination_airport": "LKO",
+          "airline": "IndiGo",
+          "flight_number": "6E 6026",
+          "aircraft": "Airbus A320",
+          "duration_text": "1 hr 10 min"
+        },
+        {
+          "direction": "return",
+          "origin_airport": "LKO",
+          "destination_airport": "DEL",
+          "airline": "IndiGo",
+          "flight_number": "6E 6480",
+          "aircraft": "Airbus A320neo",
+          "duration_text": "1 hr 15 min"
+        },
+        {
+          "direction": "return",
+          "origin_airport": "DEL",
+          "destination_airport": "AMS",
+          "airline": "KLM",
+          "flight_number": "KL 872",
+          "aircraft": "Boeing 787-10",
+          "duration_text": "9 hr 5 min"
+        },
+        {
+          "direction": "return",
+          "origin_airport": "AMS",
+          "destination_airport": "CPH",
+          "airline": "KLM",
+          "flight_number": "KL 1271",
+          "aircraft": "Boeing 737",
+          "duration_text": "1 hr 20 min"
+        }
+      ],
+      "layovers": [
+        {
+          "direction": "outbound",
+          "airport": "AMS",
+          "city": "Amsterdam",
+          "duration_text": "3 hr 30 min",
+          "overnight": false
+        },
+        {
+          "direction": "outbound",
+          "airport": "DEL",
+          "city": "New Delhi",
+          "duration_text": "3 hr 35 min",
+          "overnight": true
+        },
+        {
+          "direction": "return",
+          "airport": "DEL",
+          "city": "New Delhi",
+          "duration_text": "3 hr 20 min",
+          "overnight": true
+        },
+        {
+          "direction": "return",
+          "airport": "AMS",
+          "city": "Amsterdam",
+          "duration_text": "3 hr 10 min",
+          "overnight": false
+        }
+      ],
+      "baggage": {
+        "included": [
+          "1 free carry-on",
+          "1st checked bag free"
+        ],
+        "warnings": [
+          "Bag fee info isn't available when booking with ebookers",
+          "Baggage conditions apply to your entire trip.",
+          "Bag fees may be higher at the airport."
+        ]
+      },
+      "emissions": {
+        "itinerary": [
+          {
+            "direction": "outbound",
+            "text": "467 kg CO2e",
+            "comparison": "-23% emissions"
+          },
+          {
+            "direction": "return",
+            "text": "452 kg CO2e",
+            "comparison": "-18% emissions"
+          }
+        ],
+        "segments": [
+          "64 kg CO2e",
+          "347 kg CO2e",
+          "57 kg CO2e",
+          "49 kg CO2e",
+          "339 kg CO2e",
+          "64 kg CO2e"
+        ]
+      },
+      "cabin_facilities": [
+        "Average legroom (30 in)",
+        "In-seat USB outlet",
+        "Average legroom (31 in)",
+        "Wi-Fi for a fee",
+        "On-demand video",
+        "Below average legroom (28 in)"
+      ],
+      "booking_options": [
+        {
+          "provider": "KLM",
+          "provider_type": "Airline",
+          "price": {
+            "amount": 1708,
+            "currency": "EUR",
+            "text": "EUR 1,708"
+          },
+          "secondary_price": {
+            "currency": "DKK",
+            "text": "DKK 12,759"
+          },
+          "boundary_control": "Continue"
+        },
+        {
+          "provider": "ebookers",
+          "price": {
+            "amount": 1756,
+            "currency": "EUR",
+            "text": "EUR 1,756"
+          },
+          "boundary_control": "Continue"
+        }
+      ],
+      "baggage_policy_links": [
+        {
+          "airline": "KLM",
+          "text": "KLM bag policy",
+          "url": "https://www.klm.co.uk/information/baggage/checked-baggage-allowance"
+        }
+      ],
+      "terminal_info": {
+        "status": "not_found",
+        "reason": "terminal information was not visible in selected-itinerary evidence"
+      },
+      "boundary": {
+        "stop_state": "payment_or_booking_boundary",
+        "provider_continue_visible": true,
+        "provider_continue_clicked": false,
+        "checkout_entered": false,
+        "payment_entered": false,
+        "personal_data_entered": false,
+        "login_entered": false
+      }
+    }
+  }
+}

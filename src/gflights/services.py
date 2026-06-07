@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from gflights.app_state import DEFAULT_CACHE_MAX_AGE_SECONDS, AppState, PriceCache, init_app_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
+from gflights.itinerary_extraction import extract_selected_itinerary
 from gflights.ranking import rank_observed_pairs
 from gflights.result_extraction import extract_primary_results
 
@@ -528,6 +529,27 @@ def replay_fixture(path: Path) -> tuple[int, dict[str, Any]]:
             "unsupported": [],
             "warnings": [] if results else ["no primary result rows found in visible text fixture"],
             "evidence": evidence,
+        }
+
+    if fixture["fixture_type"] == "selected_itinerary_visible_text":
+        itinerary = extract_selected_itinerary(
+            fixture,
+            source_surface=fixture["source_surface"],
+            confidence=fixture["confidence"],
+        )
+        selected_evidence = {
+            **evidence,
+            "artifacts": [str(path), *fixture.get("source_artifacts", [])],
+        }
+        return 0, {
+            "status": expected["status"] if itinerary["segments"] else "no_results",
+            "confidence": fixture["confidence"] if itinerary["segments"] else "unknown",
+            "itinerary": itinerary,
+            "unsupported": [],
+            "warnings": []
+            if itinerary["segments"]
+            else ["no selected-itinerary segments found in visible text fixture"],
+            "evidence": selected_evidence,
         }
 
     return 0, {

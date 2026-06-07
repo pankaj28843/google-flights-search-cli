@@ -416,6 +416,11 @@ must output `terminal_info.status = "not_found"` or omit the field with an
 explicit absence reason; it must not invent terminal names or terminal-change
 warnings.
 
+Current default-validation support is fixture replay for redacted
+`selected_itinerary_visible_text` evidence. Live `itinerary inspect` remains a
+separate browser-orchestration step and must keep checkout, login, payment, and
+personal-data flows as stop boundaries.
+
 ## Query And Protobuf Policy
 
 URL state:

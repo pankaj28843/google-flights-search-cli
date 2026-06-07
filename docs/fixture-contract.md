@@ -15,6 +15,12 @@ Planned fixture families:
 - booking-summary snapshots
 - unsupported, ambiguous, blocked, and stale examples
 
+Checked-in `selected_itinerary_visible_text` fixtures are redacted normalized
+visible-text snapshots. They may include separately decoded absolute
+baggage-policy links only when the visible link text was observed and the
+decoded target was reviewed. They must not include raw browser URLs, storage,
+network payloads, target IDs, cookies, or encoded query values.
+
 ## Fixture Metadata
 
 Every fixture needs:

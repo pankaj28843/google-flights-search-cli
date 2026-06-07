@@ -108,6 +108,38 @@ If pandas is unavailable, it returns `status: "unavailable"` with an install
 hint instead of importing pandas from the pure domain core or failing default
 validation.
 
+## Selected Itinerary Replay
+
+Deterministic replay:
+
+```bash
+gflights evidence replay <selected_itinerary_visible_text_fixture.json> --json
+```
+
+For `fixture_type: "selected_itinerary_visible_text"`, replay returns
+`status: "ok"` and an `itinerary` object when the redacted visible-text fixture
+contains parseable selected-itinerary details. The current replay contract may
+include:
+
+- `summary` with route, trip type, cabin, passenger count, and total price
+- `segments` with direction, airport codes, airline, flight number, aircraft,
+  and duration text
+- `layovers` with airport, city, duration, direction, and overnight flag when
+  visible
+- `baggage` with included baggage and warnings
+- `emissions` from itinerary-level and per-segment visible text
+- `cabin_facilities`
+- `booking_options` with provider names, visible prices, and `Continue` as a
+  booking-boundary control
+- `baggage_policy_links` only when a visible policy link is safely decoded to
+  an absolute URL in the redacted fixture metadata
+- `terminal_info.status = "not_found"` when terminal text is absent
+- `boundary` flags proving provider checkout, payment, login, and personal-data
+  flows were not entered
+
+Replay fixtures must not include raw browser URLs, raw network payloads, raw
+storage payloads, cookies, target IDs, or unredacted cdp artifacts.
+
 ## Status Values
 
 Allowed command status values:

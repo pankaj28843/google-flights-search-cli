@@ -224,6 +224,33 @@ def test_evidence_replay_extracts_visible_text_primary_results() -> None:
     assert payload["results"][0]["price"] == {"amount": 3206, "currency": "EUR", "text": "€3,206"}
 
 
+def test_evidence_replay_extracts_selected_itinerary_details() -> None:
+    result = run_cli(
+        "evidence",
+        "replay",
+        str(FIXTURES / "selected_itinerary_visible_text_fixture.json"),
+        "--json",
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = assert_json_stdout(result)
+    itinerary = payload["itinerary"]
+    assert payload["status"] == "ok"
+    assert itinerary["segments"][0]["flight_number"] == "KL 1268"
+    assert itinerary["segments"][3]["flight_number"] == "6E 6480"
+    assert itinerary["baggage"]["included"] == ["1 free carry-on", "1st checked bag free"]
+    assert itinerary["booking_options"][0]["provider"] == "KLM"
+    assert itinerary["booking_options"][1]["price"] == {
+        "amount": 1756,
+        "currency": "EUR",
+        "text": "EUR 1,756",
+    }
+    assert itinerary["terminal_info"]["status"] == "not_found"
+    assert itinerary["boundary"]["provider_continue_clicked"] is False
+    assert itinerary["boundary"]["checkout_entered"] is False
+    assert itinerary["baggage_policy_links"][0]["url"].startswith("https://www.klm.co.uk/")
+
+
 def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) -> None:
     result = run_cli(
         "doctor",
