@@ -24,6 +24,8 @@ class FakeCdpAdapter:
         timeout_seconds: float = 30.0,
     ) -> CdpResult:
         self.calls.append((list(args), browser_mode, timeout_seconds))
+        if list(args)[:2] == ["page", "close"]:
+            return cdp_result(list(args), {"ok": True})
         return self.results.pop(0)
 
 
@@ -128,8 +130,9 @@ def test_live_route_stops_on_personal_data_prompt_after_wait(tmp_path: Path) -> 
     assert payload["warnings"] == [
         "live route resolution stopped before bypassing a browser safety boundary"
     ]
-    assert [call[0][0] for call in adapter.calls] == ["open", "wait"]
+    assert [call[0][0] for call in adapter.calls] == ["open", "wait", "page"]
     assert (tmp_path / "runs" / "gf-route-personal-data" / "wait.json").is_file()
+    assert (tmp_path / "runs" / "gf-route-personal-data" / "managed-tab-close.json").is_file()
 
 
 def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
@@ -179,6 +182,7 @@ def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
         "cdp:wait",
         "cdp:route-autocomplete-fill",
         "cdp:snapshot:route-autocomplete",
+        "cdp:page-close",
     ]
     assert adapter.calls == [
         (
@@ -204,6 +208,7 @@ def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
             30.0,
         ),
         (["snapshot", "--target", "page-1", "--limit", "120"], "headless", 30.0),
+        (["page", "close", "--target", "page-1"], "headless", 5.0),
     ]
     assert (tmp_path / "runs" / "gf-route-snapshot" / "input.json").is_file()
     assert (tmp_path / "runs" / "gf-route-snapshot" / "snapshot.json").is_file()
@@ -259,4 +264,5 @@ def test_live_route_extracts_choices_from_autocomplete_snapshot(tmp_path: Path) 
         "cdp:route-autocomplete-fill",
         "cdp:snapshot:route-autocomplete",
         "route-autocomplete-visible-text",
+        "cdp:page-close",
     ]

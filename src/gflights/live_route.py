@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
+from gflights.live_cleanup import close_managed_page
 from gflights.route_resolution import extract_route_choices_from_snapshot
 
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
@@ -59,6 +60,7 @@ async def run_live_route_resolution(
     artifacts: list[str] = [str(input_artifact)]
     source_surfaces: list[str] = []
     target_url = _google_flights_url()
+    page_id = ""
 
     open_result = await _run_step(
         adapter=adapter,
@@ -72,31 +74,51 @@ async def run_live_route_resolution(
         artifacts=artifacts,
         source_surfaces=source_surfaces,
     )
+    page_id = _page_id(open_result.json_payload)
     if _is_stop_result(open_result):
-        return _finish_stop(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=open_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            target_url=target_url,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_stop(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=open_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
     if open_result.status == "tool_error":
-        return _finish_tool_error(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=open_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=open_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
 
-    page_id = _page_id(open_result.json_payload)
     wait_result = await _run_step(
         adapter=adapter,
         args=["wait", "load-state", "domcontentloaded", "--target", page_id],
@@ -110,27 +132,47 @@ async def run_live_route_resolution(
         source_surfaces=source_surfaces,
     )
     if _is_stop_result(wait_result):
-        return _finish_stop(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=wait_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            target_url=target_url,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_stop(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=wait_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
     if wait_result.status == "tool_error":
-        return _finish_tool_error(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=wait_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=wait_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
 
     fill_result = await _run_step(
@@ -157,27 +199,47 @@ async def run_live_route_resolution(
         source_surfaces=source_surfaces,
     )
     if _is_stop_result(fill_result):
-        return _finish_stop(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=fill_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            target_url=target_url,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_stop(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=fill_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
     if fill_result.status == "tool_error":
-        return _finish_tool_error(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=fill_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=fill_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
 
     snapshot_result = await _run_step(
@@ -193,27 +255,47 @@ async def run_live_route_resolution(
         source_surfaces=source_surfaces,
     )
     if _is_stop_result(snapshot_result):
-        return _finish_stop(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=snapshot_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            target_url=target_url,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_stop(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=snapshot_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
     if snapshot_result.status == "tool_error":
-        return _finish_tool_error(
-            input_text=input_text,
-            run_id=run_id,
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=snapshot_result,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                input_text=input_text,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=snapshot_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                run_root=run_root,
+                executed=executed,
+            ),
         )
 
     route_exit_code, route_payload = extract_route_choices_from_snapshot(
@@ -225,7 +307,6 @@ async def run_live_route_resolution(
     )
     if route_exit_code in {0, 2}:
         source_surfaces.append("route-autocomplete-visible-text")
-        _write_command_log(run_root, executed, artifacts)
         route_payload.update(
             {
                 "live_mode": True,
@@ -238,34 +319,56 @@ async def run_live_route_resolution(
                 },
             }
         )
-        return route_exit_code, route_payload
+        return await _finish_route_resolution(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=(route_exit_code, route_payload),
+        )
 
-    _write_command_log(run_root, executed, artifacts)
-    return 3, {
-        "status": "unsupported",
-        "input_text": input_text,
-        "selected": None,
-        "choices": [],
-        "confidence": "unknown",
-        "live_mode": True,
-        "browser_mode": browser_mode,
-        "target_url": target_url,
-        "unsupported": [
+    return await _finish_route_resolution(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        result=(
+            3,
             {
-                "field": "route.resolve.live_autocomplete_extraction",
-                "status": "deferred",
-                "reason": "live route autocomplete evidence capture is available, but durable choice extraction still requires focused fixture-backed parser tests",
-            }
-        ],
-        "warnings": [
-            "live route resolution captured cdp evidence but did not infer route choices from unsupported selectors"
-        ],
-        "evidence": {
-            "run_id": run_id,
-            "artifacts": artifacts,
-            "source_surfaces": source_surfaces,
-        },
-    }
+                "status": "unsupported",
+                "input_text": input_text,
+                "selected": None,
+                "choices": [],
+                "confidence": "unknown",
+                "live_mode": True,
+                "browser_mode": browser_mode,
+                "target_url": target_url,
+                "unsupported": [
+                    {
+                        "field": "route.resolve.live_autocomplete_extraction",
+                        "status": "deferred",
+                        "reason": "live route autocomplete evidence capture is available, but durable choice extraction still requires focused fixture-backed parser tests",
+                    }
+                ],
+                "warnings": [
+                    "live route resolution captured cdp evidence but did not infer route choices from unsupported selectors"
+                ],
+                "evidence": {
+                    "run_id": run_id,
+                    "artifacts": artifacts,
+                    "source_surfaces": source_surfaces,
+                },
+            },
+        ),
+    )
 
 
 async def _run_step(
@@ -377,7 +480,42 @@ def _write_command_log(
 ) -> None:
     command_log = run_root / "command-log.json"
     _write_json(command_log, executed)
-    artifacts.append(str(command_log))
+    if str(command_log) not in artifacts:
+        artifacts.append(str(command_log))
+
+
+async def _finish_route_resolution(
+    *,
+    adapter: CdpAdapter,
+    page_id: str,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+    result: tuple[int, dict[str, Any]],
+) -> tuple[int, dict[str, Any]]:
+    await close_managed_page(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        warnings=_payload_warnings(result[1]),
+    )
+    _write_command_log(run_root, executed, artifacts)
+    return result
+
+
+def _payload_warnings(payload: dict[str, Any]) -> list[str] | None:
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        return warnings
+    return None
 
 
 def _result_artifact(result: CdpResult) -> dict[str, Any]:

@@ -40,6 +40,8 @@ Regular cleanup should look for:
 - selector-driven docs
 - docs that no longer match behavior
 - validation commands that rely on terminal scrollback
+- stale `cdp` tabs left by live smoke or live evidence commands
+- missing managed-tab close artifacts for live browser commands
 
 ## Safety Boundary
 

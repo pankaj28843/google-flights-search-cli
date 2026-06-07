@@ -10,6 +10,7 @@ from typing import Any
 from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
 from gflights.itinerary_extraction import extract_selected_itinerary
+from gflights.live_cleanup import close_managed_page
 
 
 async def run_live_itinerary_inspection(
@@ -33,6 +34,7 @@ async def run_live_itinerary_inspection(
 
     _write_json(run_root / "booking-url.json", {"booking_url": booking_url})
     artifacts.append(str(run_root / "booking-url.json"))
+    page_id = ""
 
     open_result = await _run_step(
         adapter=adapter,
@@ -46,30 +48,50 @@ async def run_live_itinerary_inspection(
         artifacts=artifacts,
         source_surfaces=source_surfaces,
     )
+    page_id = _page_id(open_result.json_payload)
     if _is_stop_result(open_result):
-        return _finish_stop(
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
-            booking_url=booking_url,
-            run_id=run_id,
-            browser_mode=browser_mode,
-            result=open_result,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            result=_finish_stop(
+                run_root=run_root,
+                executed=executed,
+                booking_url=booking_url,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=open_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            ),
         )
     if open_result.status == "tool_error":
-        return _finish_tool_error(
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
-            booking_url=booking_url,
-            run_id=run_id,
-            browser_mode=browser_mode,
-            result=open_result,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                run_root=run_root,
+                executed=executed,
+                booking_url=booking_url,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=open_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            ),
         )
 
-    page_id = _page_id(open_result.json_payload)
     wait_result = await _run_step(
         adapter=adapter,
         args=["wait", "load-state", "domcontentloaded", "--target", page_id],
@@ -83,26 +105,46 @@ async def run_live_itinerary_inspection(
         source_surfaces=source_surfaces,
     )
     if _is_stop_result(wait_result):
-        return _finish_stop(
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
-            booking_url=booking_url,
-            run_id=run_id,
-            browser_mode=browser_mode,
-            result=wait_result,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            result=_finish_stop(
+                run_root=run_root,
+                executed=executed,
+                booking_url=booking_url,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=wait_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            ),
         )
     if wait_result.status == "tool_error":
-        return _finish_tool_error(
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
-            booking_url=booking_url,
-            run_id=run_id,
-            browser_mode=browser_mode,
-            result=wait_result,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                run_root=run_root,
+                executed=executed,
+                booking_url=booking_url,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=wait_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            ),
         )
 
     snapshot_result = await _run_step(
@@ -118,76 +160,121 @@ async def run_live_itinerary_inspection(
         source_surfaces=source_surfaces,
     )
     if _is_stop_result(snapshot_result):
-        return _finish_stop(
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
-            booking_url=booking_url,
-            run_id=run_id,
-            browser_mode=browser_mode,
-            result=snapshot_result,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            result=_finish_stop(
+                run_root=run_root,
+                executed=executed,
+                booking_url=booking_url,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=snapshot_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            ),
         )
     if snapshot_result.status == "tool_error":
-        return _finish_tool_error(
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
             run_root=run_root,
             executed=executed,
-            booking_url=booking_url,
-            run_id=run_id,
-            browser_mode=browser_mode,
-            result=snapshot_result,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            result=_finish_tool_error(
+                run_root=run_root,
+                executed=executed,
+                booking_url=booking_url,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=snapshot_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            ),
         )
 
-    _write_command_log(run_root, executed, artifacts)
     itinerary = extract_selected_itinerary(
         {"snapshot": snapshot_result.json_payload or {}},
         source_surface="selected-itinerary-visible-text",
         confidence="weak",
     )
     if itinerary["segments"]:
-        return 0, {
-            "status": "ok",
-            "confidence": "weak",
-            "live_mode": True,
-            "browser_mode": browser_mode,
-            "booking_url": booking_url,
-            "itinerary": itinerary,
-            "unsupported": [],
-            "warnings": [
-                "live itinerary inspection captured visible selected-itinerary evidence and did not click provider booking controls"
-            ],
-            "evidence": {
-                "run_id": run_id,
-                "artifacts": artifacts,
-                "source_surfaces": source_surfaces,
-            },
-        }
+        return await _finish_itinerary_inspection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            result=(
+                0,
+                {
+                    "status": "ok",
+                    "confidence": "weak",
+                    "live_mode": True,
+                    "browser_mode": browser_mode,
+                    "booking_url": booking_url,
+                    "itinerary": itinerary,
+                    "unsupported": [],
+                    "warnings": [
+                        "live itinerary inspection captured visible selected-itinerary evidence and did not click provider booking controls"
+                    ],
+                    "evidence": {
+                        "run_id": run_id,
+                        "artifacts": artifacts,
+                        "source_surfaces": source_surfaces,
+                    },
+                },
+            ),
+        )
 
-    return 0, {
-        "status": "experimental",
-        "confidence": "weak",
-        "live_mode": True,
-        "browser_mode": browser_mode,
-        "booking_url": booking_url,
-        "itinerary": None,
-        "unsupported": [
+    return await _finish_itinerary_inspection(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        result=(
+            0,
             {
-                "field": "live_itinerary_extraction",
-                "status": "deferred",
-                "reason": "no selected-itinerary detail segments were parsed from the visible text snapshot",
-            }
-        ],
-        "warnings": [
-            "live itinerary inspection did not click provider booking controls",
-        ],
-        "evidence": {
-            "run_id": run_id,
-            "artifacts": artifacts,
-            "source_surfaces": source_surfaces,
-        },
-    }
+                "status": "experimental",
+                "confidence": "weak",
+                "live_mode": True,
+                "browser_mode": browser_mode,
+                "booking_url": booking_url,
+                "itinerary": None,
+                "unsupported": [
+                    {
+                        "field": "live_itinerary_extraction",
+                        "status": "deferred",
+                        "reason": "no selected-itinerary detail segments were parsed from the visible text snapshot",
+                    }
+                ],
+                "warnings": [
+                    "live itinerary inspection did not click provider booking controls",
+                ],
+                "evidence": {
+                    "run_id": run_id,
+                    "artifacts": artifacts,
+                    "source_surfaces": source_surfaces,
+                },
+            },
+        ),
+    )
 
 
 async def _run_step(
@@ -334,6 +421,40 @@ def _write_command_log(
     _write_json(path, executed)
     if str(path) not in artifacts:
         artifacts.append(str(path))
+
+
+async def _finish_itinerary_inspection(
+    *,
+    adapter: CdpAdapter,
+    page_id: str,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+    result: tuple[int, dict[str, Any]],
+) -> tuple[int, dict[str, Any]]:
+    await close_managed_page(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        warnings=_payload_warnings(result[1]),
+    )
+    _write_command_log(run_root, executed, artifacts)
+    return result
+
+
+def _payload_warnings(payload: dict[str, Any]) -> list[str] | None:
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        return warnings
+    return None
 
 
 def _write_json(path: Path, payload: Any) -> None:

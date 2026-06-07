@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from gflights.app_state import AppState, PriceCache, init_app_state
+from gflights.app_state import AppState, init_app_state, price_cache_for_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
 from gflights.domain import SearchIntent
+from gflights.live_cleanup import close_managed_page
 from gflights.live_form import (
     UnsupportedLiveForm,
     plan_live_form_interaction,
@@ -102,6 +103,7 @@ async def _run_one_live_search(
                 intent.query_id, run_id, browser_mode, exc, artifacts, source_surfaces
             )
 
+    page_id = ""
     open_result = await _run_step(
         adapter=adapter,
         args=["open", target_url],
@@ -114,33 +116,51 @@ async def _run_one_live_search(
         artifacts=artifacts,
         source_surfaces=source_surfaces,
     )
+    page_id = _page_id(open_result.json_payload)
     if _is_stop_result(open_result):
-        _write_json(run_root / "command-log.json", executed)
-        artifacts.append(str(run_root / "command-log.json"))
-        return open_result.exit_code or 4, _stop_payload(
-            intent_query_id=intent.query_id,
-            run_id=run_id,
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=open_result,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
-            target_url=target_url,
-            query_population=query_population,
+            exit_code=open_result.exit_code or 4,
+            payload=_stop_payload(
+                intent_query_id=intent.query_id,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=open_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                query_population=query_population,
+            ),
         )
     if open_result.status == "tool_error":
-        _write_json(run_root / "command-log.json", executed)
-        artifacts.append(str(run_root / "command-log.json"))
-        return 6, _tool_error_payload(
-            intent.query_id,
-            run_id,
-            browser_mode,
-            open_result,
-            artifacts,
-            source_surfaces,
-            query_population,
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=6,
+            payload=_tool_error_payload(
+                intent.query_id,
+                run_id,
+                browser_mode,
+                open_result,
+                artifacts,
+                source_surfaces,
+                query_population,
+            ),
         )
 
-    page_id = _page_id(open_result.json_payload)
     wait_result = await _run_step(
         adapter=adapter,
         args=["wait", "load-state", "domcontentloaded", "--target", page_id],
@@ -167,29 +187,47 @@ async def _run_one_live_search(
             source_surfaces=source_surfaces,
         )
     if _is_stop_result(wait_result):
-        _write_json(run_root / "command-log.json", executed)
-        artifacts.append(str(run_root / "command-log.json"))
-        return wait_result.exit_code or 4, _stop_payload(
-            intent_query_id=intent.query_id,
-            run_id=run_id,
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
             browser_mode=browser_mode,
-            result=wait_result,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
-            target_url=target_url,
-            query_population=query_population,
+            exit_code=wait_result.exit_code or 4,
+            payload=_stop_payload(
+                intent_query_id=intent.query_id,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=wait_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                query_population=query_population,
+            ),
         )
     if wait_result.status == "tool_error":
-        _write_json(run_root / "command-log.json", executed)
-        artifacts.append(str(run_root / "command-log.json"))
-        return 6, _tool_error_payload(
-            intent.query_id,
-            run_id,
-            browser_mode,
-            wait_result,
-            artifacts,
-            source_surfaces,
-            query_population,
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=6,
+            payload=_tool_error_payload(
+                intent.query_id,
+                run_id,
+                browser_mode,
+                wait_result,
+                artifacts,
+                source_surfaces,
+                query_population,
+            ),
         )
 
     if query_population["params"].get("tfu") is not None:
@@ -206,17 +244,26 @@ async def _run_one_live_search(
             source_surfaces=source_surfaces,
         )
         if _is_stop_result(settle_result):
-            _write_json(run_root / "command-log.json", executed)
-            artifacts.append(str(run_root / "command-log.json"))
-            return settle_result.exit_code or 4, _stop_payload(
-                intent_query_id=intent.query_id,
-                run_id=run_id,
+            return await _finish_live_search(
+                adapter=adapter,
+                page_id=page_id,
                 browser_mode=browser_mode,
-                result=settle_result,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
                 artifacts=artifacts,
                 source_surfaces=source_surfaces,
-                target_url=target_url,
-                query_population=query_population,
+                exit_code=settle_result.exit_code or 4,
+                payload=_stop_payload(
+                    intent_query_id=intent.query_id,
+                    run_id=run_id,
+                    browser_mode=browser_mode,
+                    result=settle_result,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    target_url=target_url,
+                    query_population=query_population,
+                ),
             )
         if settle_result.status == "tool_error":
             query_population["warnings"].append(
@@ -238,29 +285,47 @@ async def _run_one_live_search(
                 source_surfaces=source_surfaces,
             )
             if _is_stop_result(result):
-                _write_json(run_root / "command-log.json", executed)
-                artifacts.append(str(run_root / "command-log.json"))
-                return result.exit_code or 4, _stop_payload(
-                    intent_query_id=intent.query_id,
-                    run_id=run_id,
+                return await _finish_live_search(
+                    adapter=adapter,
+                    page_id=page_id,
                     browser_mode=browser_mode,
-                    result=result,
+                    timeout_seconds=timeout_seconds,
+                    run_root=run_root,
+                    executed=executed,
                     artifacts=artifacts,
                     source_surfaces=source_surfaces,
-                    target_url=target_url,
-                    query_population=query_population,
+                    exit_code=result.exit_code or 4,
+                    payload=_stop_payload(
+                        intent_query_id=intent.query_id,
+                        run_id=run_id,
+                        browser_mode=browser_mode,
+                        result=result,
+                        artifacts=artifacts,
+                        source_surfaces=source_surfaces,
+                        target_url=target_url,
+                        query_population=query_population,
+                    ),
                 )
             if result.status == "tool_error":
-                _write_json(run_root / "command-log.json", executed)
-                artifacts.append(str(run_root / "command-log.json"))
-                return 6, _tool_error_payload(
-                    intent.query_id,
-                    run_id,
-                    browser_mode,
-                    result,
-                    artifacts,
-                    source_surfaces,
-                    query_population,
+                return await _finish_live_search(
+                    adapter=adapter,
+                    page_id=page_id,
+                    browser_mode=browser_mode,
+                    timeout_seconds=timeout_seconds,
+                    run_root=run_root,
+                    executed=executed,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    exit_code=6,
+                    payload=_tool_error_payload(
+                        intent.query_id,
+                        run_id,
+                        browser_mode,
+                        result,
+                        artifacts,
+                        source_surfaces,
+                        query_population,
+                    ),
                 )
 
     snapshot_result = await _run_step(
@@ -300,18 +365,28 @@ async def _run_one_live_search(
         artifacts=artifacts,
         source_surfaces=source_surfaces,
     )
-    _write_json(run_root / "command-log.json", executed)
-    artifacts.append(str(run_root / "command-log.json"))
+    _write_command_log(run_root, executed, artifacts)
 
     if snapshot_result.status == "tool_error":
-        return 6, _tool_error_payload(
-            intent.query_id,
-            run_id,
-            browser_mode,
-            snapshot_result,
-            artifacts,
-            source_surfaces,
-            query_population,
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=6,
+            payload=_tool_error_payload(
+                intent.query_id,
+                run_id,
+                browser_mode,
+                snapshot_result,
+                artifacts,
+                source_surfaces,
+                query_population,
+            ),
         )
     nonfatal_warnings: list[str] = []
     if network_result.status == "tool_error":
@@ -332,20 +407,80 @@ async def _run_one_live_search(
         run_id=run_id,
     )
     if extracted_results:
-        return 0, {
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=0,
+            payload={
+                "query_id": intent.query_id,
+                "status": "ok",
+                "confidence": "weak",
+                "live_mode": True,
+                "browser_mode": browser_mode,
+                "target_url": target_url,
+                "query_population": query_population["payload"],
+                "results": extracted_results,
+                "unsupported": [],
+                "warnings": [
+                    *query_population["warnings"],
+                    *nonfatal_warnings,
+                    "primary result rows were parsed from visible text evidence; missing optional fields are left empty or null",
+                    *(
+                        ["live form interaction is experimental and limited to observed controls"]
+                        if interact_with_form
+                        else []
+                    ),
+                    "Google Flights URL query/protobuf encoding is not guessed",
+                ],
+                "evidence": {
+                    "run_id": run_id,
+                    "artifacts": artifacts,
+                    "source_surfaces": source_surfaces,
+                },
+                "cache": {
+                    "database_path": str(state.database_path),
+                    "price_observations_written": price_observations_written,
+                },
+            },
+        )
+
+    return await _finish_live_search(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        exit_code=0,
+        payload={
             "query_id": intent.query_id,
-            "status": "ok",
+            "status": "experimental",
             "confidence": "weak",
             "live_mode": True,
             "browser_mode": browser_mode,
             "target_url": target_url,
             "query_population": query_population["payload"],
-            "results": extracted_results,
-            "unsupported": [],
+            "results": [],
+            "unsupported": [
+                *query_population["unsupported"],
+                {
+                    "field": "live_result_extraction",
+                    "status": "deferred",
+                    "reason": "this live mode captures cdp evidence; durable Google Flights result extraction still requires focused evidence and parser tests",
+                },
+            ],
             "warnings": [
                 *query_population["warnings"],
                 *nonfatal_warnings,
-                "primary result rows were parsed from visible text evidence; missing optional fields are left empty or null",
+                "live cdp mode is the default search path; no primary result rows were extracted from this snapshot",
                 *(
                     ["live form interaction is experimental and limited to observed controls"]
                     if interact_with_form
@@ -362,46 +497,8 @@ async def _run_one_live_search(
                 "database_path": str(state.database_path),
                 "price_observations_written": price_observations_written,
             },
-        }
-
-    return 0, {
-        "query_id": intent.query_id,
-        "status": "experimental",
-        "confidence": "weak",
-        "live_mode": True,
-        "browser_mode": browser_mode,
-        "target_url": target_url,
-        "query_population": query_population["payload"],
-        "results": [],
-        "unsupported": [
-            *query_population["unsupported"],
-            {
-                "field": "live_result_extraction",
-                "status": "deferred",
-                "reason": "this live mode captures cdp evidence; durable Google Flights result extraction still requires focused evidence and parser tests",
-            },
-        ],
-        "warnings": [
-            *query_population["warnings"],
-            *nonfatal_warnings,
-            "live cdp mode is the default search path; no primary result rows were extracted from this snapshot",
-            *(
-                ["live form interaction is experimental and limited to observed controls"]
-                if interact_with_form
-                else []
-            ),
-            "Google Flights URL query/protobuf encoding is not guessed",
-        ],
-        "evidence": {
-            "run_id": run_id,
-            "artifacts": artifacts,
-            "source_surfaces": source_surfaces,
         },
-        "cache": {
-            "database_path": str(state.database_path),
-            "price_observations_written": price_observations_written,
-        },
-    }
+    )
 
 
 async def _run_step(
@@ -437,6 +534,52 @@ async def _run_step(
         }
     )
     return result
+
+
+async def _finish_live_search(
+    *,
+    adapter: CdpAdapter,
+    page_id: str,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+    exit_code: int,
+    payload: dict[str, Any],
+) -> tuple[int, dict[str, Any]]:
+    await close_managed_page(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        warnings=_payload_warnings(payload),
+    )
+    _write_command_log(run_root, executed, artifacts)
+    return exit_code, payload
+
+
+def _payload_warnings(payload: dict[str, Any]) -> list[str] | None:
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list):
+        return warnings
+    return None
+
+
+def _write_command_log(
+    run_root: Path,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+) -> None:
+    command_log = run_root / "command-log.json"
+    _write_json(command_log, executed)
+    if str(command_log) not in artifacts:
+        artifacts.append(str(command_log))
 
 
 def _result_artifact(result: CdpResult) -> dict[str, Any]:
@@ -639,7 +782,7 @@ def _write_price_observations(
     results: list[dict[str, Any]],
     run_id: str,
 ) -> int:
-    cache = PriceCache(state.database_path)
+    cache = price_cache_for_state(state)
     written = 0
     captured_at = datetime.now(timezone.utc)
     for result in results:

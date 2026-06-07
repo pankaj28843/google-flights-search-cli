@@ -4,6 +4,9 @@ Live Google Flights probing is the default value path for `gflights search`
 when offline fixtures are not supplied. It is still not part of normal
 validation.
 
+Read `docs/cdp-usage-discipline.md` before live `cdp` work. That document owns
+tab-budget preflight, target reuse, managed-tab memory, and close/cleanup rules.
+
 ## Browser Modes
 
 Implemented live probes default to headless cdp mode. Headed mode is allowed
@@ -70,6 +73,7 @@ Each live run must capture:
 - command log
 - browser mode
 - target URL and page id when available
+- managed-tab close artifact when the CLI opened a page target
 - visible text or DOM snapshot
 - network request/response metadata when relevant
 - screenshots when layout matters

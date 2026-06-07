@@ -14,8 +14,14 @@ FIXTURES = Path(__file__).resolve().parents[1] / "e2e" / "fixtures"
 
 
 class FakeCdpAdapter:
-    def __init__(self, results: list[CdpResult]) -> None:
+    def __init__(
+        self,
+        results: list[CdpResult],
+        *,
+        close_result: CdpResult | None = None,
+    ) -> None:
         self.results = results
+        self.close_result = close_result
         self.calls: list[tuple[list[str], BrowserMode, float]] = []
 
     async def run_json(
@@ -26,6 +32,10 @@ class FakeCdpAdapter:
         timeout_seconds: float = 30.0,
     ) -> CdpResult:
         self.calls.append((list(args), browser_mode, timeout_seconds))
+        if list(args)[:2] == ["page", "close"]:
+            if self.close_result is not None:
+                return self.close_result
+            return cdp_result(list(args), {"ok": True})
         return self.results.pop(0)
 
 
@@ -88,7 +98,27 @@ def write_lucknow_oneway_intent(path: Path) -> Path:
             {
                 "query_id": "live-cph-lko",
                 "origin": {"text": "CPH", "kind": "airport_code"},
-                "destination": {"text": "Lucknow", "kind": "city_or_airport"},
+                "destination": {
+                    "text": "Lucknow",
+                    "kind": "city_or_airport",
+                    "selected": {
+                        "text": "Lucknow, Uttar Pradesh, India",
+                        "kind": "city",
+                        "display_name": "Lucknow, Uttar Pradesh, India",
+                        "code_or_id": "/m/022tq4",
+                        "confidence": "strong",
+                        "evidence": {
+                            "source_surfaces": [
+                                "route-autocomplete-visible-text",
+                                "protobuf-decode-report",
+                            ],
+                            "artifacts": [
+                                "route_autocomplete_choices_fixture.json",
+                                "decode-report.md",
+                            ],
+                        },
+                    },
+                },
                 "trip_type": "one_way",
                 "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
                 "return_window": None,
@@ -186,6 +216,7 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
         "cdp:wait",
         "cdp:snapshot",
         "cdp:network",
+        "cdp:page-close",
     ]
 
     run_root = tmp_path / "runs" / "gf-test-live-search"
@@ -195,6 +226,7 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
     assert (run_root / "open.json").is_file()
     assert (run_root / "snapshot.json").is_file()
     assert (run_root / "network.json").is_file()
+    assert (run_root / "managed-tab-close.json").is_file()
     assert adapter.calls[0][0][0] == "open"
     assert adapter.calls[0][0][1].startswith("https://www.google.com/travel/flights?")
     assert "tfs=" in adapter.calls[0][0][1]
@@ -202,7 +234,53 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
         (["wait", "load-state", "domcontentloaded", "--target", "page-1"], "headless", 30.0),
         (["snapshot", "--target", "page-1", "--limit", "80"], "headless", 30.0),
         (["network", "--target", "page-1", "--limit", "50", "--wait", "1s"], "headless", 30.0),
+        (["page", "close", "--target", "page-1"], "headless", 5.0),
     ]
+
+
+def test_live_search_warns_when_managed_tab_close_fails(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?tfs=encoded&tfu=encoded&hl=en&curr=EUR",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ],
+        close_result=cdp_result(
+            ["page", "close", "--target", "page-1"],
+            {"ok": False, "message": "target already closed"},
+            status="tool_error",
+            exit_code=6,
+        ),
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-close-warning",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    assert payload["evidence"]["source_surfaces"][-1] == "cdp:page-close"
+    assert any(
+        "managed cdp page cleanup returned tool_error" in warning for warning in payload["warnings"]
+    )
+    artifact = tmp_path / "runs" / "gf-test-close-warning" / "managed-tab-close.json"
+    assert json.loads(artifact.read_text())["status"] == "tool_error"
 
 
 def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Path) -> None:
@@ -306,6 +384,7 @@ def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> Non
         "cdp:wait:retry",
         "cdp:snapshot",
         "cdp:network",
+        "cdp:page-close",
     ]
     assert adapter.calls[1][0] == adapter.calls[2][0]
     run_root = tmp_path / "runs" / "gf-test-wait-retry"
@@ -361,6 +440,7 @@ def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) ->
         "cdp:snapshot",
         "cdp:snapshot:retry",
         "cdp:network",
+        "cdp:page-close",
     ]
     run_root = tmp_path / "runs" / "gf-test-snapshot-retry"
     assert (run_root / "snapshot.json").is_file()
@@ -407,7 +487,7 @@ def test_live_search_keeps_snapshot_output_when_network_capture_fails(tmp_path: 
 
     assert exit_code == 0
     assert payload["status"] == "experimental"
-    assert payload["evidence"]["source_surfaces"][-1] == "cdp:network"
+    assert payload["evidence"]["source_surfaces"][-2:] == ["cdp:network", "cdp:page-close"]
     assert any("network evidence capture failed" in warning for warning in payload["warnings"])
     assert (tmp_path / "runs" / "gf-test-network-timeout" / "network.json").is_file()
 
@@ -495,7 +575,7 @@ def test_live_search_can_execute_fake_form_interaction_steps(tmp_path: Path) -> 
         "CPH",
     ]
     assert any(call[0][0:2] == ["click", "Add adult"] for call in adapter.calls)
-    assert adapter.calls[-2][0][0] == "snapshot"
+    assert adapter.calls[-3][0][0] == "snapshot"
 
     run_root = tmp_path / "runs" / "gf-test-live-form"
     assert (run_root / "form-origin-fill.json").is_file()
@@ -614,7 +694,7 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
         "del-cph-senior-oct-nov",
         "cph-lko-oneway-jun",
     ]
-    assert len(adapter.calls) == 9
+    assert len(adapter.calls) == 11
 
 
 def test_live_search_reports_query_population_boundary_per_batch_item(tmp_path: Path) -> None:
@@ -686,5 +766,5 @@ def test_live_search_stops_on_form_interaction_stop_state(tmp_path: Path) -> Non
     assert payload["status"] == "blocked"
     assert payload["stop_state"] == "human_required"
     assert payload["fallback"]["recommended_browser_mode"] == "headed"
-    assert len(adapter.calls) == 3
+    assert len(adapter.calls) == 4
     assert (tmp_path / "runs" / "gf-test-form-blocked" / "form-origin-fill.json").is_file()

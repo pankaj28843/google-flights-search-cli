@@ -24,6 +24,8 @@ class FakeCdpAdapter:
         timeout_seconds: float = 30.0,
     ) -> CdpResult:
         self.calls.append((list(args), browser_mode, timeout_seconds))
+        if list(args)[:2] == ["page", "close"]:
+            return cdp_result(list(args), {"ok": True})
         return self.results.pop(0)
 
 
@@ -92,9 +94,10 @@ def test_live_itinerary_stops_on_payment_boundary_snapshot(tmp_path: Path) -> No
     assert payload["stop_state"] == "payment_or_booking_boundary"
     assert payload["fallback"]["recommended_browser_mode"] == "headed"
     assert payload["itinerary"] is None
-    assert len(adapter.calls) == 3
+    assert len(adapter.calls) == 4
     assert (tmp_path / "runs" / "gf-itinerary-boundary" / "snapshot.json").is_file()
     assert (tmp_path / "runs" / "gf-itinerary-boundary" / "command-log.json").is_file()
+    assert (tmp_path / "runs" / "gf-itinerary-boundary" / "managed-tab-close.json").is_file()
 
 
 def test_live_itinerary_stops_on_personal_data_prompt(tmp_path: Path) -> None:
@@ -129,7 +132,7 @@ def test_live_itinerary_stops_on_personal_data_prompt(tmp_path: Path) -> None:
     assert payload["warnings"] == [
         "live itinerary inspection stopped before crossing a provider, login, payment, personal-data, or access-control boundary"
     ]
-    assert len(adapter.calls) == 2
+    assert len(adapter.calls) == 3
 
 
 def test_live_itinerary_extracts_visible_details_without_clicking_provider_continue(
@@ -164,6 +167,7 @@ def test_live_itinerary_extracts_visible_details_without_clicking_provider_conti
     assert payload["itinerary"]["boundary"]["provider_continue_visible"] is True
     assert payload["itinerary"]["boundary"]["provider_continue_clicked"] is False
     assert payload["itinerary"]["boundary"]["checkout_entered"] is False
-    assert [call[0][0] for call in adapter.calls] == ["open", "wait", "snapshot"]
+    assert [call[0][0] for call in adapter.calls] == ["open", "wait", "snapshot", "page"]
     assert all("click" not in call[0] for call in adapter.calls)
     assert "cdp:snapshot:selected-itinerary" in payload["evidence"]["source_surfaces"]
+    assert "cdp:page-close" in payload["evidence"]["source_surfaces"]
