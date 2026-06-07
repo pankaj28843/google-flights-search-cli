@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Runtime artifacts are task-scoped and normally uncommitted.
+artifacts/*
+!artifacts/README.md
+
+# Local project configs created by future CLI commands.
+.gflights/
