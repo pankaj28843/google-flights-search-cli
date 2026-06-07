@@ -85,6 +85,70 @@ def test_root_help_is_self_explanatory_without_repo_docs() -> None:
         assert expected in help_text
 
 
+def test_every_command_help_has_examples_and_documented_options() -> None:
+    expectations = {
+        ("intent", "--help"): ["Examples:", "gflights intent parse"],
+        ("project", "--help"): ["Examples:", "gflights project init"],
+        ("route", "--help"): ["Examples:", "gflights route resolve"],
+        ("dates", "--help"): ["Examples:", "gflights dates scan"],
+        ("itinerary", "--help"): ["Examples:", "gflights itinerary inspect"],
+        ("evidence", "--help"): ["Examples:", "gflights evidence replay"],
+        ("codec", "--help"): ["Examples:", "gflights codec decode"],
+        ("schema", "--help"): [
+            "Examples:",
+            "--model",
+            "Schema model name",
+            "--json",
+            "Emit machine-readable JSON",
+        ],
+        ("doctor", "--help"): ["Examples:", "--json", "browser defaults"],
+        ("search", "--help"): [
+            "Examples:",
+            "--input-json",
+            "JSON array",
+            "--offline-fixtures",
+            "live Google Flights",
+            "--browser-mode",
+            "headless",
+            "--project-root",
+            "~/.gflights-search",
+        ],
+        ("intent", "parse", "--help"): ["Examples:", "--input-json", "JSON array"],
+        ("project", "init", "--help"): ["Examples:", "--path", "config.json"],
+        ("route", "resolve", "--help"): [
+            "Examples:",
+            "--input-text",
+            "Airport code",
+            "--offline-fixtures",
+            "route_autocomplete_choices",
+        ],
+        ("dates", "scan", "--help"): [
+            "Examples:",
+            "--input-json",
+            "date windows",
+            "--project-root",
+            "cache.sqlite",
+        ],
+        ("itinerary", "inspect", "--help"): [
+            "Examples:",
+            "--booking-url",
+            "provider Continue",
+            "--browser-mode",
+            "headed",
+        ],
+        ("evidence", "replay", "--help"): ["Examples:", "FIXTURE", "Redacted fixture"],
+        ("codec", "decode", "--help"): ["Examples:", "--fixture", "wire-path"],
+    }
+
+    for args, expected_items in expectations.items():
+        result = run_cli(*args)
+
+        assert result.returncode == 0, f"{args}: {result.stderr}"
+        help_text = f"{result.stdout}\n{result.stderr}"
+        for expected in expected_items:
+            assert expected in help_text, f"{args}: missing {expected!r}\n{help_text}"
+
+
 def test_itinerary_inspect_help_exposes_live_agent_options() -> None:
     result = run_cli("itinerary", "inspect", "--help")
 

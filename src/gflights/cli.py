@@ -53,21 +53,81 @@ Exit codes:
 Use "gflights <command> --help" for command-specific inputs and examples.
 """
 
+INTENT_HELP = """Parse and normalize SearchIntent JSON before search or date scans.
+
+Use this when an agent has one intent object or a JSON array and needs to
+validate the contract before opening a browser or scanning date windows.
+
+Examples:
+  gflights intent parse --input-json intents.json --json
+"""
+
+PROJECT_HELP = """Create and inspect user-local state roots such as ~/.gflights-search.
+
+State roots contain config.json, cache.sqlite, fixtures/, and runs/ so live
+searches and replay evidence can be task-scoped and inspectable.
+
+Examples:
+  gflights project init --path ~/.gflights-search --json
+"""
+
+ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
+
+Use route resolution before search when text such as Washington DC or Lucknow
+could map to multiple city or airport choices.
+
+Examples:
+  gflights route resolve --input-text CPH --offline-fixtures fixtures --json
+  gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
+"""
+
+DATES_HELP = """Scan date windows using cache, probes, or deterministic fixtures.
+
+This command expands date windows into concrete date pairs, uses fresh cache
+observations when available, and returns ranked pairs with evidence.
+
+Examples:
+  gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+  gflights dates scan --input-json intents.json --offline-fixtures fixtures --json
+"""
+
+ITINERARY_HELP = """Inspect selected itinerary evidence without entering checkout.
+
+The command reads visible itinerary detail from Google Flights and stops before
+provider checkout, payment, login, or personal-data entry.
+
+Examples:
+  gflights itinerary inspect --booking-url URL --browser-mode headless --json
+"""
+
+EVIDENCE_HELP = """Replay redacted fixtures or capture task-scoped evidence.
+
+Replay is the deterministic offline path for default validation. Captures should be redacted before publication or fixture use.
+
+Examples:
+  gflights evidence replay fixtures/primary_results_visible_text_fixture.json --json
+"""
+
+CODEC_HELP = """Decode encoded query/protobuf-like evidence with confidence metadata.
+
+Use this for fixture-backed tfs/tfu values; decoded wire paths are evidence, not
+proof of stable Google Flights semantics by themselves.
+
+Examples:
+  gflights codec decode --fixture fixtures/codec_tfu_price_fixture.json --json
+"""
+
 app = typer.Typer(
     help=ROOT_HELP,
     no_args_is_help=True,
 )
-intent_app = typer.Typer(help="Parse and normalize SearchIntent JSON before search or date scans.")
-project_app = typer.Typer(
-    help="Create and inspect user-local state roots such as ~/.gflights-search."
-)
-route_app = typer.Typer(help="Resolve city and airport route choices from reviewed evidence.")
-dates_app = typer.Typer(help="Scan date windows using cache, probes, or deterministic fixtures.")
-itinerary_app = typer.Typer(help="Inspect selected itinerary evidence without entering checkout.")
-evidence_app = typer.Typer(help="Replay redacted fixtures or capture task-scoped evidence.")
-codec_app = typer.Typer(
-    help="Decode encoded query/protobuf-like evidence with confidence metadata."
-)
+intent_app = typer.Typer(help=INTENT_HELP)
+project_app = typer.Typer(help=PROJECT_HELP)
+route_app = typer.Typer(help=ROUTE_HELP)
+dates_app = typer.Typer(help=DATES_HELP)
+itinerary_app = typer.Typer(help=ITINERARY_HELP)
+evidence_app = typer.Typer(help=EVIDENCE_HELP)
+codec_app = typer.Typer(help=CODEC_HELP)
 
 app.add_typer(intent_app, name="intent")
 app.add_typer(project_app, name="project")
@@ -93,7 +153,11 @@ def schema_command(
     model: str = typer.Option(..., "--model", help="Schema model name, for example search-intent."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Emit JSON Schema for agent-facing contracts."""
+    """Emit JSON Schema for agent-facing contracts.
+
+    Examples:
+      gflights schema --model search-intent --json
+    """
     del json_output
     try:
         emit(services.json_schema_for(model))
@@ -105,7 +169,11 @@ def schema_command(
 def doctor_command(
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Report browser defaults, state paths, cache policy, and package health."""
+    """Report browser defaults, state paths, cache policy, and package health.
+
+    Examples:
+      gflights doctor --json
+    """
     del json_output
     emit(services.doctor_report())
 
@@ -144,7 +212,17 @@ def search_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Run live Google Flights by default, or replay fixtures when supplied."""
+    """Run live Google Flights by default, or replay fixtures when supplied.
+
+    Input may be one SearchIntent object or a JSON array. Without
+    --offline-fixtures, this opens live Google Flights through headless cdp and
+    writes task-scoped run evidence under the state root.
+
+    Examples:
+      gflights search --input-json intents.json --json
+      gflights search --input-json intents.json --offline-fixtures fixtures --json
+      gflights search --input-json intents.json --browser-mode headed --json
+    """
     del json_output
     del live_cdp
     if offline_fixtures is not None:
@@ -190,7 +268,11 @@ def intent_parse_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Validate and normalize SearchIntent JSON without opening a browser."""
+    """Validate and normalize SearchIntent JSON without opening a browser.
+
+    Examples:
+      gflights intent parse --input-json intents.json --json
+    """
     del json_output
     try:
         emit(services.parse_intents(input_json))
@@ -207,7 +289,11 @@ def project_init_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Create a state root for cache, fixtures, and task-scoped run artifacts."""
+    """Create a state root for cache, fixtures, and task-scoped run artifacts.
+
+    Examples:
+      gflights project init --path ~/.gflights-search --json
+    """
     del json_output
     emit(services.init_project(path))
 
@@ -226,7 +312,12 @@ def route_resolve_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Return one route choice or explicit ambiguous candidates from evidence."""
+    """Return one route choice or explicit ambiguous candidates from evidence.
+
+    Examples:
+      gflights route resolve --input-text CPH --offline-fixtures fixtures --json
+      gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
+    """
     del json_output
     if offline_fixtures is None:
         emit(
@@ -264,7 +355,12 @@ def dates_scan_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Expand date windows, use fresh cache/probes, and rank candidate date pairs."""
+    """Expand date windows, use fresh cache/probes, and rank candidate date pairs.
+
+    Examples:
+      gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+      gflights dates scan --input-json intents.json --offline-fixtures fixtures --json
+    """
     del json_output
     try:
         emit(
@@ -297,7 +393,14 @@ def itinerary_inspect_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Inspect visible itinerary details and stop before provider checkout."""
+    """Inspect visible itinerary details and stop before provider checkout.
+
+    The command must not click provider Continue, enter checkout, enter payment
+    or personal data, or attempt account login.
+
+    Examples:
+      gflights itinerary inspect --booking-url URL --browser-mode headless --json
+    """
     del json_output
     exit_code, payload = asyncio.run(
         run_live_itinerary_inspection(
@@ -314,7 +417,11 @@ def evidence_replay_command(
     fixture: Path = typer.Argument(..., help="Redacted fixture JSON file to replay offline."),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Replay a redacted fixture offline and emit parsed evidence-backed JSON."""
+    """Replay a redacted fixture offline and emit parsed evidence-backed JSON.
+
+    Examples:
+      gflights evidence replay fixtures/primary_results_visible_text_fixture.json --json
+    """
     del json_output
     exit_code, payload = services.replay_fixture(fixture)
     emit(payload, exit_code)
@@ -329,7 +436,11 @@ def codec_decode_command(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Decode a fixture-backed query value and report wire paths plus confidence."""
+    """Decode a fixture-backed query value and report wire paths plus confidence.
+
+    Examples:
+      gflights codec decode --fixture fixtures/codec_tfu_price_fixture.json --json
+    """
     del json_output
     emit(services.decode_codec_fixture(fixture))
 
