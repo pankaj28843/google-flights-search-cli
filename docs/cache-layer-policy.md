@@ -1,7 +1,7 @@
 # Cache Layer Policy
 
 This project uses a local SQLite cache for flight-price observations under the
-app-state root. The default app-state root is `~/.gflights-search`; tests and
+app-state root. The default app-state root is `~/.gflights`; tests and
 task-scoped runs may override it with `GFLIGHTS_SEARCH_HOME` or command options.
 
 ## Source Surface
@@ -28,7 +28,7 @@ framework yet.
 
 Current implementation requirements:
 
-- `cache.sqlite` lives in the app-state root.
+- `cache/cache.sqlite` lives under the app-state root.
 - `config.json` contains `cache_max_age_seconds`.
 - Default freshness is six hours (`21600` seconds), within the 6-8 hour default
   window.

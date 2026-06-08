@@ -16,6 +16,7 @@ from gflights.india_trip import DEFAULT_REPORT_ROOT, run_india_trip_workflow
 from gflights.live_itinerary import run_live_itinerary_inspection
 from gflights.live_route import run_live_route_resolution
 from gflights.live_search import run_live_search
+from gflights.live_selection import run_live_itinerary_selection
 
 ROOT_HELP = """Agent-first Google Flights CLI for live searches, offline replay, and evidence-backed JSON.
 
@@ -23,17 +24,19 @@ Workflow:
   gflights schema --model search-intent --json        Inspect the input contract
   gflights route resolve --input-text CPH --json      Resolve an airport or city
   gflights search --input-json intents.json --json    Run live Google Flights
+  gflights itinerary select --search-url URL --json   Select visible rows to a booking URL
   gflights dates scan --input-json intents.json --json Rank date combinations
   gflights itinerary inspect --booking-url URL --json Inspect visible itinerary details
-  gflights trip india --json                         Generate/reduce the India trip gate
+  gflights trip india --json                         Generate/reduce the CPH-DEL India trip gate
 
 Default search:
   gflights search opens live Google Flights through headless cdp unless --offline-fixtures is supplied.
+  Live flow is URL open -> page settle -> visible DOM/text query -> explicit Google Flights row click only when a command needs selection.
   Use --browser-mode headed only when a blocked result recommends headed fallback.
 
 Environment:
   GFLIGHTS_SEARCH_HOME overrides the state root.
-  The default state root is ~/.gflights-search with config.json, cache.sqlite, fixtures/, and runs/.
+  The default state root is ~/.gflights with config.json, cache/cache.sqlite, fixtures/, and runs/.
 
 Agent contract:
   Data commands emit JSON. Unsupported, ambiguous, blocked, and stale behavior is explicit instead of guessed.
@@ -41,10 +44,10 @@ Agent contract:
 
 Examples:
   gflights doctor --json
-  gflights search --input-json intents.json --json
+  gflights search --input-json intents.json --concurrency 3 --json
   gflights search --input-json intents.json --offline-fixtures fixtures --json
   gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
-  gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+  gflights dates scan --input-json intents.json --project-root ~/.gflights --json
   gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
 
 Exit codes:
@@ -67,13 +70,13 @@ Examples:
   gflights intent parse --input-json intents.json --json
 """
 
-PROJECT_HELP = """Create and inspect user-local state roots such as ~/.gflights-search.
+PROJECT_HELP = """Create and inspect user-local state roots such as ~/.gflights.
 
-State roots contain config.json, cache.sqlite, fixtures/, and runs/ so live
+State roots contain config.json, cache/cache.sqlite, fixtures/, and runs/ so live
 searches and replay evidence can be task-scoped and inspectable.
 
 Examples:
-  gflights project init --path ~/.gflights-search --json
+  gflights project init --path ~/.gflights --json
 """
 
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
@@ -97,17 +100,20 @@ observations when available, and returns ranked pairs with evidence. Live probes
 are opt-in and require an explicit --max-probes limit.
 
 Examples:
-  gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
-  gflights dates scan --input-json intents.json --project-root ~/.gflights-search --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
+  gflights dates scan --input-json intents.json --project-root ~/.gflights --json
+  gflights dates scan --input-json intents.json --project-root ~/.gflights --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
   gflights dates scan --input-json intents.json --offline-fixtures fixtures --json
 """
 
 ITINERARY_HELP = """Inspect selected itinerary evidence without entering checkout.
 
-The command reads visible itinerary detail from Google Flights and stops before
-provider checkout, payment, login, or personal-data entry.
+Use select to click explicit visible Google Flights result rows and stop at the
+Google booking-summary URL. Use inspect to read visible itinerary details from a
+Google booking-summary URL. Both commands stop before provider checkout,
+payment, login, or personal-data entry.
 
 Examples:
+  gflights itinerary select --search-url URL --preferred-carrier "Air India" --json
   gflights itinerary inspect --booking-url URL --browser-mode headless --json
 """
 
@@ -130,13 +136,13 @@ Examples:
 
 TRIP_HELP = """Run task-specific trip-planning gates with saved inputs and reports.
 
-The India gate writes the canonical CPH-Lucknow family-trip inputs, can run the
+The India gate writes the canonical CPH-Delhi family-trip inputs, can run the
 live commands only when --execute-live is supplied, and reduces saved command
 outputs into useful, blocked, not_useful, or inconclusive verdicts.
 
 Examples:
   gflights trip india --json
-  gflights trip india --execute-live --browser-mode headless --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
+  gflights trip india --execute-live --browser-mode headless --search-concurrency 3 --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
   gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
 """
 
@@ -230,10 +236,17 @@ def search_command(
         "--browser-mode",
         help="Browser mode for live cdp runs; use headed only for explicit fallback/debugging.",
     ),
+    concurrency: int = typer.Option(
+        3,
+        "--concurrency",
+        min=1,
+        max=5,
+        help="Maximum parallel live Google Flights tabs for JSON-array search input.",
+    ),
     project_root: Path | None = typer.Option(
         None,
         "--project-root",
-        help="State root for config, cache.sqlite, fixtures, and runs; defaults to ~/.gflights-search.",
+        help="State root for config, cache/cache.sqlite, fixtures, and runs; defaults to ~/.gflights.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
@@ -241,10 +254,13 @@ def search_command(
 
     Input may be one SearchIntent object or a JSON array. Without
     --offline-fixtures, this opens live Google Flights through headless cdp and
-    writes task-scoped run evidence under the state root.
+    writes task-scoped run evidence under the state root. The live flow is
+    URL open -> page settle -> visible DOM/text query; itinerary selection
+    commands repeat that cycle after each explicit Google Flights row click.
 
     Examples:
       gflights search --input-json intents.json --json
+      gflights search --input-json concrete-intents.json --concurrency 3 --json
       gflights search --input-json intents.json --offline-fixtures fixtures --json
       gflights search --input-json intents.json --browser-mode headed --json
     """
@@ -276,6 +292,7 @@ def search_command(
                 project_root=project_root,
                 browser_mode=browser_mode,
                 interact_with_form=live_form,
+                batch_concurrency=concurrency,
             )
         )
     except services.ServiceError as error:
@@ -310,14 +327,14 @@ def project_init_command(
     path: Path = typer.Option(
         ...,
         "--path",
-        help="State directory to create with config.json, cache.sqlite, fixtures, and runs.",
+        help="State directory to create with config.json, cache/cache.sqlite, fixtures, and runs.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
     """Create a state root for cache, fixtures, and task-scoped run artifacts.
 
     Examples:
-      gflights project init --path ~/.gflights-search --json
+      gflights project init --path ~/.gflights --json
     """
     del json_output
     emit(services.init_project(path))
@@ -343,7 +360,7 @@ def route_resolve_command(
     project_root: Path | None = typer.Option(
         None,
         "--project-root",
-        help="State root for config, cache.sqlite, fixtures, and runs; defaults to ~/.gflights-search.",
+        help="State root for config, cache/cache.sqlite, fixtures, and runs; defaults to ~/.gflights.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
@@ -390,7 +407,7 @@ def dates_scan_command(
     project_root: Path | None = typer.Option(
         None,
         "--project-root",
-        help="State root with cache.sqlite; defaults to ~/.gflights-search.",
+        help="State root with cache/cache.sqlite; defaults to ~/.gflights.",
     ),
     live_probe: bool = typer.Option(
         False,
@@ -419,7 +436,7 @@ def dates_scan_command(
     """Expand date windows, use fresh cache/probes, and rank candidate date pairs.
 
     Examples:
-      gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
+      gflights dates scan --input-json intents.json --project-root ~/.gflights --json
       gflights dates scan --input-json intents.json --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
       gflights dates scan --input-json intents.json --offline-fixtures fixtures --json
     """
@@ -436,7 +453,7 @@ def dates_scan_command(
         return
     date_pair_probe = (
         LiveDatePairProbe(
-            project_root=project_root or Path.home() / ".gflights-search",
+            project_root=project_root or Path.home() / ".gflights",
             browser_mode=browser_mode,
             max_probes=max_probes,
             timeout_seconds=probe_timeout_seconds,
@@ -471,7 +488,7 @@ def itinerary_inspect_command(
     project_root: Path | None = typer.Option(
         None,
         "--project-root",
-        help="State root for task-scoped run artifacts; defaults to ~/.gflights-search.",
+        help="State root for task-scoped run artifacts; defaults to ~/.gflights.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
@@ -489,6 +506,65 @@ def itinerary_inspect_command(
             booking_url=booking_url,
             browser_mode=browser_mode,
             project_root=project_root,
+        )
+    )
+    emit(payload, exit_code)
+
+
+@itinerary_app.command("select")
+def itinerary_select_command(
+    search_url: str = typer.Option(
+        ...,
+        "--search-url",
+        help="Google Flights search URL whose visible outbound and return rows should be selected.",
+    ),
+    preferred_carrier: str = typer.Option(
+        "Air India",
+        "--preferred-carrier",
+        help="Visible carrier text to prefer when selecting rows.",
+    ),
+    require_nonstop: bool = typer.Option(
+        False,
+        "--require-nonstop",
+        help="Select only rows whose visible text says Nonstop.",
+    ),
+    row_rank: int = typer.Option(
+        1,
+        "--row-rank",
+        min=1,
+        help="1-based matching row rank to select after preferred-carrier/nonstop filtering.",
+    ),
+    browser_mode: BrowserMode = typer.Option(
+        "headless",
+        "--browser-mode",
+        help="Browser mode for live cdp selection; headed is an explicit fallback.",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="State root for task-scoped run artifacts; defaults to ~/.gflights.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+) -> None:
+    """Select visible Google Flights rows and return a Google booking-summary URL.
+
+    The command opens a search URL, waits for visible fare rows, clicks a matching
+    outbound row, waits again, clicks a matching return row, and stops at the
+    Google Flights booking-summary page. It must not click provider Continue or
+    enter checkout.
+
+    Examples:
+      gflights itinerary select --search-url URL --preferred-carrier "Air India" --require-nonstop --json
+    """
+    del json_output
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url=search_url,
+            browser_mode=browser_mode,
+            project_root=project_root,
+            preferred_carrier=preferred_carrier,
+            require_nonstop=require_nonstop,
+            row_rank=row_rank,
         )
     )
     emit(payload, exit_code)
@@ -561,9 +637,16 @@ def trip_india_command(
         min=1.0,
         help="Timeout in seconds for each trip date-scan live probe.",
     ),
+    search_concurrency: int = typer.Option(
+        3,
+        "--search-concurrency",
+        min=1,
+        max=5,
+        help="Maximum parallel Google Flights tabs for the trip live-search batch.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
-    """Generate and judge the CPH-Lucknow India trip usefulness gate.
+    """Generate and judge the CPH-Delhi India trip usefulness gate.
 
     Without --execute-live, this command writes deterministic inputs and reduces
     existing outputs under --report-root. With --execute-live, it records CDP
@@ -573,7 +656,7 @@ def trip_india_command(
     Examples:
       gflights trip india --json
       gflights trip india --execute-live --browser-mode headless --json
-      gflights trip india --execute-live --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
+      gflights trip india --execute-live --search-concurrency 3 --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
     """
     del json_output
     exit_code, payload = run_india_trip_workflow(
@@ -583,6 +666,7 @@ def trip_india_command(
         execute_live=execute_live,
         date_scan_max_probes=date_scan_max_probes,
         date_scan_probe_timeout_seconds=date_scan_probe_timeout_seconds,
+        search_concurrency=search_concurrency,
     )
     emit(payload, exit_code)
 

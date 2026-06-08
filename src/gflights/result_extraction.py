@@ -10,6 +10,8 @@ _CURRENCY_BY_SYMBOL = {
     "$": "USD",
     "\u00a3": "GBP",
 }
+_CURRENCY_CODES = {"DKK", "EUR", "GBP", "INR", "NOK", "SEK", "USD"}
+_PRICE_PATTERN = r"(?:[\u20ac$£]\s?[\d,]+|(?:DKK|EUR|GBP|INR|NOK|SEK|USD)\s+[\d,]+)"
 
 _ROW_RE = re.compile(
     r"(?P<departure_time>\d{1,2}:\d{2}\s+[AP]M)\s+[\u2013-]\s+"
@@ -20,7 +22,7 @@ _ROW_RE = re.compile(
     r"(?P<stops>\d+\s+stops?|Nonstop)\s+"
     r"(?P<layovers>.*?)\s+"
     r"(?P<emissions>\d[\d,]*\s+kg\s+CO2e(?:\s+(?:[+-]\d+%\s+emissions|Avg emissions))?)\s+"
-    r"(?P<price>[\u20ac$£]\s?[\d,]+)(?:\s+round trip)?",
+    rf"(?P<price>{_PRICE_PATTERN})(?:\s+round trip)?",
 )
 _COMPACT_ROW_RE = re.compile(
     r"(?P<departure_time>\d{1,2}:\d{2}\s+[AP]M)\s+"
@@ -28,7 +30,7 @@ _COMPACT_ROW_RE = re.compile(
     r"(?P<arrival_time>\d{1,2}:\d{2}\s+[AP]M(?:\+\d+)?)\s+"
     r"(?P<destination>[A-Z]{3})\s+"
     r"(?:(?:Economy|Premium Economy|Business|First|\+|\s)+\s+)?"
-    r"(?P<price>[\u20ac$£]\s?[\d,]+)\s+round trip\s+"
+    rf"(?P<price>{_PRICE_PATTERN})\s+round trip\s+"
     r"(?P<stops>\d+\s+stops?|Nonstop)\s*"
     r"(?P<duration>\d+\s+hr(?:\s+\d+\s+min)?|\d+\s+min)"
     r"(?P<carriers>.+?)\s+"
@@ -223,10 +225,20 @@ def _parse_layovers(value: str) -> list[str]:
 
 
 def _parse_price(value: str) -> dict[str, Any]:
-    symbol = value.strip()[0]
-    amount = int(re.sub(r"[^\d]", "", value))
+    normalized = re.sub(r"\s+", " ", value).strip()
+    code_match = re.match(r"(?P<code>[A-Z]{3})\s+(?P<amount>[\d,]+)$", normalized)
+    if code_match:
+        code = code_match.group("code")
+        return {
+            "amount": int(code_match.group("amount").replace(",", "")),
+            "currency": code if code in _CURRENCY_CODES else "unknown",
+            "text": normalized,
+        }
+
+    symbol = normalized[0]
+    amount = int(re.sub(r"[^\d]", "", normalized))
     return {
         "amount": amount,
         "currency": _CURRENCY_BY_SYMBOL.get(symbol, "unknown"),
-        "text": value.replace(" ", ""),
+        "text": normalized.replace(" ", ""),
     }

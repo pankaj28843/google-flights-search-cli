@@ -2,14 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from urllib.parse import urlencode
 
 from gflights.app_state import AppState, init_app_state, price_cache_for_state
-from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult
+from gflights.browser import (
+    BLOCKED_STOP_STATES,
+    BrowserMode,
+    CdpAdapter,
+    CdpResult,
+    run_subprocess,
+)
 from gflights.domain import SearchIntent
 from gflights.live_cleanup import close_managed_page
 from gflights.live_form import (
@@ -22,6 +31,25 @@ from gflights.result_extraction import classify_primary_result_absence, extract_
 from gflights.services import load_intents
 
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
+GOOGLE_FLIGHTS_SEARCH_URL = "https://www.google.com/travel/flights/search"
+MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS = 10.0
+TERMINAL_DOM_CONDITION_JS = r"""
+(() => {
+  const text = (document.body && (document.body.innerText || document.body.textContent) || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const lower = text.toLowerCase();
+  if (!text) return false;
+  if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
+  if (lower.includes("sign in") && lower.includes("google")) return "login_required";
+  if (/no (matching )?flights|no results/.test(lower)) return "no_results";
+  if (lower.includes("booking options") && lower.includes("book with")) return "booking_summary";
+  const hasPrice = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\$)\s*[0-9][0-9,.]*(?:\s+round trip)?/i.test(text);
+  const hasFlightContext = /(round trip|nonstop|[0-9]+\s+stop|search results|departing flights|returning flights)/i.test(text);
+  if (hasPrice && hasFlightContext) return "fare_rows";
+  return false;
+})()
+""".strip()
 
 
 async def run_live_search(
@@ -33,6 +61,7 @@ async def run_live_search(
     run_id: str | None = None,
     timeout_seconds: float = 30.0,
     interact_with_form: bool = False,
+    batch_concurrency: int = 3,
 ) -> tuple[int, dict[str, Any] | list[dict[str, Any]]]:
     adapter = adapter or CdpAdapter()
     intents = load_intents(input_json)
@@ -47,6 +76,29 @@ async def run_live_search(
             timeout_seconds=timeout_seconds,
             interact_with_form=interact_with_form,
         )
+
+    concurrency = max(1, min(batch_concurrency, 5))
+    if type(adapter) is CdpAdapter and concurrency > 1:
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def run_indexed(index: int, intent: SearchIntent) -> tuple[int, dict[str, Any]]:
+            async with semaphore:
+                return await _run_one_live_search(
+                    intent=intent,
+                    state=state,
+                    adapter=adapter,
+                    browser_mode=browser_mode,
+                    run_id=_batch_run_id(run_id, intent.query_id, index),
+                    timeout_seconds=timeout_seconds,
+                    interact_with_form=interact_with_form,
+                )
+
+        indexed_results = await asyncio.gather(
+            *(run_indexed(index, intent) for index, intent in enumerate(intents, start=1))
+        )
+        exit_codes = [exit_code for exit_code, _payload in indexed_results]
+        outputs = [payload for _exit_code, payload in indexed_results]
+        return _aggregate_exit_code(exit_codes), outputs
 
     outputs: list[dict[str, Any]] = []
     exit_codes: list[int] = []
@@ -89,6 +141,7 @@ async def _run_one_live_search(
         intent.language,
         intent.currency,
         params=query_population["params"],
+        result_surface=query_population["payload"]["status"] == "encoded",
     )
     _write_json(run_root / "query-state.json", query_population["artifact"])
     artifacts.append(str(run_root / "query-state.json"))
@@ -383,6 +436,40 @@ async def _run_one_live_search(
                 )
 
     nonfatal_warnings: list[str] = []
+    settlement = await _settle_google_flights_page(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    nonfatal_warnings.extend(settlement["warnings"])
+    if settlement["stop_result"] is not None:
+        stop_result = settlement["stop_result"]
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            exit_code=stop_result.exit_code or 4,
+            payload=_stop_payload(
+                intent_query_id=intent.query_id,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=stop_result,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                query_population=query_population,
+            ),
+        )
     snapshot_evidence_artifact = str(run_root / "snapshot.json")
     snapshot_result = await _run_step(
         adapter=adapter,
@@ -726,6 +813,264 @@ async def _run_step(
         }
     )
     return result
+
+
+async def _settle_google_flights_page(
+    *,
+    adapter: CdpAdapter,
+    page_id: str,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+) -> dict[str, Any]:
+    started = perf_counter()
+    warnings: list[str] = []
+    terminal_result = await _run_step(
+        adapter=adapter,
+        args=["wait", "eval", TERMINAL_DOM_CONDITION_JS, "--target", page_id],
+        browser_mode=browser_mode,
+        timeout_seconds=max(timeout_seconds, MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS),
+        run_root=run_root,
+        artifact_name="wait-terminal-dom.json",
+        source_surface="cdp:wait:terminal-dom",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    terminal_condition = _terminal_condition_from_wait(terminal_result)
+    if _is_stop_result(terminal_result):
+        _write_settlement_artifact(
+            run_root=run_root,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            terminal_condition=terminal_condition,
+            terminal_status=terminal_result.status,
+            body_stability=_body_stability_from_samples(terminal_result, None),
+            network_status="not_run",
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=False,
+            warnings=warnings,
+        )
+        return {"stop_result": terminal_result, "warnings": warnings}
+    if terminal_result.status == "tool_error":
+        warnings.append(
+            "terminal Google Flights content did not appear before the bounded settlement wait; capturing snapshot evidence anyway"
+        )
+
+    dwell_enforced = False
+    elapsed = perf_counter() - started
+    remaining_dwell = MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS - elapsed
+    if remaining_dwell > 0 and _should_enforce_live_dwell(adapter):
+        dwell_enforced = True
+        await asyncio.sleep(remaining_dwell)
+
+    sample_one = await _run_step(
+        adapter=adapter,
+        args=["text", "body", "--target", page_id, "--limit", "0"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 10.0),
+        run_root=run_root,
+        artifact_name="settlement-text-1.json",
+        source_surface="cdp:text:settlement-sample",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if _is_stop_result(sample_one):
+        _write_settlement_artifact(
+            run_root=run_root,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            terminal_condition=terminal_condition,
+            terminal_status=terminal_result.status,
+            body_stability=_body_stability_from_samples(sample_one, None),
+            network_status="not_run",
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=dwell_enforced,
+            warnings=warnings,
+        )
+        return {"stop_result": sample_one, "warnings": warnings}
+    sample_two = await _run_step(
+        adapter=adapter,
+        args=["text", "body", "--target", page_id, "--limit", "0"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 10.0),
+        run_root=run_root,
+        artifact_name="settlement-text-2.json",
+        source_surface="cdp:text:settlement-sample",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if _is_stop_result(sample_two):
+        _write_settlement_artifact(
+            run_root=run_root,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            terminal_condition=terminal_condition,
+            terminal_status=terminal_result.status,
+            body_stability=_body_stability_from_samples(sample_one, sample_two),
+            network_status="not_run",
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=dwell_enforced,
+            warnings=warnings,
+        )
+        return {"stop_result": sample_two, "warnings": warnings}
+    body_stability = _body_stability_from_samples(sample_one, sample_two)
+    if body_stability["status"] != "stable":
+        warnings.append("rendered body text changed during settlement sampling")
+
+    network_result = await _run_step(
+        adapter=adapter,
+        args=["wait", "network-idle", "--target", page_id, "--idle", "1s"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 10.0),
+        run_root=run_root,
+        artifact_name="wait-terminal-network-steady.json",
+        source_surface="cdp:wait:terminal-network-steady",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if _is_stop_result(network_result):
+        _write_settlement_artifact(
+            run_root=run_root,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            terminal_condition=terminal_condition,
+            terminal_status=terminal_result.status,
+            body_stability=body_stability,
+            network_status=network_result.status,
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=dwell_enforced,
+            warnings=warnings,
+        )
+        return {"stop_result": network_result, "warnings": warnings}
+    if network_result.status == "tool_error":
+        warnings.append(
+            "network steady wait failed after terminal content check; continuing with visible snapshot evidence"
+        )
+
+    _write_settlement_artifact(
+        run_root=run_root,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        terminal_condition=terminal_condition,
+        terminal_status=terminal_result.status,
+        body_stability=body_stability,
+        network_status=network_result.status,
+        dwell_seconds=perf_counter() - started,
+        dwell_enforced=dwell_enforced,
+        warnings=warnings,
+    )
+    return {"stop_result": None, "warnings": warnings}
+
+
+def _terminal_condition_from_wait(result: CdpResult) -> str:
+    payload = result.json_payload or {}
+    for key in ("value", "result"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict) and isinstance(value.get("value"), str):
+            return value["value"]
+        if isinstance(value, dict) and isinstance(value.get("result"), dict):
+            nested = value["result"].get("value")
+            if isinstance(nested, str):
+                return nested
+    wait = payload.get("wait")
+    if isinstance(wait, dict):
+        value = wait.get("value") or wait.get("result")
+        if isinstance(value, str):
+            return value
+    return "unknown"
+
+
+def _body_stability_from_samples(
+    first: CdpResult,
+    second: CdpResult | None,
+) -> dict[str, Any]:
+    first_text = _visible_text_from_payload(first.json_payload or {})
+    second_text = _visible_text_from_payload((second.json_payload or {}) if second else {})
+    first_hash = _text_hash(first_text)
+    second_hash = _text_hash(second_text)
+    if first.status == "tool_error" or (second and second.status == "tool_error"):
+        status = "unavailable"
+    elif not first_hash or not second_hash:
+        status = "unavailable"
+    elif first_hash == second_hash:
+        status = "stable"
+    else:
+        status = "changed"
+    return {
+        "status": status,
+        "sample_count": 2 if second is not None else 1,
+        "first_text_length": len(first_text),
+        "second_text_length": len(second_text),
+        "first_sha256": first_hash,
+        "second_sha256": second_hash,
+    }
+
+
+def _visible_text_from_payload(payload: dict[str, Any]) -> str:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        text_payload = payload.get("text")
+        if isinstance(text_payload, dict):
+            items = text_payload.get("items")
+    if not isinstance(items, list):
+        return ""
+    return " ".join(
+        str(item.get("text") or "") for item in items if isinstance(item, dict) and item.get("text")
+    )
+
+
+def _text_hash(value: str) -> str:
+    if not value:
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _should_enforce_live_dwell(adapter: CdpAdapter) -> bool:
+    return type(adapter) is CdpAdapter and getattr(adapter, "_runner", None) is run_subprocess
+
+
+def _write_settlement_artifact(
+    *,
+    run_root: Path,
+    artifacts: list[str],
+    source_surfaces: list[str],
+    terminal_condition: str,
+    terminal_status: str,
+    body_stability: dict[str, Any],
+    network_status: str,
+    dwell_seconds: float,
+    dwell_enforced: bool,
+    warnings: list[str],
+) -> None:
+    artifact_path = run_root / "settlement.json"
+    _write_json(
+        artifact_path,
+        {
+            "policy": "terminal-dom-then-dwell-then-network-steady-v1",
+            "research": (
+                "capsule:research/runs/gf-20260608-page-settlement-patterns/settlement-patterns.md"
+            ),
+            "minimum_dwell_seconds": MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS,
+            "dwell_seconds": round(dwell_seconds, 3),
+            "dwell_enforced": dwell_enforced,
+            "terminal_condition": terminal_condition,
+            "terminal_status": terminal_status,
+            "network_status": network_status,
+            "body_stability": body_stability,
+            "warnings": warnings,
+        },
+    )
+    artifacts.append(str(artifact_path))
+    source_surfaces.append("cdp:settlement")
 
 
 async def _finish_live_search(
@@ -1097,11 +1442,13 @@ def _google_flights_url(
     currency: str,
     *,
     params: dict[str, str] | None = None,
+    result_surface: bool = False,
 ) -> str:
     query_params = dict(params or {})
     query_params.setdefault("hl", language)
     query_params.setdefault("curr", currency)
-    return f"{GOOGLE_FLIGHTS_URL}?{urlencode(query_params)}"
+    base_url = GOOGLE_FLIGHTS_SEARCH_URL if result_surface else GOOGLE_FLIGHTS_URL
+    return f"{base_url}?{urlencode(query_params)}"
 
 
 def _page_id(payload: dict[str, Any] | None) -> str:

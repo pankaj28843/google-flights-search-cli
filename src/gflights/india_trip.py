@@ -1,4 +1,4 @@
-"""Usefulness gate for the CPH-Lucknow India trip request."""
+"""Usefulness gate for the CPH-Delhi India trip request."""
 
 from __future__ import annotations
 
@@ -20,8 +20,10 @@ from gflights.ranking import rank_observed_pairs
 DEFAULT_REPORT_ROOT = (
     Path.home() / "Personal" / "Code" / "paternity-leave-research" / "india-trip-plan"
 )
-WINDOW_INTENT_FILENAME = "cph-lko-window-intent.json"
-CONCRETE_INTENTS_FILENAME = "cph-lko-100-concrete-intents.json"
+WINDOW_INTENT_FILENAME = "cph-delhi-dkk-window-intent.json"
+CONCRETE_INTENTS_FILENAME = "cph-delhi-dkk-100-concrete-intents.json"
+LIVE_SEARCH_OUTPUT_LABEL = "cph-delhi-live-search-100"
+REPORT_FILENAME = "flight-options-cph-delhi-dkk.md"
 PREFERRED_AIRLINE = "Air India"
 
 
@@ -33,6 +35,7 @@ def run_india_trip_workflow(
     execute_live: bool = False,
     date_scan_max_probes: int = 1,
     date_scan_probe_timeout_seconds: float = 45.0,
+    search_concurrency: int = 3,
     cdp_executable: str = "cdp",
     python_executable: str | None = None,
 ) -> tuple[int, dict[str, Any]]:
@@ -61,6 +64,7 @@ def run_india_trip_workflow(
                 browser_mode=browser_mode,
                 date_scan_max_probes=max(date_scan_max_probes, 0),
                 date_scan_probe_timeout_seconds=date_scan_probe_timeout_seconds,
+                search_concurrency=max(1, min(search_concurrency, 5)),
                 python_executable=python_executable or sys.executable,
             )
             _capture_cdp_state(
@@ -79,7 +83,7 @@ def run_india_trip_workflow(
         preflight_blocked_reason=preflight_blocked_reason,
     )
     summary_path = paths["analysis"] / "summary.json"
-    report_path = paths["root"] / "e2e-report.md"
+    report_path = paths["root"] / REPORT_FILENAME
     _write_json(summary_path, summary)
     report_path.write_text(render_markdown_report(summary) + "\n")
 
@@ -126,29 +130,9 @@ def build_window_intent() -> dict[str, Any]:
     """Return the exact agent-facing SearchIntent for the user's India trip window."""
 
     return {
-        "query_id": "cph-lko-family-airindia-window",
+        "query_id": "cph-del-family-airindia-window",
         "origin": {"text": "CPH", "kind": "airport_code"},
-        "destination": {
-            "text": "Lucknow",
-            "kind": "city_or_airport",
-            "selected": {
-                "text": "Lucknow, Uttar Pradesh, India",
-                "kind": "city",
-                "display_name": "Lucknow, Uttar Pradesh, India",
-                "code_or_id": "/m/022tq4",
-                "confidence": "strong",
-                "evidence": {
-                    "source_surfaces": [
-                        "lucknow-autocomplete-visible-text",
-                        "protobuf-decode-report",
-                    ],
-                    "artifacts": [
-                        "route_autocomplete_choices_fixture.json",
-                        "decode-report.md",
-                    ],
-                },
-            },
-        },
+        "destination": {"text": "DEL", "kind": "airport_code"},
         "trip_type": "round_trip",
         "departure_window": {"start": "2026-11-21", "end": "2026-11-30"},
         "return_window": {"start": "2027-01-01", "end": "2027-01-10"},
@@ -162,7 +146,7 @@ def build_window_intent() -> dict[str, Any]:
         "cabin": "economy",
         "airline_preferences": [{"airline": PREFERRED_AIRLINE, "mode": "preferred"}],
         "consider_all_airlines": True,
-        "currency": "EUR",
+        "currency": "DKK",
         "language": "en",
         "location": None,
         "sort": "top_flights",
@@ -182,7 +166,7 @@ def build_concrete_intents(window_intent: dict[str, Any]) -> list[dict[str, Any]
             window_intent["return_window"]["end"],
         ):
             item = json.loads(json.dumps(window_intent))
-            item["query_id"] = f"cph-lko-family-airindia-{departure_date}-{return_date}"
+            item["query_id"] = f"cph-del-family-airindia-{departure_date}-{return_date}"
             item["departure_window"] = {"start": departure_date, "end": departure_date}
             item["return_window"] = {"start": return_date, "end": return_date}
             concrete.append(item)
@@ -203,11 +187,11 @@ def summarize_india_trip_report(
     state_root = (project_root or root / "state").expanduser().resolve()
     window_intent = _load_json(root / "inputs" / WINDOW_INTENT_FILENAME)
     concrete_intents = _load_json(root / "inputs" / CONCRETE_INTENTS_FILENAME)
-    live_search_output = _load_json(root / "outputs" / "live-search-100.json")
+    live_search_output = _load_json(root / "outputs" / f"{LIVE_SEARCH_OUTPUT_LABEL}.json")
     date_scan_output = _load_json(root / "outputs" / "date-scan-window.json")
     route_outputs = {
         "cph": _command_summary(root / "outputs", "live-route-cph"),
-        "lucknow": _command_summary(root / "outputs", "live-route-lucknow"),
+        "delhi": _command_summary(root / "outputs", "live-route-delhi"),
     }
 
     live_search = _live_search_summary(live_search_output, root / "outputs")
@@ -263,7 +247,7 @@ def summarize_india_trip_report(
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "request": {
             "origin": "CPH",
-            "destination": "Lucknow",
+            "destination": "New Delhi (DEL)",
             "departure_window": "2026-11-21..2026-11-30",
             "return_window": "2027-01-01..2027-01-10",
             "passengers": {
@@ -272,6 +256,7 @@ def summarize_india_trip_report(
                 "infants_in_seat": 0,
                 "infants_on_lap": 1,
             },
+            "currency": "DKK",
             "airline_preference": f"{PREFERRED_AIRLINE} preferred; all airlines considered",
         },
         "status": _status_for_verdict(verdict),
@@ -304,7 +289,7 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
     request = summary["request"]
     counts = summary["counts"]
     lines = [
-        "# India Trip Plan E2E Report",
+        "# CPH-DEL DKK Flight Options Report",
         "",
         f"Generated: `{summary['generated_at']}`",
         "",
@@ -314,6 +299,7 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
         f"- Departure window: `{request['departure_window']}`.",
         f"- Return window: `{request['return_window']}`.",
         "- Passengers: 2 adults and one 9-month infant (`infants_on_lap = 1`).",
+        f"- Currency: `{request['currency']}`.",
         f"- Airline preference: {request['airline_preference']}.",
         "",
         "## Verdict",
@@ -367,6 +353,7 @@ def render_markdown_report(summary: dict[str, Any]) -> str:
                     f"{price.get('text') or price.get('amount')}",
                     f"   Carriers: {', '.join(summary_row.get('carriers') or []) or 'unknown'}",
                     f"   Preference: {preference_line}",
+                    f"   Link: {_ranked_pair_link_line(pair)}",
                     f"   Evidence: {', '.join((pair.get('evidence') or {}).get('artifacts') or [])}",
                     "",
                 ]
@@ -403,6 +390,26 @@ def _ranked_pair_preference_line(pair: dict[str, Any]) -> str:
     )
 
 
+def _ranked_pair_link_line(pair: dict[str, Any]) -> str:
+    booking_url = (
+        pair.get("booking_url")
+        or pair.get("air_india_booking_url")
+        or pair.get("google_booking_url")
+    )
+    search_url = (
+        pair.get("search_url")
+        or pair.get("target_url")
+        or pair.get("air_india_search_selection_url")
+    )
+    if booking_url and search_url:
+        return f"[Google booking]({booking_url}) / [Google search]({search_url})"
+    if booking_url:
+        return f"[Google booking]({booking_url})"
+    if search_url:
+        return f"[Google search]({search_url})"
+    return "not captured"
+
+
 def _preference_component(pair: dict[str, Any]) -> dict[str, Any] | None:
     explanation = pair.get("scoring_explanation")
     components = explanation.get("components") if isinstance(explanation, dict) else None
@@ -434,9 +441,10 @@ def _saved_live_outputs_present(output_dir: Path) -> bool:
         (output_dir / name).is_file()
         for name in (
             "live-search-100.json",
+            f"{LIVE_SEARCH_OUTPUT_LABEL}.json",
             "date-scan-window.json",
             "live-route-cph.json",
-            "live-route-lucknow.json",
+            "live-route-delhi.json",
         )
     )
 
@@ -449,6 +457,7 @@ def _run_live_commands(
     browser_mode: BrowserMode,
     date_scan_max_probes: int,
     date_scan_probe_timeout_seconds: float,
+    search_concurrency: int,
     python_executable: str,
 ) -> None:
     date_scan_args = [
@@ -506,12 +515,12 @@ def _run_live_commands(
             ],
         ),
         (
-            "live-route-lucknow",
+            "live-route-delhi",
             [
                 "route",
                 "resolve",
                 "--input-text",
-                "Lucknow",
+                "DEL",
                 "--project-root",
                 str(state_root),
                 "--browser-mode",
@@ -520,7 +529,7 @@ def _run_live_commands(
             ],
         ),
         (
-            "live-search-100",
+            LIVE_SEARCH_OUTPUT_LABEL,
             [
                 "search",
                 "--input-json",
@@ -529,6 +538,8 @@ def _run_live_commands(
                 str(state_root),
                 "--browser-mode",
                 browser_mode,
+                "--concurrency",
+                str(search_concurrency),
                 "--json",
             ],
         ),
@@ -621,8 +632,8 @@ def _live_search_summary(payload: Any, output_dir: Path) -> dict[str, Any]:
             price_observations_written += int(cache.get("price_observations_written") or 0)
 
     return {
-        "exit_code": _read_exit_code(output_dir / "live-search-100.exit.txt"),
-        "time": _read_lines(output_dir / "live-search-100.time.txt"),
+        "exit_code": _read_exit_code(output_dir / f"{LIVE_SEARCH_OUTPUT_LABEL}.exit.txt"),
+        "time": _read_lines(output_dir / f"{LIVE_SEARCH_OUTPUT_LABEL}.time.txt"),
         "items": len(items),
         "status_counts": dict(status_counts),
         "query_population_counts": dict(query_population_counts),
@@ -631,7 +642,7 @@ def _live_search_summary(payload: Any, output_dir: Path) -> dict[str, Any]:
         "pairs_with_rows": pairs_with_rows,
         "price_observations_written": price_observations_written,
         "blocked_items": blocked_items,
-        "output_path": str(output_dir / "live-search-100.json"),
+        "output_path": str(output_dir / f"{LIVE_SEARCH_OUTPUT_LABEL}.json"),
     }
 
 
@@ -861,8 +872,6 @@ def _verdict(
     outputs_present = live_search["items"] > 0 or date_scan["status"] != "missing"
     if outputs_present:
         missing = []
-        if sum(output["choices"] for output in route_outputs.values()) == 0:
-            missing.append("no route choices from live route resolution")
         if counts["parsed_result_rows"] == 0:
             missing.append("no parsed live result rows")
         if counts["sqlite_price_rows"] == 0:
@@ -951,6 +960,7 @@ def _ranked_pairs_from_live_search(
                 "result_count": len(priced_results),
                 "top_result_summary": _top_result_summary(best_result),
                 "source": "live_search_results",
+                "search_url": str(item.get("target_url") or ""),
                 "evidence": _live_result_evidence(item, best_result),
             }
         )
@@ -1102,8 +1112,15 @@ def _artifact_counts(state_root: Path) -> dict[str, int]:
         "run_dirs": len(run_dirs),
         "managed_tab_close_files": len(close_files),
         "managed_tab_close_ok": close_ok,
-        "sqlite_price_rows": _sqlite_price_rows(state_root / "cache.sqlite"),
+        "sqlite_price_rows": _sqlite_price_rows(_cache_database_path(state_root)),
     }
+
+
+def _cache_database_path(state_root: Path) -> Path:
+    database_path = state_root / "cache" / "cache.sqlite"
+    if database_path.is_file():
+        return database_path
+    return state_root / "cache.sqlite"
 
 
 def _sqlite_price_rows(database_path: Path) -> int:

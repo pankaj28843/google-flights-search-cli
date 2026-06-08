@@ -104,16 +104,36 @@ agents must rely on JSON schemas and stable JSON output, not terminal prose.
 | `gflights route resolve` | Resolve airport/city route choices through fixtures or live evidence. | service + shell adapter | observed route evidence |
 | `gflights dates scan` | Expand date windows into concrete date pairs, use fresh cache, optionally live-probe bounded misses, and rank candidate combinations. | service layer + adapters | date/result evidence |
 | `gflights search` | Run one concrete search intent and return primary result rows plus evidence paths. | service + shell adapter | observed result evidence |
+| `gflights itinerary select` | Select explicit visible Google Flights outbound/return rows from a search URL and return a Google booking-summary URL. | service + shell adapter | selected-itinerary evidence |
 | `gflights itinerary inspect` | Inspect one selected itinerary and return booking/detail fields when visible. | service + shell adapter | selected-itinerary evidence |
 | `gflights evidence capture` | Capture headed/headless browser evidence for a named scenario. | imperative shell | harness policy |
 | `gflights evidence replay` | Replay redacted fixtures offline and return parsed result/evidence summaries. | functional core + file shell | harness policy |
 | `gflights codec decode` | Decode captured `tfs`/`tfu` values and report raw wire paths plus confidence. | functional core | strong hypothesis evidence |
-| `gflights trip india` | Generate the CPH-Lucknow family-trip inputs, optionally run the live usefulness gate, and write a verdict report. | shell + reducer | harness policy |
+| `gflights trip india` | Generate the CPH-Delhi DKK family-trip inputs, optionally run the live usefulness gate, and write a verdict report. | shell + reducer | harness policy |
 | `gflights doctor` | Report toolchain, browser, project, fixture, and codec health. | imperative shell | implementation policy |
 
 Commands must be atomic and composable. A command that cannot satisfy an input
 because evidence is weak or missing must return `unsupported`, `deferred`,
 `ambiguous`, `blocked`, or `experimental`; it must not silently approximate.
+
+Live browser command shape is deliberately simple: open an evidence-backed
+Google Flights URL, wait for a terminal page state, query visible DOM/text for
+rows or booking-summary details, click only explicit Google Flights result rows
+when a command needs selection, then repeat the same settle/query cycle. The
+CLI must stop before login, unusual-traffic bypass, provider checkout, payment,
+booking, or personal-data entry.
+
+`gflights itinerary select` is the row-clicking workflow. It accepts
+`--search-url`, `--preferred-carrier`, `--require-nonstop`, and `--row-rank`,
+opens the search URL, selects one visible outbound row and one visible return
+row, and returns only a Google Flights booking-summary URL. It must not click a
+provider `Continue` button or enter provider checkout.
+
+For JSON-array live search, `--concurrency` controls bounded parallel managed
+tabs. The default is 3, allowed range is 1-5, and outputs must preserve input
+order. This is resource discipline and polite pacing, not anti-automation
+bypass. If Google or the browser presents a stop state, the CLI stops and saves
+evidence.
 
 ## Exit Codes
 
@@ -486,12 +506,13 @@ Task-specific gate:
 
 ```bash
 gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
-gflights trip india --execute-live --browser-mode headless --date-scan-max-probes 1 --json
+gflights trip india --execute-live --browser-mode headless --search-concurrency 3 --date-scan-max-probes 1 --json
 ```
 
-The command writes deterministic inputs for the CPH-Lucknow family-trip ask:
-one window intent and 100 concrete date-pair intents. The 9-month infant is
-represented as `infants_on_lap = 1`. Air India is represented as a local
+The command writes deterministic inputs for the CPH-Delhi DKK family-trip ask:
+departures 2026-11-21..2026-11-30, returns 2027-01-01..2027-01-10,
+two adults, one 9-month infant represented as `infants_on_lap = 1`, and 100
+concrete date-pair intents. Air India is represented as a local
 preferred-airline ranking preference with `consider_all_airlines: true`; the
 gate must state whether Google Flights filters were applied. Current behavior
 does not apply a Google airline filter. The summary/report must include
@@ -500,13 +521,14 @@ denominators, and a `matched`, `not_matched`, `not_observable`, or
 `not_requested` preference status.
 
 Without `--execute-live`, the command reduces existing artifacts under
-`--report-root` and writes `analysis/summary.json` plus `e2e-report.md`. If
-saved live artifacts are present, the reduced output still reports
-`live_attempted: true`. With `--execute-live`, it first records cdp daemon
-health and page budget, refuses routine over-budget browser runs, runs route
-resolution, live search, and date scan commands, records postrun cdp evidence,
-then writes the same summary and report artifacts. The live date-window scan is
-bounded by
+`--report-root` and writes `analysis/summary.json` plus
+`flight-options-cph-delhi-dkk.md`. If saved live artifacts are present, the
+reduced output still reports `live_attempted: true`. With `--execute-live`, it
+first records cdp daemon health and page budget, refuses routine over-budget
+browser runs, runs route resolution, live search, and date scan commands,
+records postrun cdp evidence, then writes the same summary and report artifacts.
+The live-search batch is bounded by `--search-concurrency`, and the live
+date-window scan is bounded by
 `--date-scan-max-probes` and `--date-scan-probe-timeout-seconds`; a skipped
 date pair due to this limit must remain explicit in `pair_coverage`.
 
@@ -556,10 +578,11 @@ Constraints:
 
 Implementation scope admitted from the strong evidence set:
 
-- The live search shell may construct populated `tfs` for concrete one-way or
-  round-trip searches with one concrete departure date, one concrete return date
-  when required, evidence-backed route endpoints, observed passenger category
-  values, and observed economy/business cabin values.
+- The live search encoded path may construct populated `tfs` and open
+  `/travel/flights/search` for concrete one-way or round-trip searches with one
+  concrete departure date, one concrete return date when required,
+  evidence-backed route endpoints, observed passenger category values, and
+  observed economy/business cabin values.
 - The live search shell may construct short sort `tfu` for observed non-default
   sort values: price, departure time, arrival time, duration, and emissions.
 - Top-flights direct live URLs should omit `tfu` until absent `tfu`,
@@ -637,14 +660,14 @@ live target or marker is selected.
 
 Default use:
 
-- Runtime state lives under `~/.gflights-search` unless
+- Runtime state lives under `~/.gflights` unless
   `GFLIGHTS_SEARCH_HOME` or an explicit init path overrides it.
-- `project init` creates `config.json`, `cache.sqlite`, `artifacts/`,
+- `project init` creates `config.json`, `cache/cache.sqlite`, `artifacts/`,
   `fixtures/`, and `runs/` under the app-state root.
 - `config.json` sets live Google Flights search as the default and records a
   configurable maximum age for cached flight prices. The default is six hours;
   `GFLIGHTS_CACHE_MAX_AGE_SECONDS` may override it for a run.
-- `cache.sqlite` uses the policy in `docs/cache-layer-policy.md`: SQLite WAL
+- `cache/cache.sqlite` uses the policy in `docs/cache-layer-policy.md`: SQLite WAL
   mode, a busy timeout, schema version tracking, and date-scan lookup indexes.
 - Runtime evidence uses task-scoped run directories.
 - Raw browser/network/storage artifacts must be redacted before they become

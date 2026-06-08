@@ -32,6 +32,8 @@ def test_india_trip_inputs_expand_to_100_pairs_and_expected_passengers(
         "start": "2027-01-01",
         "end": "2027-01-10",
     }
+    assert window_intent["destination"] == {"text": "DEL", "kind": "airport_code"}
+    assert window_intent["currency"] == "DKK"
     assert window_intent["passengers"] == {
         "adults": 2,
         "children": 0,
@@ -104,8 +106,8 @@ def test_india_trip_reducer_requires_ranked_price_and_evidence_for_useful(
                     "return_date": "2027-01-04",
                     "best_observed_price": {
                         "amount": 721,
-                        "currency": "EUR",
-                        "text": "EUR 721",
+                        "currency": "DKK",
+                        "text": "DKK 721",
                     },
                     "top_result_summary": {
                         "result_id": "ai-priced",
@@ -167,11 +169,15 @@ def test_india_trip_reducer_ranks_concrete_live_rows_when_date_scan_has_no_ranke
 ) -> None:
     report_root = _write_zero_row_report(tmp_path)
     _write_json(
-        report_root / "outputs" / "live-search-100.json",
+        report_root / "outputs" / "cph-delhi-live-search-100.json",
         [
             {
-                "query_id": "cph-lko-family-airindia-2026-11-24-2027-01-05",
+                "query_id": "cph-del-family-airindia-2026-11-24-2027-01-05",
                 "status": "ok",
+                "target_url": (
+                    "https://www.google.com/travel/flights/search"
+                    "?tfs=cph-del-2026-11-24-2027-01-05&hl=en&curr=DKK"
+                ),
                 "query_population": {"status": "encoded"},
                 "results": [
                     {
@@ -180,7 +186,7 @@ def test_india_trip_reducer_ranks_concrete_live_rows_when_date_scan_has_no_ranke
                         "carriers": ["British Airways", "IndiGo"],
                         "duration_minutes": 1100,
                         "stops": {"count": 2, "text": "2 stops"},
-                        "price": {"amount": 2548, "currency": "EUR", "text": "EUR 2548"},
+                        "price": {"amount": 2548, "currency": "DKK", "text": "DKK 2548"},
                         "evidence": {
                             "source_surfaces": ["primary-results-visible-text"],
                             "artifacts": ["snapshot-ba.json"],
@@ -195,7 +201,7 @@ def test_india_trip_reducer_ranks_concrete_live_rows_when_date_scan_has_no_ranke
                 },
             },
             {
-                "query_id": "cph-lko-family-airindia-2026-11-25-2027-01-03",
+                "query_id": "cph-del-family-airindia-2026-11-25-2027-01-03",
                 "status": "ok",
                 "query_population": {"status": "encoded"},
                 "results": [
@@ -205,7 +211,7 @@ def test_india_trip_reducer_ranks_concrete_live_rows_when_date_scan_has_no_ranke
                         "carriers": ["KLM", "IndiGo"],
                         "duration_minutes": 1135,
                         "stops": {"count": 2, "text": "2 stops"},
-                        "price": {"amount": 2608, "currency": "EUR", "text": "EUR 2608"},
+                        "price": {"amount": 2608, "currency": "DKK", "text": "DKK 2608"},
                         "evidence": {
                             "source_surfaces": ["primary-results-visible-text"],
                             "artifacts": ["snapshot-klm.json"],
@@ -235,6 +241,7 @@ def test_india_trip_reducer_ranks_concrete_live_rows_when_date_scan_has_no_ranke
     assert summary["ranked_options"][0]["departure_date"] == "2026-11-24"
     assert summary["ranked_options"][0]["return_date"] == "2027-01-05"
     assert summary["ranked_options"][0]["source"] == "live_search_results"
+    assert summary["ranked_options"][0]["search_url"].endswith("hl=en&curr=DKK")
     assert summary["ranked_options"][0]["evidence"]["artifacts"] == [
         "snapshot-ba.json",
         "command-log-ba.json",
@@ -244,7 +251,11 @@ def test_india_trip_reducer_ranks_concrete_live_rows_when_date_scan_has_no_ranke
     report = render_markdown_report(summary)
 
     assert "| Ranking source | live_search_results |" in report
-    assert "`2026-11-24` to `2027-01-05`: EUR 2548" in report
+    assert "`2026-11-24` to `2027-01-05`: DKK 2548" in report
+    assert (
+        "[Google search](https://www.google.com/travel/flights/search?tfs=cph-del-2026-11-24-2027-01-05&hl=en&curr=DKK)"
+        in report
+    )
 
 
 def test_india_trip_workflow_reduces_existing_outputs_and_writes_report(
@@ -257,6 +268,7 @@ def test_india_trip_workflow_reduces_existing_outputs_and_writes_report(
     assert exit_code == 3
     assert payload["verdict"] == "not_useful"
     assert Path(payload["artifacts"]["summary_json"]).is_file()
+    assert Path(payload["artifacts"]["markdown_report"]).name == "flight-options-cph-delhi-dkk.md"
     assert Path(payload["artifacts"]["markdown_report"]).is_file()
     assert (
         "no parsed live result rows"
@@ -298,7 +310,7 @@ def test_india_trip_live_workflow_refuses_over_budget_cdp_preflight(
     assert payload["verdict"] == "blocked"
     assert "tabs were over budget" in payload["reason"]
     assert (report_root / "cdp" / "preflight-pages.json").is_file()
-    assert not (report_root / "outputs" / "live-search-100.json").exists()
+    assert not (report_root / "outputs" / "cph-delhi-live-search-100.json").exists()
 
 
 def _write_zero_row_report(tmp_path: Path) -> Path:
@@ -319,7 +331,7 @@ def _write_zero_row_report(tmp_path: Path) -> Path:
     )
     _write_text(report_root / "outputs" / "live-route-cph.exit.txt", "6\n")
     _write_json(
-        report_root / "outputs" / "live-route-lucknow.json",
+        report_root / "outputs" / "live-route-delhi.json",
         {
             "status": "tool_error",
             "error": "Cannot find default execution context",
@@ -327,12 +339,12 @@ def _write_zero_row_report(tmp_path: Path) -> Path:
             "evidence": {"source_surfaces": ["cdp:open", "cdp:wait"]},
         },
     )
-    _write_text(report_root / "outputs" / "live-route-lucknow.exit.txt", "6\n")
+    _write_text(report_root / "outputs" / "live-route-delhi.exit.txt", "6\n")
     _write_json(
-        report_root / "outputs" / "live-search-100.json",
+        report_root / "outputs" / "cph-delhi-live-search-100.json",
         [
             {
-                "query_id": "cph-lko-family-airindia-2026-11-21-2027-01-01",
+                "query_id": "cph-del-family-airindia-2026-11-21-2027-01-01",
                 "status": "experimental",
                 "query_population": {"status": "encoded"},
                 "results": [],
@@ -346,8 +358,8 @@ def _write_zero_row_report(tmp_path: Path) -> Path:
             for _ in range(100)
         ],
     )
-    _write_text(report_root / "outputs" / "live-search-100.exit.txt", "0\n")
-    _write_text(report_root / "outputs" / "live-search-100.time.txt", "real 378.27\n")
+    _write_text(report_root / "outputs" / "cph-delhi-live-search-100.exit.txt", "0\n")
+    _write_text(report_root / "outputs" / "cph-delhi-live-search-100.time.txt", "real 378.27\n")
     _write_json(
         report_root / "outputs" / "date-scan-window.json",
         [

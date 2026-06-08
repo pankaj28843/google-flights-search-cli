@@ -52,9 +52,17 @@ One live workflow should reuse its own opened page target for all follow-up
 steps: `wait`, form interaction, `snapshot`, `network`, and stop-state
 inspection. Do not open a fresh tab for each step in a single intent.
 
-Batch searches may open one page per input item until a reuse implementation is
-proven. The batch command must still keep each page task-scoped and close each
-CLI-managed page when its evidence capture ends.
+Batch searches may open more than one managed page, but only within explicit
+`--concurrency` bounds. Default live search concurrency is 3 and the supported
+range is 1-5. The batch command must still keep each page task-scoped and close
+each CLI-managed page when its evidence capture ends.
+
+Google Flights result pages must use a composite settle policy before DOM/text
+extraction: terminal page content first, then the minimum live dwell and network
+steadiness metadata. Do not treat `DOMContentLoaded`, `load`, body stability,
+network idle, or footer currency text as sufficient result readiness by itself.
+Source-backed rationale is recorded in capsule
+`research/runs/gf-20260608-page-settlement-patterns/settlement-patterns.md`.
 
 Do not treat a random existing Google Flights tab as semantic state for a new
 search. Existing tabs may be inspected for cleanup and budget health, but route,

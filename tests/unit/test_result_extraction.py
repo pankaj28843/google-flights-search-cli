@@ -93,6 +93,38 @@ def test_extract_primary_results_from_current_compact_visible_rows() -> None:
     assert results[2]["price"]["amount"] == 4468
 
 
+def test_extract_primary_results_from_dkk_compact_visible_rows() -> None:
+    results = extract_primary_results(
+        {
+            "snapshot": {
+                "items": [
+                    {
+                        "text": (
+                            "Search results 9 results returned. Best Cheapest from DKK 12,488 "
+                            "Top departing flights Sorted by top flights "
+                            "2:05 PM CPH 5:20 AM+1 DEL DKK 12,488 round trip "
+                            "1 stop10 hr 45 minTurkish Airlines Avg emissions "
+                            "8:25 PM CPH 9:40 AM+1 DEL DKK 16,582 round trip "
+                            "Nonstop8 hr 45 minAir India -17% emissions"
+                        )
+                    }
+                ]
+            }
+        },
+        source_surface="primary-results-visible-text",
+        evidence_artifact="snapshot-results-retry-1.json",
+    )
+
+    assert len(results) == 2
+    assert results[0]["price"] == {"amount": 12488, "currency": "DKK", "text": "DKK 12,488"}
+    assert results[0]["stops"] == {"count": 1, "text": "1 stop"}
+    assert results[0]["duration_minutes"] == 10 * 60 + 45
+    assert results[0]["carriers"] == ["Turkish Airlines"]
+    assert results[1]["price"] == {"amount": 16582, "currency": "DKK", "text": "DKK 16,582"}
+    assert results[1]["stops"] == {"count": 0, "text": "Nonstop"}
+    assert results[1]["carriers"] == ["Air India"]
+
+
 def test_classify_primary_result_absence_states() -> None:
     assert classify_primary_result_absence({"snapshot": {"items": []}}) == "empty_snapshot"
     assert (

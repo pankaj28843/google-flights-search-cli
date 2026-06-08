@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from gflights.app_state import PriceCache
-from gflights.browser import BrowserMode, CdpResult
+from gflights.browser import BrowserMode, CdpAdapter, CdpResult, ProcessResult
 from gflights.live_search import run_live_search
 
 FIXTURES = Path(__file__).resolve().parents[1] / "e2e" / "fixtures"
@@ -19,10 +19,20 @@ class FakeCdpAdapter:
         results: list[CdpResult],
         *,
         close_result: CdpResult | None = None,
+        settlement_terminal_result: CdpResult | None = None,
+        settlement_network_result: CdpResult | None = None,
+        settlement_text_samples: list[str] | None = None,
     ) -> None:
         self.results = results
         self.close_result = close_result
+        self.settlement_terminal_result = settlement_terminal_result
+        self.settlement_network_result = settlement_network_result
+        self.settlement_text_samples = settlement_text_samples or [
+            "Search results DKK 12,054 round trip Nonstop",
+            "Search results DKK 12,054 round trip Nonstop",
+        ]
         self.calls: list[tuple[list[str], BrowserMode, float]] = []
+        self._settlement_network_pending = False
 
     async def run_json(
         self,
@@ -31,11 +41,31 @@ class FakeCdpAdapter:
         browser_mode: BrowserMode = "headless",
         timeout_seconds: float = 30.0,
     ) -> CdpResult:
-        self.calls.append((list(args), browser_mode, timeout_seconds))
-        if list(args)[:2] == ["page", "close"]:
+        call_args = list(args)
+        self.calls.append((call_args, browser_mode, timeout_seconds))
+        if call_args[:2] == ["page", "close"]:
             if self.close_result is not None:
                 return self.close_result
-            return cdp_result(list(args), {"ok": True})
+            return cdp_result(call_args, {"ok": True})
+        if call_args[:2] == ["wait", "eval"] and "document.body" in call_args[2]:
+            self._settlement_network_pending = True
+            return self.settlement_terminal_result or cdp_result(
+                call_args, {"ok": True, "result": {"value": "fare_rows"}}
+            )
+        if (
+            self._settlement_network_pending
+            and call_args[:2] == ["wait", "network-idle"]
+            and call_args[-1] == "1s"
+        ):
+            self._settlement_network_pending = False
+            return self.settlement_network_result or cdp_result(call_args, {"ok": True})
+        if call_args[:2] == ["text", "body"]:
+            text = (
+                self.settlement_text_samples.pop(0)
+                if self.settlement_text_samples
+                else "Search results DKK 12,054 round trip Nonstop"
+            )
+            return cdp_result(call_args, {"ok": True, "items": [{"text": text}]})
         return self.results.pop(0)
 
 
@@ -233,6 +263,11 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
     assert payload["evidence"]["source_surfaces"][1:] == [
         "cdp:open",
         "cdp:wait",
+        "cdp:wait:terminal-dom",
+        "cdp:text:settlement-sample",
+        "cdp:text:settlement-sample",
+        "cdp:wait:terminal-network-steady",
+        "cdp:settlement",
         "cdp:snapshot",
         "cdp:network",
         "cdp:page-close",
@@ -247,10 +282,14 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
     assert (run_root / "network.json").is_file()
     assert (run_root / "managed-tab-close.json").is_file()
     assert adapter.calls[0][0][0] == "open"
-    assert adapter.calls[0][0][1].startswith("https://www.google.com/travel/flights?")
+    assert adapter.calls[0][0][1].startswith("https://www.google.com/travel/flights/search?")
     assert "tfs=" in adapter.calls[0][0][1]
     assert adapter.calls[1:] == [
         (["wait", "load-state", "domcontentloaded", "--target", "page-1"], "headless", 30.0),
+        (adapter.calls[2][0], "headless", 30.0),
+        (["text", "body", "--target", "page-1", "--limit", "0"], "headless", 10.0),
+        (["text", "body", "--target", "page-1", "--limit", "0"], "headless", 10.0),
+        (["wait", "network-idle", "--target", "page-1", "--idle", "1s"], "headless", 10.0),
         (["snapshot", "--target", "page-1", "--limit", "80"], "headless", 30.0),
         (["network", "--target", "page-1", "--limit", "50", "--wait", "1s"], "headless", 30.0),
         (["page", "close", "--target", "page-1"], "headless", 5.0),
@@ -335,7 +374,7 @@ def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Pa
     assert exit_code == 0
     assert payload["status"] == "experimental"
     opened_url = adapter.calls[0][0][1]
-    assert opened_url.startswith("https://www.google.com/travel/flights?")
+    assert opened_url.startswith("https://www.google.com/travel/flights/search?")
     assert "tfs=CBwQAhokEgoyMDI2LTA2LTE1" in opened_url
     assert "tfu=EgYIAhAAGAA" in opened_url
     assert "hl=en" in opened_url
@@ -401,6 +440,11 @@ def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> Non
         "cdp:open",
         "cdp:wait",
         "cdp:wait:retry",
+        "cdp:wait:terminal-dom",
+        "cdp:text:settlement-sample",
+        "cdp:text:settlement-sample",
+        "cdp:wait:terminal-network-steady",
+        "cdp:settlement",
         "cdp:snapshot",
         "cdp:network",
         "cdp:page-close",
@@ -530,6 +574,11 @@ def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) ->
     assert payload["evidence"]["source_surfaces"][1:] == [
         "cdp:open",
         "cdp:wait",
+        "cdp:wait:terminal-dom",
+        "cdp:text:settlement-sample",
+        "cdp:text:settlement-sample",
+        "cdp:wait:terminal-network-steady",
+        "cdp:settlement",
         "cdp:snapshot",
         "cdp:snapshot:retry",
         "cdp:network",
@@ -758,12 +807,12 @@ def test_live_search_retries_loading_snapshot_before_parsing_rows(tmp_path: Path
     assert payload["results"][0]["evidence"]["artifacts"] == [
         str(tmp_path / "runs" / "gf-test-results-retry" / "snapshot-results-retry-1.json")
     ]
-    assert adapter.calls[3] == (
+    assert adapter.calls[7] == (
         ["wait", "network-idle", "--target", "page-1", "--idle", "2s"],
         "headless",
         10.0,
     )
-    assert adapter.calls[4][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
+    assert adapter.calls[8][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
 
 
 def test_live_search_does_not_retry_when_loading_snapshot_already_has_rows(
@@ -801,7 +850,9 @@ def test_live_search_does_not_retry_when_loading_snapshot_already_has_rows(
     assert payload["status"] == "ok"
     assert [result["price"]["amount"] for result in payload["results"]] == [3561, 3794]
     assert payload["cache"]["price_observations_written"] == 2
-    assert all(call[0][0:2] != ["wait", "network-idle"] for call in adapter.calls)
+    assert all(
+        call[0][0:2] != ["wait", "network-idle"] or call[0][-1] != "2s" for call in adapter.calls
+    )
 
 
 def test_live_search_reports_loading_snapshot_as_specific_unsupported(
@@ -850,6 +901,59 @@ def test_live_search_reports_loading_snapshot_as_specific_unsupported(
     assert "bounded evidence wait" in payload["unsupported"][0]["reason"]
 
 
+def test_live_search_currency_footer_is_not_terminal_readiness(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=DKK",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {"ok": True, "snapshot": {"items": [{"text": "Search results CurrencyDKK"}]}},
+            ),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ],
+        settlement_terminal_result=cdp_result(
+            ["wait", "eval"],
+            {"ok": False, "message": "terminal content timeout"},
+            status="tool_error",
+            exit_code=6,
+        ),
+        settlement_text_samples=["Search results CurrencyDKK", "Search results CurrencyDKK"],
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-currency-footer",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    assert any(
+        "terminal Google Flights content did not appear" in warning
+        for warning in payload["warnings"]
+    )
+    settlement = json.loads(
+        (tmp_path / "runs" / "gf-test-currency-footer" / "settlement.json").read_text()
+    )
+    assert settlement["terminal_status"] == "tool_error"
+    assert settlement["terminal_condition"] == "unknown"
+    assert settlement["body_stability"]["status"] == "stable"
+
+
 def test_live_search_retries_snapshot_after_result_wait_timeout(tmp_path: Path) -> None:
     fixture = json.loads((FIXTURES / "primary_results_visible_text_fixture.json").read_text())
     adapter = FakeCdpAdapter(
@@ -894,7 +998,7 @@ def test_live_search_retries_snapshot_after_result_wait_timeout(tmp_path: Path) 
     assert payload["status"] == "ok"
     assert payload["results"][0]["price"]["amount"] == 3206
     assert any("network-idle wait failed" in warning for warning in payload["warnings"])
-    assert adapter.calls[4][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
+    assert adapter.calls[8][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
 
 
 def test_live_search_reports_visible_no_results_status(tmp_path: Path) -> None:
@@ -955,7 +1059,7 @@ def test_live_search_writes_extracted_result_prices_to_sqlite_cache(tmp_path: Pa
 
     assert exit_code == 0
     assert payload["status"] == "ok"
-    with sqlite3.connect(tmp_path / "cache.sqlite") as connection:
+    with sqlite3.connect(tmp_path / "cache" / "cache.sqlite") as connection:
         connection.row_factory = sqlite3.Row
         rows = connection.execute(
             """
@@ -983,7 +1087,10 @@ def test_live_search_writes_extracted_result_prices_to_sqlite_cache(tmp_path: Pa
     assert "requests" not in cached_payload
     assert "stdout" not in cached_payload
     assert "json_payload" not in cached_payload
-    assert PriceCache(tmp_path / "cache.sqlite").get_fresh_price(first["cache_key"]) is not None
+    assert (
+        PriceCache(tmp_path / "cache" / "cache.sqlite").get_fresh_price(first["cache_key"])
+        is not None
+    )
 
 
 def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
@@ -1009,7 +1116,53 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
         "del-cph-senior-oct-nov",
         "cph-lko-oneway-jun",
     ]
-    assert len(adapter.calls) == 11
+    assert len(adapter.calls) == 19
+
+
+def test_live_search_real_adapter_batch_uses_bounded_concurrency(tmp_path: Path) -> None:
+    active = 0
+    max_active = 0
+    page_counter = 0
+
+    async def runner(argv: Sequence[str], timeout_seconds: float) -> ProcessResult:
+        del timeout_seconds
+        nonlocal active, max_active, page_counter
+        active += 1
+        max_active = max(max_active, active)
+        try:
+            await asyncio.sleep(0.001)
+            if "open" in argv:
+                page_counter += 1
+                payload = {"ok": True, "page": {"id": f"page-{page_counter}"}}
+            elif "snapshot" in argv:
+                payload = {"ok": True, "items": [{"text": "Flights"}]}
+            elif "text" in argv:
+                payload = {"ok": True, "items": [{"text": "Search results DKK 12,054 round trip"}]}
+            elif "network" in argv:
+                payload = {"ok": True, "requests": []}
+            else:
+                payload = {"ok": True, "result": {"value": "fare_rows"}}
+            return ProcessResult(0, json.dumps(payload), "")
+        finally:
+            active -= 1
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=FIXTURES / "search_intents.json",
+            project_root=tmp_path,
+            adapter=CdpAdapter(runner=runner),
+            browser_mode="headless",
+            batch_concurrency=2,
+        )
+    )
+
+    assert exit_code == 0
+    assert isinstance(payload, list)
+    assert [item["query_id"] for item in payload] == [
+        "del-cph-senior-oct-nov",
+        "cph-lko-oneway-jun",
+    ]
+    assert max_active > 1
 
 
 def test_live_search_reports_query_population_boundary_per_batch_item(tmp_path: Path) -> None:
@@ -1034,8 +1187,10 @@ def test_live_search_reports_query_population_boundary_per_batch_item(tmp_path: 
     assert payload[0]["query_population"]["status"] == "unsupported"
     assert payload[0]["unsupported"][0]["field"] == "departure_window"
     assert "tfs=" not in payload[0]["target_url"]
+    assert payload[0]["target_url"].startswith("https://www.google.com/travel/flights?")
     assert payload[1]["query_population"]["status"] == "encoded"
     assert "tfs=" in payload[1]["target_url"]
+    assert payload[1]["target_url"].startswith("https://www.google.com/travel/flights/search?")
     assert payload[1]["unsupported"][0]["field"] == "live_result_extraction"
 
 

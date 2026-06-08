@@ -53,6 +53,7 @@ def init_project(path: Path) -> dict[str, Any]:
         "project_root": str(project_root),
         "app_state_root": str(state.root),
         "config_path": str(state.config_path),
+        "cache_root": str(state.cache_root),
         "database_path": str(state.database_path),
         "artifacts_root": str(state.artifact_root),
         "fixture_root": str(state.fixture_root),
@@ -1025,6 +1026,7 @@ def doctor_report() -> dict[str, Any]:
         "app_state": {
             "root": str(state.root),
             "config_path": str(state.config_path),
+            "cache_root": str(state.cache_root),
             "database_path": str(state.database_path),
             "run_root": str(state.run_root),
             "cache_max_age_seconds": state.cache_max_age_seconds,

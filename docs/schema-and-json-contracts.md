@@ -23,12 +23,12 @@ User-local setup:
 gflights project init --path <app-state-root> --json
 ```
 
-By default, runtime state lives under `~/.gflights-search`. Tests and isolated
+By default, runtime state lives under `~/.gflights`. Tests and isolated
 runs may override that location with `GFLIGHTS_SEARCH_HOME` or by passing
 `--path` to `project init`. The state root contains:
 
 - `config.json`
-- `cache.sqlite`
+- `cache/cache.sqlite`
 - `artifacts/`
 - `fixtures/`
 - `runs/`
@@ -37,7 +37,7 @@ runs may override that location with `GFLIGHTS_SEARCH_HOME` or by passing
 `google_flights_live_env: "1"`, and `cache_max_age_seconds: 21600`. The SQLite
 cache stores flight-price observations so a route/date/currency combination can
 reuse only data that is at most six hours old. Commands that write files should
-return artifact, fixture, database, or run paths in JSON.
+return artifact, fixture, cache, database, or run paths in JSON.
 Users may set `cache_max_age_seconds` in `config.json` or
 `GFLIGHTS_CACHE_MAX_AGE_SECONDS` in the environment to use a different freshness
 window for the current run.
@@ -83,12 +83,15 @@ Live evidence capture:
 
 ```bash
 gflights search --input-json <intent.json> --browser-mode headless --json
+gflights search --input-json <intents.json> --concurrency 3 --json
 ```
 
 The command accepts either one `SearchIntent` object or a JSON array of
 `SearchIntent` objects. Single-object input returns one JSON object. JSON-array
 input returns a JSON array in the same order, with one output object per input
-intent. The command opens Google Flights with language and currency context,
+intent. Real CDP JSON-array live search may open up to `--concurrency` parallel
+managed tabs, clamped to 1-5 and defaulting to 3. The command opens Google
+Flights with language and currency context,
 writes a state-local `runs/<run-id>/` evidence bundle, records
 `managed-tab-close.json` when it owns a page target, and returns one of:
 
@@ -107,8 +110,9 @@ writes a state-local `runs/<run-id>/` evidence bundle, records
 
 `search` uses live cdp by default when `--offline-fixtures` is absent.
 For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
-search first opens a populated Google Flights URL using fixture-backed `tfs`
-and, when needed, short sort `tfu` query state. The output includes
+search first opens the Google Flights results surface
+`/travel/flights/search` with fixture-backed `tfs` and, when needed, short sort
+`tfu` query state. The output includes
 `query_population.status = "encoded"`, confidence, populated parameter names,
 source surfaces, and evidence references. City/city-like route inputs need a
 `selected` route choice before this encoded path is allowed. Inputs outside the
@@ -119,6 +123,12 @@ such as `departure_window`, `destination`, `cabin`, or `trip_type`.
 remains accepted as a compatibility flag. `--live-form` additionally attempts
 fake-tested, evidence-scoped form interactions before capture; live form mode is
 experimental, and nested itinerary/provider extraction remains deferred.
+
+Before snapshot extraction, live search waits for a terminal Google Flights page
+condition such as visible fare rows, booking-summary text, no-results text, or a
+browser stop state. It then enforces the configured minimum dwell for real CDP
+runs and records network steadiness metadata. Footer-only currency text is not a
+terminal result condition.
 
 SQLite cache payloads contain sanitized price-observation fields derived from
 parsed result rows. They must not store raw browser stdout, raw network request
@@ -288,7 +298,7 @@ Task-specific gate:
 
 ```bash
 gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
-gflights trip india --execute-live --browser-mode headless --date-scan-max-probes 1 --json
+gflights trip india --execute-live --browser-mode headless --search-concurrency 3 --date-scan-max-probes 1 --json
 ```
 
 The command returns a JSON envelope with:
@@ -308,13 +318,13 @@ The command returns a JSON envelope with:
 - `airline_preference`
 - `next_actions`
 
-The command writes `inputs/cph-lko-window-intent.json`,
-`inputs/cph-lko-100-concrete-intents.json`, `analysis/summary.json`, and
-`e2e-report.md`. With `--execute-live`, it also writes command stdout JSON,
-exit-code files, timing files, cdp preflight/postrun JSON, and state-local run
-artifacts under the report root.
-During `--execute-live`, `--date-scan-max-probes` controls how many cache-miss
-date pairs the window scan may live-probe, and
+The command writes `inputs/cph-delhi-dkk-window-intent.json`,
+`inputs/cph-delhi-dkk-100-concrete-intents.json`, `analysis/summary.json`, and
+`flight-options-cph-delhi-dkk.md`. With `--execute-live`, it also writes command
+stdout JSON, exit-code files, timing files, cdp preflight/postrun JSON, and
+state-local run artifacts under the report root. During `--execute-live`,
+`--search-concurrency` controls the bounded 100-intent live-search batch,
+`--date-scan-max-probes` controls how many cache-miss date pairs the window scan may live-probe, and
 `--date-scan-probe-timeout-seconds` controls each probe timeout. These bounds
 must be explicit in command output and saved timing/evidence.
 
@@ -330,7 +340,22 @@ result-row and ranked-pair match counts, visible-carrier denominators, and a
 `preference_observation_status` of `matched`, `not_matched`, `not_observable`,
 or `not_requested`.
 
-## Live Itinerary Inspect
+## Live Itinerary Select And Inspect
+
+Selection from a search URL:
+
+```bash
+gflights itinerary select --search-url <google-flights-search-url> --preferred-carrier "Air India" --require-nonstop --json
+```
+
+The command returns `status`, `confidence`, `live_mode`, `browser_mode`,
+`search_url`, `booking_url`, `selection.outbound`, `selection.return`,
+`unsupported`, `warnings`, and `evidence`. It opens the search URL, waits for
+visible fare rows, clicks only explicit Google Flights rows matching the
+requested visible criteria, waits for the Google booking-summary state, and
+returns a `booking_url` only when the current URL remains under
+`/travel/flights/booking`. It stops before provider checkout, payment, login,
+or personal-data entry.
 
 Live selected-itinerary inspection:
 

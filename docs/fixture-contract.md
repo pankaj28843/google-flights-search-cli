@@ -67,7 +67,7 @@ Live refreshes must be explicit and task-scoped.
 
 `gflights project init --path <app-state-root> --json` creates a fixture root at
 `fixtures/` and a run root at `runs/` under the app-state root. By default that
-root is `~/.gflights-search`.
+root is `~/.gflights`.
 
 Checked-in fixtures under repository `tests/` or `fixtures/` are for deterministic
 development. App-state fixtures are for a user's own evidence refreshes and

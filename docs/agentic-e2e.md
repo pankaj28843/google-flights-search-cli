@@ -56,11 +56,13 @@ agentic contract for the first implementation. It asserts:
 - `itinerary inspect` exposes a live cdp command surface whose stop-state
   behavior is fake-adapter tested, including provider checkout and personal-data
   boundaries
+- `itinerary select` exposes the row-clicking workflow that turns a search URL
+  into a Google Flights booking-summary URL without crossing provider checkout
 - `doctor --json` reports headless default and live-search-by-default config
 - blocked headless replay returns exit `4` and headed fallback guidance
 - `codec decode --fixture` reports raw wire paths, verifies fixture hypotheses
   against the generic Python codec, and keeps confidence non-`proven`
-- `trip india` is listed in help, writes the canonical CPH-Lucknow India-trip
+- `trip india` is listed in help, writes the canonical CPH-Delhi DKK India-trip
   inputs, and has offline reducer coverage proving zero-row experimental output
   is `not_useful`
 - `trip india` can rank parsed concrete live-search rows as
@@ -135,9 +137,10 @@ make live-india-trip-plan
 
 This target runs `gflights trip india --execute-live --json`. It may open
 Google Flights through cdp, records preflight/postrun browser budget evidence,
-and must not be part of default validation. The gate is allowed to fail with
-`not_useful`, `blocked`, or `inconclusive` as long as the saved summary/report
-explain the actionable reason.
+uses bounded live-search/date-probe concurrency, and must not be part of default
+validation. The gate is allowed to fail with `not_useful`, `blocked`, or
+`inconclusive` as long as the saved summary/report explain the actionable
+reason.
 
 ## Test Layers
 

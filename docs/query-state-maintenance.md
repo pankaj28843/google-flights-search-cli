@@ -69,9 +69,9 @@ Implemented encoded subset:
 - non-default sort values with observed short `tfu`
 
 Every live output reports this through `query_population`: `encoded` means the
-URL was populated from this subset; `unsupported` means the CLI opened the
-Google Flights shell and recorded why no evidence-backed encoded query state was
-available.
+URL was populated from this subset and opened on `/travel/flights/search`;
+`unsupported` means the CLI opened the Google Flights shell and recorded why no
+evidence-backed encoded query state was available.
 
 ## Maintenance Workflow
 

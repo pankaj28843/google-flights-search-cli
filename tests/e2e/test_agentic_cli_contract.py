@@ -75,7 +75,7 @@ def test_root_help_is_self_explanatory_without_repo_docs() -> None:
         "Agent contract:",
         "Environment:",
         "--offline-fixtures",
-        "~/.gflights-search",
+        "~/.gflights",
         "Examples:",
         "gflights search --input-json intents.json --json",
         "gflights trip india",
@@ -93,7 +93,11 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
         ("project", "--help"): ["Examples:", "gflights project init"],
         ("route", "--help"): ["Examples:", "gflights route resolve"],
         ("dates", "--help"): ["Examples:", "gflights dates scan"],
-        ("itinerary", "--help"): ["Examples:", "gflights itinerary inspect"],
+        ("itinerary", "--help"): [
+            "Examples:",
+            "gflights itinerary select",
+            "gflights itinerary inspect",
+        ],
         ("evidence", "--help"): ["Examples:", "gflights evidence replay"],
         ("codec", "--help"): ["Examples:", "gflights codec decode"],
         ("trip", "--help"): ["Examples:", "gflights trip india", "--execute-live"],
@@ -113,8 +117,9 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "live Google Flights",
             "--browser-mode",
             "headless",
+            "--concurrency",
             "--project-root",
-            "~/.gflights-search",
+            "~/.gflights",
         ],
         ("intent", "parse", "--help"): ["Examples:", "--input-json", "JSON array"],
         ("project", "init", "--help"): ["Examples:", "--path", "config.json"],
@@ -145,12 +150,23 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "--browser-mode",
             "headed",
         ],
+        ("itinerary", "select", "--help"): [
+            "Examples:",
+            "--search-url",
+            "--preferred-carrier",
+            "--require-nonstop",
+            "--row-rank",
+            "--browser-mode",
+            "--project-root",
+            "booking-summary",
+        ],
         ("evidence", "replay", "--help"): ["Examples:", "FIXTURE", "Redacted fixture"],
         ("codec", "decode", "--help"): ["Examples:", "--fixture", "wire-path"],
         ("trip", "india", "--help"): [
             "Examples:",
             "--report-root",
             "--execute-live",
+            "--search-concurrency",
             "--date-scan-max-probes",
             "--date-scan-probe-timeout-seconds",
             "summary JSON",
@@ -230,10 +246,13 @@ def test_project_init_creates_project_local_state(tmp_path: Path) -> None:
     assert payload["status"] == "ok"
     assert payload["project_root"] == str(tmp_path)
     assert (tmp_path / "config.json").is_file()
-    assert (tmp_path / "cache.sqlite").is_file()
+    assert (tmp_path / "cache").is_dir()
+    assert (tmp_path / "cache" / "cache.sqlite").is_file()
     assert (tmp_path / "artifacts").is_dir()
     assert (tmp_path / "fixtures").is_dir()
     assert (tmp_path / "runs").is_dir()
+    assert payload["cache_root"] == str(tmp_path / "cache")
+    assert payload["database_path"] == str(tmp_path / "cache" / "cache.sqlite")
     assert payload["fixture_root"] == str(tmp_path / "fixtures")
     assert payload["run_root"] == str(tmp_path / "runs")
 
@@ -492,7 +511,10 @@ def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) 
     assert payload["browser"]["headed_fallback_allowed"] is True
     assert payload["validation"]["live_google_flights_by_default"] is True
     assert payload["app_state"]["config_path"] == str(tmp_path / "app-state" / "config.json")
-    assert payload["app_state"]["database_path"] == str(tmp_path / "app-state" / "cache.sqlite")
+    assert payload["app_state"]["cache_root"] == str(tmp_path / "app-state" / "cache")
+    assert payload["app_state"]["database_path"] == str(
+        tmp_path / "app-state" / "cache" / "cache.sqlite"
+    )
     assert payload["app_state"]["cache_max_age_seconds"] == 6 * 60 * 60
 
 

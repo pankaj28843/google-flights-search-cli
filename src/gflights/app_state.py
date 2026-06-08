@@ -22,6 +22,7 @@ SQLITE_BUSY_TIMEOUT_MS = 5_000
 class AppState:
     root: Path
     config_path: Path
+    cache_root: Path
     database_path: Path
     run_root: Path
     artifact_root: Path
@@ -196,13 +197,14 @@ class PriceCache:
 
 def init_app_state(root: Path | None = None) -> AppState:
     state_root = (root or default_app_state_root()).expanduser().resolve()
+    cache_root = state_root / "cache"
     artifact_root = state_root / "artifacts"
     fixture_root = state_root / "fixtures"
     run_root = state_root / "runs"
-    for directory in (artifact_root, fixture_root, run_root):
+    for directory in (cache_root, artifact_root, fixture_root, run_root):
         directory.mkdir(parents=True, exist_ok=True)
 
-    database_path = state_root / "cache.sqlite"
+    database_path = cache_root / "cache.sqlite"
     config_path = state_root / "config.json"
     _init_database(database_path)
     ensure_live_environment()
@@ -223,6 +225,7 @@ def init_app_state(root: Path | None = None) -> AppState:
         "live_google_flights_by_default": True,
         "google_flights_live_env": "1",
         "cache_max_age_seconds": cache_max_age_seconds,
+        "cache_root": str(cache_root),
         "database_path": str(database_path),
         "artifacts_root": str(artifact_root),
         "fixture_root": str(fixture_root),
@@ -232,6 +235,7 @@ def init_app_state(root: Path | None = None) -> AppState:
     return AppState(
         root=state_root,
         config_path=config_path,
+        cache_root=cache_root,
         database_path=database_path,
         run_root=run_root,
         artifact_root=artifact_root,
@@ -245,7 +249,7 @@ def default_app_state_root() -> Path:
     configured = os.environ.get(APP_HOME_ENV)
     if configured:
         return Path(configured)
-    return Path.home() / ".gflights-search"
+    return Path.home() / ".gflights"
 
 
 def ensure_live_environment() -> None:

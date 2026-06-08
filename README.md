@@ -11,9 +11,9 @@ Python project passes the offline agentic contract, and `gflights search` uses
 headless cdp by default when `--offline-fixtures` is not provided. `--live-form`
 is an additional explicit experimental mode for observed form controls.
 
-Runtime state defaults to `~/.gflights-search`: `config.json`, `cache.sqlite`,
-and task-scoped `runs/` evidence bundles live there unless `GFLIGHTS_SEARCH_HOME`
-or an explicit state path overrides it. The default config sets
+Runtime state defaults to `~/.gflights`: `config.json`,
+`cache/cache.sqlite`, and task-scoped `runs/` evidence bundles live there unless
+`GFLIGHTS_SEARCH_HOME` or an explicit state path overrides it. The default config sets
 `GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE=1` and keeps cached flight-price observations
 fresh for at most six hours. Set `cache_max_age_seconds` in `config.json` or
 `GFLIGHTS_CACHE_MAX_AGE_SECONDS` for a run-specific freshness override.
@@ -85,28 +85,41 @@ India trip usefulness gate:
 
 ```bash
 gflights trip india --json
-gflights trip india --execute-live --date-scan-max-probes 1 --json
+gflights trip india --execute-live --search-concurrency 3 --date-scan-max-probes 1 --json
 make live-india-trip-plan
 ```
 
-`gflights trip india` writes the canonical CPH-Lucknow family-trip inputs and
-reduces saved outputs into summary JSON plus a Markdown report under
-`~/Personal/Code/paternity-leave-research/india-trip-plan/`. It opens Google
-Flights only with `--execute-live`, records CDP preflight/postrun evidence, and
-reports `useful` only when ranked options have prices and evidence. The report
-states whether ranking came from date scan or from parsed concrete live-search
-rows. A zero-row experimental run is reported as `not_useful` or as a precise
-blocked or inconclusive state. During live execution, the date-window scan uses
-`--date-scan-max-probes` to keep live date-pair probing explicit and bounded.
+`gflights trip india` writes the canonical CPH-Delhi DKK family-trip inputs and
+reduces saved outputs into summary JSON plus `flight-options-cph-delhi-dkk.md`
+under `~/Personal/Code/paternity-leave-research/india-trip-plan/`. It opens
+Google Flights only with `--execute-live`, records CDP preflight/postrun
+evidence, and reports `useful` only when ranked options have prices and
+evidence. The report states whether ranking came from date scan or from parsed
+concrete live-search rows. A zero-row experimental run is reported as
+`not_useful` or as a precise blocked or inconclusive state. During live
+execution, `--search-concurrency` bounds the 100 concrete live-search probes and
+`--date-scan-max-probes` bounds extra date-window probing.
 
 Date-window scans are cache-first. They rank fresh SQLite price observations by
 default and open Google Flights for missing date pairs only when explicitly
 bounded:
 
 ```bash
-gflights dates scan --input-json intents.json --project-root ~/.gflights-search --json
-gflights dates scan --input-json intents.json --project-root ~/.gflights-search --live-probe --max-probes 5 --json
+gflights dates scan --input-json intents.json --project-root ~/.gflights --json
+gflights dates scan --input-json intents.json --project-root ~/.gflights --live-probe --max-probes 5 --json
 ```
+
+Live browser commands follow one simple shape: open an evidence-backed Google
+Flights URL, wait for a terminal page state, query visible DOM/text for rows,
+click only selected Google Flights rows when a command explicitly needs a
+booking-summary URL, then repeat the same settle/query cycle. They stop before
+login, unusual-traffic bypass, provider checkout, payment, booking, or personal
+data.
+
+Use `gflights itinerary select --search-url <url> --preferred-carrier "Air India"
+--require-nonstop --json` when an agent needs to turn a Google Flights search
+URL into a Google booking-summary URL before running `gflights itinerary
+inspect`.
 
 ## Behavior Contract
 

@@ -509,11 +509,15 @@ def test_project_init_creates_config_and_artifact_root(tmp_path: Path) -> None:
     config = json.loads((tmp_path / "config.json").read_text())
 
     assert payload["status"] == "ok"
+    assert (tmp_path / "cache").is_dir()
+    assert (tmp_path / "cache" / "cache.sqlite").is_file()
     assert (tmp_path / "artifacts").is_dir()
     assert (tmp_path / "fixtures").is_dir()
     assert (tmp_path / "runs").is_dir()
     assert config["browser_default_mode"] == "headless"
     assert config["live_google_flights_by_default"] is True
+    assert config["cache_root"] == str(tmp_path / "cache")
+    assert config["database_path"] == str(tmp_path / "cache" / "cache.sqlite")
     assert config["fixture_root"] == str(tmp_path / "fixtures")
     assert config["run_root"] == str(tmp_path / "runs")
 

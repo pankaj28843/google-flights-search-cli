@@ -42,7 +42,7 @@ make live-google-flights
 ```
 
 This opens Google Flights in headless mode through the default live search path,
-writes state-local `runs/<run-id>/` artifacts under `~/.gflights-search` or
+writes state-local `runs/<run-id>/` artifacts under `~/.gflights` or
 `GFLIGHTS_SEARCH_HOME`, and returns visible-text result rows when extractable,
 `experimental` evidence capture output when rows are not extractable, or a
 structured stop state. It must not be part of default validation.
