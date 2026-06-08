@@ -1,6 +1,6 @@
 [
   {
-    "query_id": "del-cph-senior-oct-nov",
+    "query_id": "del-cph-window-oct-nov",
     "origin": {"text": "Delhi", "kind": "city_or_airport"},
     "destination": {"text": "Copenhagen", "kind": "city_or_airport"},
     "trip_type": "round_trip",
@@ -12,10 +12,7 @@
       "infants_in_seat": 0,
       "infants_on_lap": 0
     },
-    "traveler_profiles": [{"kind": "senior", "comfort_weight": "high"}],
     "cabin": "economy",
-    "airline_preferences": [{"airline": "Air India", "mode": "preferred"}],
-    "consider_all_airlines": true,
     "currency": "EUR",
     "language": "en",
     "location": null,
@@ -48,10 +45,7 @@
       "infants_in_seat": 0,
       "infants_on_lap": 0
     },
-    "traveler_profiles": [],
     "cabin": "economy",
-    "airline_preferences": [],
-    "consider_all_airlines": true,
     "currency": "EUR",
     "language": "en",
     "location": null,

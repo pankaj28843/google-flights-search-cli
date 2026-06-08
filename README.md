@@ -1,15 +1,14 @@
 # Google Flights Search CLI
 
 Agent-first CLI for evidence-backed Google Flights search, itinerary inspection,
-and fixture replay.
+and reusable deep links.
 
-Current phase: live-cdp-by-default search orchestration, fixture-backed route
-resolution, parser-backed live route visible-text extraction, generic
-query-codec validation, fake-tested live form interaction planning, and
-visible-text primary-result extraction. The behavior spec is written, the
-Python project passes the offline agentic contract, and `gflights search` uses
-headless cdp by default when `--offline-fixtures` is not provided. `--live-form`
-is an additional explicit experimental mode for observed form controls.
+Current phase: live-cdp-by-default search orchestration, parser-backed live
+route visible-text extraction, generic query-codec validation, fake-tested live
+form interaction planning, and visible-text primary-result extraction. The
+behavior spec is written, the Python project passes the offline agentic
+contract, and `gflights search` uses headless cdp by default. `--live-form` is
+an additional explicit experimental mode for observed form controls.
 
 Runtime state defaults to `~/.gflights`: `config.json`,
 `cache/cache.sqlite`, and task-scoped `runs/` evidence bundles live there unless
@@ -24,9 +23,9 @@ fresh for at most six hours. Set `cache_max_age_seconds` in `config.json` or
 make validate
 ```
 
-Default validation checks repository harness/docs and fake-adapter behavior.
-Normal `gflights search` use opens the live Google Flights path unless
-`--offline-fixtures` is supplied.
+Default validation checks repository harness/docs, TDD replay assets, and
+fake-adapter behavior. Normal `gflights search` use opens the live Google
+Flights path.
 
 Python checks:
 
@@ -51,10 +50,11 @@ make install-editable
 Both targets install the `gflights` entry point with `uv tool install`; the
 editable target uses `--editable --link-mode symlink --force`.
 
-The Python suite covers offline contracts, route autocomplete fixture replay,
-app-state/cache behavior, fake live search orchestration, fake live route
-stop-state handling and visible-text choice extraction, visible-text result
-extraction, local cdp smoke, and Google Flights evidence capture.
+The Python suite covers offline contracts, route autocomplete replay through
+service tests, app-state/cache behavior, fake live search orchestration, fake
+live route stop-state handling and visible-text choice extraction, visible-text
+result extraction, local cdp smoke, and command-scoped Google Flights live
+evidence.
 
 Local cdp smoke target:
 
@@ -72,14 +72,13 @@ make live-google-flights
 ```
 
 Current expected result: opens Google Flights in headless mode and returns
-visible-text result rows when extractable, `experimental` evidence capture
-output when a no-row state is not classifiable, `unsupported` when bounded
+visible-text result rows when extractable, `experimental` evidence output when
+a no-row state is not classifiable, `unsupported` when bounded
 evidence waits still show empty/loading results, `no_results` when visible text
 explicitly says there are no flights, or exits `4` with a structured stop state
-and headed fallback recommendation. `gflights route resolve` also defaults to
-live cdp evidence capture when fixtures are absent and returns either parsed
-visible autocomplete choices, explicit live extraction deferral, or a structured
-browser stop state.
+and headed fallback recommendation. `gflights route resolve` also opens live
+cdp evidence and returns either parsed visible autocomplete choices, explicit
+live extraction deferral, or a structured browser stop state.
 
 Date-window scans are cache-first. They rank fresh SQLite price observations by
 default and open Google Flights for missing date pairs only when explicitly
@@ -130,15 +129,14 @@ pyproject.toml
 src/gflights/
 tests/
 docs/
-fixtures/
 artifacts/
 scripts/
 ```
 
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
-`project`, `route`, `dates`, `evidence`, `codec`, `doctor`,
-unsupported/deferred/ambiguous exit codes, isolated editable `uv tool install
---editable --link-mode symlink .` smoke behavior, domain/service invariants,
-generic `tfs`/`tfu` wire decode round trips, fake live form interaction
-planning, and cdp adapter command construction and stop-state handling. Live
-tests cover local cdp smoke and Google Flights evidence capture.
+`project`, `route`, `dates`, `codec`, `doctor`, unsupported/deferred/ambiguous
+exit codes, isolated editable `uv tool install --editable --link-mode symlink .`
+smoke behavior, domain/service invariants, generic `tfs`/`tfu` wire decode round
+trips, fake live form interaction planning, and cdp adapter command
+construction and stop-state handling. Live tests cover local cdp smoke and
+command-scoped Google Flights live evidence.

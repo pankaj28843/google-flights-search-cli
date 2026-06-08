@@ -26,7 +26,6 @@ class AppState:
     database_path: Path
     run_root: Path
     artifact_root: Path
-    fixture_root: Path
     config: dict[str, Any]
     cache_max_age_seconds: int
 
@@ -199,9 +198,8 @@ def init_app_state(root: Path | None = None) -> AppState:
     state_root = (root or default_app_state_root()).expanduser().resolve()
     cache_root = state_root / "cache"
     artifact_root = state_root / "artifacts"
-    fixture_root = state_root / "fixtures"
     run_root = state_root / "runs"
-    for directory in (cache_root, artifact_root, fixture_root, run_root):
+    for directory in (cache_root, artifact_root, run_root):
         directory.mkdir(parents=True, exist_ok=True)
 
     database_path = cache_root / "cache.sqlite"
@@ -218,6 +216,9 @@ def init_app_state(root: Path | None = None) -> AppState:
         "google_flights_live_env": "1",
         "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
     }
+    for key in list(existing_config):
+        if key.endswith("_root") and key not in defaults:
+            existing_config.pop(key)
     config = {
         **defaults,
         **existing_config,
@@ -228,7 +229,6 @@ def init_app_state(root: Path | None = None) -> AppState:
         "cache_root": str(cache_root),
         "database_path": str(database_path),
         "artifacts_root": str(artifact_root),
-        "fixture_root": str(fixture_root),
         "run_root": str(run_root),
     }
     config_path.write_text(json.dumps(config, indent=2) + "\n")
@@ -239,7 +239,6 @@ def init_app_state(root: Path | None = None) -> AppState:
         database_path=database_path,
         run_root=run_root,
         artifact_root=artifact_root,
-        fixture_root=fixture_root,
         config=config,
         cache_max_age_seconds=cache_max_age_seconds,
     )

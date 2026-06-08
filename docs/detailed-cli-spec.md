@@ -26,8 +26,8 @@ Included evidence is limited to checked-in repository files:
 - `tests/e2e/fixtures/selected_itinerary_visible_text_fixture.json`
 
 No query/protobuf/RPC parser field is `proven`. Strong hypotheses may become
-supported behavior only with caveats, fixture replay, and explicit stale-codec
-failure behavior.
+supported behavior only with caveats, repository TDD replay, and explicit
+stale-codec failure behavior.
 
 ## Supported, Deferred, And Rejected Scope
 
@@ -57,8 +57,8 @@ Deferred or unsupported until focused probes prove them:
   filter, and minimum-layover filter
 - `GetShoppingResults` nested response parser fields
 - `GetBookingResults` nested booking parser fields
-- no-results live fixture behavior
-- blocked or unusual-traffic live fixture behavior
+- no-results live scenario behavior
+- blocked or unusual-traffic live scenario behavior
 - user-controlled Google Flights location mutation
 - top-flight `tfu` reload equivalence across absent `tfu`, `tfu.2.1 = 0`, and
   `tfu.2.1 = 1`
@@ -97,15 +97,13 @@ agents must rely on JSON schemas and stable JSON output, not terminal prose.
 | `gflights schema` | Emit JSON Schema for input/output models. | functional core + CLI shell | implementation policy |
 | `gflights intent parse` | Normalize JSON input and optionally parse text into a `SearchIntent`; ambiguous free text returns `ambiguous`. | service layer | implementation policy |
 | `gflights project init` | Create app-state config, cache, and artifact directories. | imperative shell | implementation policy |
-| `gflights route resolve` | Resolve airport/city route choices through fixtures or live evidence. | service + shell adapter | observed route evidence |
+| `gflights route resolve` | Resolve airport/city route choices through live evidence. | service + shell adapter | observed route evidence |
 | `gflights dates scan` | Expand date windows into concrete date pairs, use fresh cache, optionally live-probe bounded misses, and rank candidate combinations. | service layer + adapters | date/result evidence |
 | `gflights search` | Run one concrete search intent and return primary result rows plus evidence paths. | service + shell adapter | observed result evidence |
 | `gflights itinerary select` | Select explicit visible Google Flights outbound/return rows from a search URL and return a Google booking-summary URL. | service + shell adapter | selected-itinerary evidence |
 | `gflights itinerary inspect` | Inspect one selected itinerary and return booking/detail fields when visible. | service + shell adapter | selected-itinerary evidence |
-| `gflights evidence capture` | Capture headed/headless browser evidence for a named scenario. | imperative shell | harness policy |
-| `gflights evidence replay` | Replay redacted fixtures offline and return parsed result/evidence summaries. | functional core + file shell | harness policy |
 | `gflights codec decode` | Decode captured `tfs`/`tfu` values and report raw wire paths plus confidence. | functional core | strong hypothesis evidence |
-| `gflights doctor` | Report toolchain, browser, project, fixture, and codec health. | imperative shell | implementation policy |
+| `gflights doctor` | Report toolchain, browser, project, and codec health. | imperative shell | implementation policy |
 
 Commands must be atomic and composable. A command that cannot satisfy an input
 because evidence is weak or missing must return `unsupported`, `deferred`,
@@ -138,7 +136,7 @@ evidence.
 | 2 | invalid or ambiguous user input |
 | 3 | unsupported or deferred capability requested |
 | 4 | browser blocked, login required, unusual traffic, human required, or safety boundary reached |
-| 5 | stale fixture, stale codec hypothesis, or evidence mismatch |
+| 5 | stale evidence, stale codec hypothesis, or evidence mismatch |
 | 6 | toolchain or project configuration failure |
 
 JSON output must include the same status as the exit code class.
@@ -172,7 +170,7 @@ Allowed `status` values:
 - `blocked`
 - `no_results`
 - `experimental`
-- `stale_fixture`
+- `stale_evidence`
 - `tool_error`
 
 Allowed `confidence` values:
@@ -193,17 +191,14 @@ The canonical input object is:
 
 ```json
 {
-  "query_id": "del-cph-senior-oct-nov",
+  "query_id": "del-cph-window-oct-nov",
   "origin": {"text": "Delhi", "kind": "city_or_airport"},
   "destination": {"text": "Copenhagen", "kind": "city_or_airport"},
   "trip_type": "round_trip",
   "departure_window": {"start": "2026-10-01", "end": "2026-10-07"},
   "return_window": {"start": "2026-11-24", "end": "2026-11-30"},
   "passengers": {"adults": 2, "children": 0, "infants_in_seat": 0, "infants_on_lap": 0},
-  "traveler_profiles": [{"kind": "senior", "comfort_weight": "high"}],
   "cabin": "economy",
-  "airline_preferences": [{"airline": "Preferred Carrier", "mode": "preferred"}],
-  "consider_all_airlines": true,
   "currency": "EUR",
   "language": "en",
   "location": null,
@@ -239,8 +234,8 @@ Fields:
 Supported evidence covers adding one of each passenger type against a one-adult
 baseline. The codec hypothesis maps observed passenger categories to repeated
 top-level `tfs.8` values, but the exact encoder schema is not proven. Counts
-beyond observed examples must be validated through fixtures or return
-`ambiguous` when the implementation cannot prove support.
+beyond observed examples must be validated through repository TDD assets or
+return `ambiguous` when the implementation cannot prove support.
 
 ### Cabin
 
@@ -281,35 +276,20 @@ autocomplete text alone is not enough to support direct query-state encoding.
 Ambiguous autocomplete input must return `ambiguous` and candidate choices
 instead of selecting silently.
 
-Offline deterministic replay is:
-
-```bash
-gflights route resolve --input-text <text> --offline-fixtures <fixture-dir> --json
-```
-
-When `--offline-fixtures` contains a reviewed
-`route_autocomplete_choices` fixture, the command returns `ok` with
-`selected` for a single evidence-backed airport/city choice, or `ambiguous`
-with `selected: null` and `choices` for multi-airport or similarly named
-locations. If route fixtures cannot resolve a `city_or_airport` endpoint,
-search and date-scan workflows must return `unsupported` instead of continuing
-with a guessed route.
-
-When `--offline-fixtures` is absent, `gflights route resolve` opens the live
-Google Flights shell through cdp, fills the route autocomplete field, records
-task-scoped route evidence, and stops on browser safety boundaries. Each live
-run must use a collision-resistant run id, wait past `about:blank`, retry
-recoverable execution-context loss once, and record every bounded fill attempt
-as an artifact. Selector labels are implementation evidence; if the exact
-observed label fails, the command may try alternate labels before returning a
-structured `tool_error`. Any opened page must still get a
-`managed-tab-close.json` artifact on success,
-unsupported, blocked, or tool-error paths. When visible-text parser fixtures
-cover the autocomplete surface, successful evidence capture returns `ok` or
-`ambiguous` with route choices. Airport rows may use a visible IATA code as
-`code_or_id`; city rows must leave `code_or_id` null unless a separate reviewed
-decode surface supplies a stable ID. If no supported choices are visible, the
-command returns exit `3` with `status: unsupported`, `selected: null`, empty `choices`, and
+`gflights route resolve` opens the live Google Flights shell through cdp, fills
+the route autocomplete field, records task-scoped route evidence, and stops on
+browser safety boundaries. Each live run must use a collision-resistant run id,
+wait past `about:blank`, retry recoverable execution-context loss once, and
+record every bounded fill attempt as an artifact. Selector labels are
+implementation evidence; if the exact observed label fails, the command may try
+alternate labels before returning a structured `tool_error`. Any opened page
+must still get a `managed-tab-close.json` artifact on success, unsupported,
+blocked, or tool-error paths. When parser support covers the autocomplete
+surface, successful evidence capture returns `ok` or `ambiguous` with route
+choices. Airport rows may use a visible IATA code as `code_or_id`; city rows
+must leave `code_or_id` null unless a separate reviewed decode surface supplies
+a stable ID. If no supported choices are visible, the command returns exit `3`
+with `status: unsupported`, `selected: null`, empty `choices`, and
 `route.resolve.live_autocomplete_extraction: deferred`. Browser stop states
 return exit `4` with `stop_state` and headed fallback guidance when available.
 
@@ -351,24 +331,17 @@ minimum layover are deferred.
 The CLI may still support transparent post-result ranking hints when the needed
 fields are visible:
 
-- airline preference can score results whose carriers are visible
-- senior-comfort scoring can prefer fewer stops, shorter total duration,
-  manageable layovers, baggage/facility evidence, and lower schedule risk when
-  those fields are available
-- duration and layover preferences can rank or filter returned result rows after
-  extraction
+- visible price can rank lower observed prices first
+- visible duration, stop count, and emissions can adjust ranking when they are
+  present in result rows or fresh cache observations
 
 Every such ranking must return an explanation object and must not claim that a
 Google Flights filter was applied.
 
-The first post-result ranking policy is `comfort_aware_v1`. It is a pure
+The maintained post-result ranking policy is `price_duration_v1`. It is a pure
 service-layer policy over visible or cached fields, not a browser adapter
-feature. Its explanation includes price, duration, stops, preferred-airline
-match state, senior-comfort weight, emissions when visible, a numeric score,
-and `google_flights_filters_applied: false`. It also includes an
-`airline_preference` object with requested preferred airlines, visible carriers,
-matched carriers, match count, local-ranking-applied truth, and
-`google_flights_filters_applied: false`.
+feature. Its explanation includes price, duration, stops, emissions when
+visible, a numeric score, and `google_flights_filters_applied: false`.
 
 Optional tabular analysis may use pandas through an adapter outside the pure
 domain core. The core date-scan JSON remains the stable contract; pandas-backed
@@ -489,11 +462,10 @@ must output `terminal_info.status = "not_found"` or omit the field with an
 explicit absence reason; it must not invent terminal names or terminal-change
 warnings.
 
-Current default-validation support includes fixture replay for redacted
-`selected_itinerary_visible_text` evidence plus fake-adapter stop-state tests
-for live `itinerary inspect`. Actual live inspection remains an explicit
-browser-orchestration step and must keep checkout, login, payment, and
-personal-data flows as stop boundaries.
+Current default-validation support includes service-level replay over redacted
+TDD evidence plus fake-adapter stop-state tests for live `itinerary inspect`.
+Actual live inspection remains an explicit browser-orchestration step and must
+keep checkout, login, payment, and personal-data flows as stop boundaries.
 
 ## Task-Specific Reports
 
@@ -540,12 +512,12 @@ Admitted strong hypotheses:
 Constraints:
 
 - Do not assign stable friendly field names inside generated code without
-  evidence comments and fixture links.
+  evidence comments and TDD evidence links.
 - Do not require full encoder support when browser/UI probing can produce the
   state safely.
-- Any encoder/decoder promoted into the implementation must have fixture tests
-  for raw value, decoded wire paths, confidence, and stale behavior.
-- If a fixture contradicts a hypothesis, return `stale_fixture` or
+- Any encoder/decoder promoted into the implementation must have TDD tests for
+  raw value, decoded wire paths, confidence, and stale behavior.
+- If checked evidence contradicts a hypothesis, return `stale_evidence` or
   `unsupported`; do not fall back to guessing.
 
 Implementation scope admitted from the strong evidence set:
@@ -584,16 +556,16 @@ Functional core:
 - date-window expansion
 - input validation and ambiguity classification
 - post-result ranking and explanation
-- query/protobuf decode interpretation over fixture bytes
+- query/protobuf decode interpretation over checked TDD bytes
 - JSON output shaping and JSON Schema generation
 
 Service layer:
 
 - parse or normalize `SearchIntent` dicts
 - orchestrate route resolution, date scans, concrete searches, itinerary
-  inspection, evidence replay, and codec diagnostics
+  inspection, service-level TDD replay, and codec diagnostics
 - accept primitive dicts and return validated output dicts
-- depend on fakeable adapters for browser, filesystem, fixture store, and
+- depend on fakeable adapters for browser, filesystem, checked test data, and
   process execution
 
 Imperative shell:
@@ -635,16 +607,17 @@ Default use:
 - Runtime state lives under `~/.gflights` unless
   `GFLIGHTS_SEARCH_HOME` or an explicit init path overrides it.
 - `project init` creates `config.json`, `cache/cache.sqlite`, `artifacts/`,
-  `fixtures/`, and `runs/` under the app-state root.
+  and `runs/` under the app-state root.
 - `config.json` sets live Google Flights search as the default and records a
   configurable maximum age for cached flight prices. The default is six hours;
   `GFLIGHTS_CACHE_MAX_AGE_SECONDS` may override it for a run.
 - `cache/cache.sqlite` uses the policy in `docs/cache-layer-policy.md`: SQLite WAL
   mode, a busy timeout, schema version tracking, and date-scan lookup indexes.
 - Runtime evidence uses task-scoped run directories.
-- Raw browser/network/storage artifacts must be redacted before they become
-  committed fixtures.
-- Normal validation replays fixtures offline.
+- Raw browser/network/storage artifacts must not be committed without redaction
+  and review.
+- Normal validation uses fake adapters and repository TDD replay assets, not
+  installed replay commands.
 
 Every command that creates artifacts must return their paths in JSON.
 
@@ -652,15 +625,15 @@ Every command that creates artifacts must return their paths in JSON.
 
 | State | Required behavior |
 |---|---|
-| `no_results` | Return structured status; fixture pending, so live-specific details stay experimental. |
+| `no_results` | Return structured status; scenario evidence pending, so live-specific details stay experimental. |
 | `capability_not_found` | Return unsupported/not_found with evidence reference. |
 | `blocked` | Stop and record safe evidence without bypassing. |
 | `login_required` | Stop; do not attempt login. |
 | `payment_or_booking_boundary` | Stop before provider transaction flow. |
 | `ambiguous_autocomplete` | Return candidates and exit 2. |
 | `unsupported_combination` | Return status and unsupported field list. |
-| `weak_codec` | Return unsupported/experimental unless fixture-backed behavior is available. |
-| `stale_fixture` | Return exit 5 and point to codec maintenance docs. |
+| `weak_codec` | Return unsupported/experimental unless checked evidence supports the behavior. |
+| `stale_evidence` | Return exit 5 and point to codec maintenance docs. |
 | `tool_error` | Return exit 6 with command, adapter, and repair hints. |
 
 ## TDD Acceptance For First Implementation
@@ -671,16 +644,16 @@ Slice 07 must write red tests before implementation code for:
 - JSON Schema export
 - app-state init
 - JSON array input validation and one-output-per-search-intent behavior
-- offline fixture replay
+- service-level replay over repository TDD assets
 - date-window scan output shape
 - headless default and headed fallback recommendation
 - codec decode confidence output
 - deterministic exit codes
 - editable/symlinked `uv tool install` smoke behavior
 
-The first green implementation may use fixtures and fake adapters. Live Google
-Flights is the default CLI value path; smoke tests may still be isolated by
-marker or task-scoped runs.
+The first green implementation may use repository TDD assets and fake adapters.
+Live Google Flights is the default CLI value path; smoke tests may still be
+isolated by marker or task-scoped runs.
 
 ## Evidence Appendix
 
@@ -689,14 +662,14 @@ Required references by spec area:
 - capability admission and rows: `docs/detailed-cli-spec.md`
 - query params and protobuf hypotheses: `docs/query-state-maintenance.md`
 - browser surfaces and safety rules: `docs/browser-evidence-policy.md`
-- fixture replay and redaction rules: `docs/fixture-contract.md`
+- repository TDD replay and redaction rules: `docs/fixture-contract.md`
 - implementation test contracts: `docs/agentic-e2e.md`
 
 Any future spec change that adds support for a deferred capability must add:
 
 - capability matrix update
 - probe scenario row or update
-- checked-in redacted fixture or checked-in evidence summary
+- checked-in redacted TDD asset or checked-in evidence summary
 - one-variable mutation or documented edge/counterexample
 - confidence class
 - functional-core/service/shell owner

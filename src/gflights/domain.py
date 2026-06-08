@@ -16,7 +16,7 @@ SearchStatus = Literal[
     "blocked",
     "no_results",
     "experimental",
-    "stale_fixture",
+    "stale_evidence",
     "tool_error",
 ]
 TripType = Literal["round_trip", "one_way", "multi_city"]
@@ -116,10 +116,7 @@ class SearchIntent(BaseModel):
     departure_window: DateWindow
     return_window: DateWindow | None = None
     passengers: PassengerParty = Field(default_factory=PassengerParty)
-    traveler_profiles: list[dict[str, Any]] = Field(default_factory=list)
     cabin: Cabin = "economy"
-    airline_preferences: list[dict[str, Any]] = Field(default_factory=list)
-    consider_all_airlines: bool = True
     currency: str = "EUR"
     language: str = "en"
     location: str | None = None

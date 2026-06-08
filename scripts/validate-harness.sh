@@ -69,7 +69,7 @@ for confidence in proven strong weak unknown rejected; do
   fi
 done
 
-for status in unsupported deferred ambiguous blocked stale_fixture tool_error; do
+for status in unsupported deferred ambiguous blocked stale_evidence tool_error; do
   if ! grep -RIn "$status" docs/schema-and-json-contracts.md docs/detailed-cli-spec.md >/dev/null; then
     echo "missing status contract in schema/spec docs: $status" >&2
     exit 1

@@ -1,8 +1,7 @@
 # Browser Evidence Policy
 
-Live Google Flights probing is the default value path for `gflights search`
-when offline fixtures are not supplied. It is still not part of normal
-validation.
+Live Google Flights probing is the default value path for `gflights search`.
+It is still not part of normal validation.
 
 Read `docs/cdp-usage-discipline.md` before live `cdp` work. That document owns
 tab-budget preflight, target reuse, managed-tab memory, and close/cleanup rules.
@@ -22,8 +21,8 @@ Record browser mode for every run.
 ## Adapter Validation
 
 Default validation uses fake subprocess tests for the cdp adapter, fake live
-form tests, and fixture replay. It must not start browser sessions or contact
-Google Flights.
+form tests, and service-level replay over checked TDD assets. It must not start
+browser sessions or contact Google Flights.
 
 Opt-in local cdp smoke is available through:
 
@@ -44,13 +43,12 @@ make live-google-flights
 This opens Google Flights in headless mode through the default live search path,
 writes state-local `runs/<run-id>/` artifacts under `~/.gflights` or
 `GFLIGHTS_SEARCH_HOME`, and returns visible-text result rows when extractable,
-`experimental` evidence capture output when rows are not extractable, or a
-structured stop state. It must not be part of default validation.
+`experimental` evidence output when rows are not extractable, or a structured
+stop state. It must not be part of default validation.
 
-`--offline-fixtures` is the explicit deterministic replay path. `--live-form`
-is an additional explicit experimental mode that uses observed accessible labels
-and visible concepts, records one artifact per form step, and stops on browser
-safety boundaries instead of bypassing them.
+`--live-form` is an additional explicit experimental mode that uses observed
+accessible labels and visible concepts, records one artifact per form step, and
+stops on browser safety boundaries instead of bypassing them.
 
 `gflights itinerary inspect --booking-url <url> --json` is the live
 selected-itinerary path. It opens an existing Google Flights booking URL,
@@ -59,11 +57,11 @@ captures visible selected-itinerary text, and must not click provider
 tests for this command.
 
 `gflights route resolve --input-text <text> --json` is the live route evidence
-path when offline fixtures are absent. It opens the Google Flights shell,
-fills the route autocomplete field, captures route-autocomplete evidence, and
-returns parser-backed visible choices when available. If no supported choices
-are visible, it returns explicit deferred output. Default validation uses fake
-cdp adapter tests for stop states and does not open Google Flights.
+path. It opens the Google Flights shell, fills the route autocomplete field,
+captures route-autocomplete evidence, and returns parser-backed visible choices
+when available. If no supported choices are visible, it returns explicit
+deferred output. Default validation uses fake cdp adapter tests for stop states
+and does not open Google Flights.
 
 ## Required Artifacts
 

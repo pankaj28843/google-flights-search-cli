@@ -34,7 +34,7 @@ def write_intent(path: Path) -> Path:
     return intent_path
 
 
-def test_search_defaults_to_live_cdp_without_offline_fixtures(
+def test_search_defaults_to_live_cdp_without_tdd_replay(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -129,7 +129,7 @@ def test_itinerary_inspect_uses_headless_live_cdp_by_default(
     assert calls[0]["project_root"] == tmp_path
 
 
-def test_route_resolve_defaults_to_live_cdp_without_offline_fixtures(
+def test_route_resolve_defaults_to_live_cdp_without_tdd_replay(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:

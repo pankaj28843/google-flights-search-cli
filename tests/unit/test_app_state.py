@@ -66,6 +66,7 @@ def test_init_app_state_preserves_existing_config_values(tmp_path: Path) -> None
     original["browser_default_mode"] = "headed"
     original["cache_max_age_seconds"] = 8 * 60 * 60
     original["custom_note"] = "keep user configuration"
+    original["fixture_root"] = str(tmp_path / "fixtures")
     state.config_path.write_text(json.dumps(original, indent=2) + "\n")
 
     reloaded = init_app_state(tmp_path)
@@ -74,6 +75,7 @@ def test_init_app_state_preserves_existing_config_values(tmp_path: Path) -> None
     assert reloaded.config["custom_note"] == "keep user configuration"
     assert reloaded.config["live_google_flights_by_default"] is True
     assert reloaded.config["cache_max_age_seconds"] == 8 * 60 * 60
+    assert "fixture_root" not in reloaded.config
     assert reloaded.cache_max_age_seconds == 8 * 60 * 60
     assert json.loads(state.config_path.read_text()) == reloaded.config
 

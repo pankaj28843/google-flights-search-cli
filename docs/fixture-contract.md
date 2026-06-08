@@ -1,6 +1,9 @@
 # Fixture Contract
 
-Fixtures make default validation deterministic and offline.
+Fixtures are repository TDD assets. They make default validation deterministic
+and offline, but installed `gflights` commands and package sources must not
+expose fixture paths, fixture replay commands, fixture replay helpers, or
+app-state fixture directories.
 
 ## Fixture Types
 
@@ -60,15 +63,18 @@ message that points to:
 
 ## Default Validation
 
-Default validation must replay fixtures without contacting Google Flights.
-Live refreshes must be explicit and task-scoped.
+Default validation may exercise parsers and codecs against fixtures through
+TDD tests without contacting Google Flights. Installed commands must use
+live/cache/run evidence surfaces instead of fixture arguments. Live refreshes
+must be explicit and task-scoped.
 
-## App-State Fixtures
+## App State Boundary
 
-`gflights project init --path <app-state-root> --json` creates a fixture root at
-`fixtures/` and a run root at `runs/` under the app-state root. By default that
-root is `~/.gflights`.
+`gflights project init --path <app-state-root> --json` creates runtime state
+only: `config.json`, `cache/cache.sqlite`, `artifacts/`, and `runs/` under the
+app-state root. By default that root is `~/.gflights`.
 
-Checked-in fixtures under repository `tests/` or `fixtures/` are for deterministic
-development. App-state fixtures are for a user's own evidence refreshes and
-must not be published unless redacted and reviewed.
+Checked-in fixtures under repository `tests/` or `fixtures/` are for
+deterministic development and TDD only. User-local evidence refreshes belong in
+`runs/` and `artifacts/`; they must not become checked-in fixtures unless
+redacted, reviewed, and kept in the repository test-data area.

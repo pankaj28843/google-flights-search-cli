@@ -23,8 +23,8 @@ browser steps needed to express that intent on Google Flights.
 
 Routes can be airport-code choices or city/city-like autocomplete choices.
 Ambiguous route text must produce candidate choices instead of silent selection.
-For deterministic offline replay, the route resolver can use reviewed
-`route_autocomplete_choices` fixtures to return a single `selected` choice or
+For deterministic TDD replay, tests can use reviewed
+`route_autocomplete_choices` fixtures to validate a single `selected` choice or
 an ordered candidate list with an ambiguity reason.
 
 Multi-airport city context is route-disambiguation evidence. It is not the same
@@ -53,7 +53,8 @@ The passenger party can include:
 - infants on lap
 
 Current evidence covers one-variable mutations for each passenger category. Any
-future count-limit support must be fixture-backed.
+future count-limit support must be backed by checked TDD assets or checked
+evidence summaries.
 
 ## Dates
 
@@ -78,15 +79,15 @@ Deferred:
 
 Do not infer unprobed cabin encodings from numeric adjacency.
 
-## Ranking And Preferences
+## Ranking
 
-The CLI may rank returned results using visible fields such as price, stops,
-duration, layovers, carriers, baggage, emissions, and facilities.
+The CLI may rank returned results using visible or cached fields such as price,
+stops, duration, and emissions.
 
-Ranking based on airline preference or senior comfort must be an explained
-post-result ranking unless a live Google Flights filter has been proven.
-The explanation must state that no Google Flights filter was applied when the
-CLI is only re-ranking visible or cached result rows.
+Ranking must be an explained post-result operation unless a live Google Flights
+filter has been proven. The explanation must state that no Google Flights
+filter was applied when the CLI is only re-ranking visible or cached result
+rows.
 
 Date-window ranking must account for every generated date pair before producing
 agent-facing recommendations. Fresh cache observations may support ranking for

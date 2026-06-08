@@ -33,20 +33,15 @@ def rank_observed_pairs(
 
 
 def _score_pair(intent: SearchIntent, pair: dict[str, Any]) -> dict[str, Any]:
+    del intent
     summary = _summary(pair)
     price = _price_amount(pair)
     duration = _duration_minutes(pair)
     stops = _stop_count(summary)
     emissions_kg = _emissions_kg(summary.get("emissions"))
-    comfort_weight = _senior_comfort_weight(intent)
-    preferred = _preferred_airlines(intent)
-    carriers = _carriers(summary)
-    matched_preferred_carriers = _matched_preferred_carriers(preferred, carriers)
-    preferred_status = _preferred_status(preferred, matched_preferred_carriers)
 
-    duration_weight = 0.25 if comfort_weight == "high" else 0.05
-    stop_weight = 180 if comfort_weight == "high" else 30
-    preferred_bonus = 250 if preferred_status == "matched" else 0
+    duration_weight = 0.05
+    stop_weight = 30
     emissions_weight = 0.02
 
     score = (
@@ -54,22 +49,11 @@ def _score_pair(intent: SearchIntent, pair: dict[str, Any]) -> dict[str, Any]:
         + (duration * duration_weight if duration < 999999 else 0)
         + (stops * stop_weight if stops < 999999 else 0)
         + ((emissions_kg or 0) * emissions_weight)
-        - preferred_bonus
     )
     return {
-        "policy": "comfort_aware_v1",
+        "policy": "price_duration_v1",
         "score": round(score, 3),
         "google_flights_filters_applied": False,
-        "airline_preference": {
-            "preferred_airlines": preferred,
-            "status": preferred_status,
-            "matched_carriers": matched_preferred_carriers,
-            "matched_carrier_count": len(matched_preferred_carriers),
-            "visible_carriers": carriers,
-            "visible_carrier_count": len(carriers),
-            "local_ranking_preference_applied": bool(preferred),
-            "google_flights_filters_applied": False,
-        },
         "components": [
             {"name": "price", "value": price, "effect": "lower_is_better"},
             {
@@ -83,21 +67,6 @@ def _score_pair(intent: SearchIntent, pair: dict[str, Any]) -> dict[str, Any]:
                 "value": None if stops >= 999999 else stops,
                 "weight": stop_weight,
                 "effect": "lower_is_better",
-            },
-            {
-                "name": "preferred_airline",
-                "value": preferred_status,
-                "preferred": preferred,
-                "carriers": carriers,
-                "matched_carriers": matched_preferred_carriers,
-                "matched_carrier_count": len(matched_preferred_carriers),
-                "bonus": preferred_bonus,
-                "effect": "preferred_not_required",
-            },
-            {
-                "name": "senior_comfort",
-                "value": comfort_weight,
-                "effect": "weights_duration_and_stops",
             },
             {
                 "name": "emissions_kg",
@@ -141,42 +110,3 @@ def _emissions_kg(value: Any) -> int | None:
     if match is None:
         return None
     return int(match.group(1).replace(",", ""))
-
-
-def _senior_comfort_weight(intent: SearchIntent) -> str:
-    for profile in intent.traveler_profiles:
-        if profile.get("kind") == "senior":
-            weight = profile.get("comfort_weight")
-            return str(weight) if weight else "standard"
-    return "not_requested"
-
-
-def _preferred_airlines(intent: SearchIntent) -> list[str]:
-    preferred: list[str] = []
-    for preference in intent.airline_preferences:
-        if preference.get("mode") != "preferred":
-            continue
-        airline = preference.get("airline")
-        if airline:
-            preferred.append(str(airline))
-    return preferred
-
-
-def _carriers(summary: dict[str, Any]) -> list[str]:
-    carriers = summary.get("carriers")
-    if not isinstance(carriers, list):
-        return []
-    return [str(carrier) for carrier in carriers]
-
-
-def _preferred_status(preferred: list[str], matched_preferred_carriers: list[str]) -> str:
-    if not preferred:
-        return "not_requested"
-    if matched_preferred_carriers:
-        return "matched"
-    return "not_matched"
-
-
-def _matched_preferred_carriers(preferred: list[str], carriers: list[str]) -> list[str]:
-    preferred_names = {airline.casefold() for airline in preferred}
-    return [carrier for carrier in carriers if carrier.casefold() in preferred_names]

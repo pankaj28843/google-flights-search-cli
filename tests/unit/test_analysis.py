@@ -8,7 +8,7 @@ def test_date_scan_analysis_flattens_ranked_pairs_with_injected_pandas() -> None
         [
             {
                 "query_id": "del-cph-window",
-                "ranking_policy": "comfort_aware_v1",
+                "ranking_policy": "price_duration_v1",
                 "ranked_pairs": [
                     {
                         "departure_date": "2026-10-01",
@@ -21,7 +21,7 @@ def test_date_scan_analysis_flattens_ranked_pairs_with_injected_pandas() -> None
                             "stops": {"count": 1},
                         },
                         "scoring_explanation": {
-                            "policy": "comfort_aware_v1",
+                            "policy": "price_duration_v1",
                             "score": 885.5,
                             "google_flights_filters_applied": False,
                         },

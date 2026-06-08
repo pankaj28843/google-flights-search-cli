@@ -472,7 +472,7 @@ async def run_live_route_resolution(
                     {
                         "field": "route.resolve.live_autocomplete_extraction",
                         "status": "deferred",
-                        "reason": "live route autocomplete evidence capture is available, but durable choice extraction still requires focused fixture-backed parser tests",
+                        "reason": "live route autocomplete evidence capture is available, but durable choice extraction still requires focused parser tests",
                     }
                 ],
                 "warnings": [

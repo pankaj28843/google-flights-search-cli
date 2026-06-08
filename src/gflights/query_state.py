@@ -1,4 +1,4 @@
-"""Fixture-backed Google Flights URL query-state construction."""
+"""Evidence-backed Google Flights URL query-state construction."""
 
 from __future__ import annotations
 
@@ -51,8 +51,7 @@ _SORT_VALUES = {
 }
 _EVIDENCE_REFS = [
     "docs/query-state-maintenance.md",
-    "docs/fixture-contract.md",
-    "tests/e2e/fixtures/codec_tfu_price_fixture.json",
+    "docs/browser-evidence-policy.md",
 ]
 
 
@@ -79,7 +78,7 @@ def build_query_state(intent: SearchIntent) -> EncodedQueryState:
         source_surfaces=source_surfaces,
         evidence_refs=_EVIDENCE_REFS,
         warnings=[
-            "encoded Google Flights URL state is a strong fixture-backed hypothesis, not a proven public API"
+            "encoded Google Flights URL state is a strong evidence-backed hypothesis, not a proven public API"
         ],
     )
 

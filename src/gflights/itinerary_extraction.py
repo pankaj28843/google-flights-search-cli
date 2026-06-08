@@ -23,12 +23,12 @@ _ITINERARY_EMISSIONS_RE = re.compile(
 
 
 def extract_selected_itinerary(
-    fixture: dict[str, Any],
+    snapshot_record: dict[str, Any],
     *,
     source_surface: str = "selected-itinerary-visible-text",
     confidence: str = "weak",
 ) -> dict[str, Any]:
-    lines = _visible_lines(fixture.get("snapshot", {}))
+    lines = _visible_lines(snapshot_record.get("snapshot", {}))
     text = "\n".join(lines)
     segments = _segments(lines)
     layovers = _layovers(lines)
@@ -48,7 +48,10 @@ def extract_selected_itinerary(
         },
         "cabin_facilities": _cabin_facilities(lines),
         "booking_options": booking_options,
-        "baggage_policy_links": _baggage_policy_links(lines, fixture.get("decoded_links")),
+        "baggage_policy_links": _baggage_policy_links(
+            lines,
+            snapshot_record.get("decoded_links"),
+        ),
         "terminal_info": _terminal_info(text),
         "boundary": _boundary(booking_options),
         "source_surface": source_surface,

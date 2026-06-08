@@ -1113,7 +1113,7 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
     assert exit_code == 0
     assert isinstance(payload, list)
     assert [item["query_id"] for item in payload] == [
-        "del-cph-senior-oct-nov",
+        "del-cph-window-oct-nov",
         "cph-lko-oneway-jun",
     ]
     assert len(adapter.calls) == 19
@@ -1159,7 +1159,7 @@ def test_live_search_real_adapter_batch_uses_bounded_concurrency(tmp_path: Path)
     assert exit_code == 0
     assert isinstance(payload, list)
     assert [item["query_id"] for item in payload] == [
-        "del-cph-senior-oct-nov",
+        "del-cph-window-oct-nov",
         "cph-lko-oneway-jun",
     ]
     assert max_active > 1

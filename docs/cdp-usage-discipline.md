@@ -61,8 +61,8 @@ Google Flights result pages must use a composite settle policy before DOM/text
 extraction: terminal page content first, then the minimum live dwell and network
 steadiness metadata. Do not treat `DOMContentLoaded`, `load`, body stability,
 network idle, or footer currency text as sufficient result readiness by itself.
-Source-backed rationale must be captured in checked-in docs or fixtures before
-it is cited by repo docs, source, tests, or fixture metadata.
+Source-backed rationale must be captured in checked-in docs or repository TDD
+assets before it is cited by repo docs, source, tests, or TDD asset metadata.
 
 This policy matches current browser-automation guidance: Playwright documents
 `networkidle` as discouraged for readiness and points users toward web
@@ -83,7 +83,7 @@ References:
 Do not treat a random existing Google Flights tab as semantic state for a new
 search. Existing tabs may be inspected for cleanup and budget health, but route,
 date, passenger, cabin, and result semantics must come from the current intent,
-cache, fixtures, or captured evidence.
+cache, repository TDD assets, or captured evidence.
 
 ## Managed Tab Memory
 
@@ -100,7 +100,7 @@ task-local artifacts under the app-state `runs/<run-id>/` directory:
 - any cleanup warning
 
 Target ids and raw browser artifacts are local evidence. Do not publish them as
-checked-in fixtures.
+checked-in TDD assets.
 
 ## Close Policy
 

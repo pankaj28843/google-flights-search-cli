@@ -30,14 +30,13 @@ runs may override that location with `GFLIGHTS_SEARCH_HOME` or by passing
 - `config.json`
 - `cache/cache.sqlite`
 - `artifacts/`
-- `fixtures/`
 - `runs/`
 
 `config.json` sets `live_google_flights_by_default: true`,
 `google_flights_live_env: "1"`, and `cache_max_age_seconds: 21600`. The SQLite
 cache stores flight-price observations so a route/date/currency combination can
 reuse only data that is at most six hours old. Commands that write files should
-return artifact, fixture, cache, database, or run paths in JSON.
+return artifact, cache, database, or run paths in JSON.
 Users may set `cache_max_age_seconds` in `config.json` or
 `GFLIGHTS_CACHE_MAX_AGE_SECONDS` in the environment to use a different freshness
 window for the current run.
@@ -58,7 +57,7 @@ window for the current run.
     "confidence": "strong",
     "evidence": {
       "source_surfaces": ["route-autocomplete-visible-text", "protobuf-decode-report"],
-      "artifacts": ["route_autocomplete_choices_fixture.json", "decode-report.md"]
+      "artifacts": ["route-autocomplete-evidence.json", "decode-report.md"]
     }
   }
 }
@@ -77,9 +76,9 @@ City choices may carry a reviewed decoded Google Flights city id only when that
 id comes from a separate decode/protobuf evidence surface; otherwise the choice
 remains usable for form interaction but not for direct query-state encoding.
 
-## Live Evidence Command
+## Live Search Evidence
 
-Live evidence capture:
+Live search evidence capture:
 
 ```bash
 gflights search --input-json <intent.json> --browser-mode headless --json
@@ -108,10 +107,10 @@ writes a state-local `runs/<run-id>/` evidence bundle, records
 - `blocked` with exit code `4` and headed fallback guidance when a browser stop
   state appears.
 
-`search` uses live cdp by default when `--offline-fixtures` is absent.
+`search` uses live cdp by default.
 For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
 search first opens the Google Flights results surface
-`/travel/flights/search` with fixture-backed `tfs` and, when needed, short sort
+`/travel/flights/search` with evidence-backed `tfs` and, when needed, short sort
 `tfu` query state. The output includes
 `query_population.status = "encoded"`, confidence, populated parameter names,
 source surfaces, and evidence references. City/city-like route inputs need a
@@ -119,10 +118,9 @@ source surfaces, and evidence references. City/city-like route inputs need a
 supported encoded surface still open the Google Flights shell and return
 `query_population.status = "unsupported"` with an actionable unsupported field
 such as `departure_window`, `destination`, `cabin`, or `trip_type`.
-`--offline-fixtures` is the explicit deterministic replay path. `--live-cdp`
-remains accepted as a compatibility flag. `--live-form` additionally attempts
-fake-tested, evidence-scoped form interactions before capture; live form mode is
-experimental, and nested itinerary/provider extraction remains deferred.
+`--live-form` additionally attempts fake-tested, evidence-scoped form
+interactions before capture; live form mode is experimental, and nested
+itinerary/provider extraction remains deferred.
 
 Before snapshot extraction, live search waits for a terminal Google Flights page
 condition such as visible fare rows, booking-summary text, no-results text, or a
@@ -139,12 +137,11 @@ payloads, cookies, storage, or full cdp JSON artifacts.
 Route autocomplete resolution:
 
 ```bash
-gflights route resolve --input-text <text> --offline-fixtures <fixture-dir> --json
 gflights route resolve --input-text <text> --browser-mode headless --json
 ```
 
-When a `route_autocomplete_choices` fixture contains a single reviewed match,
-the command exits `0` with:
+When visible route evidence contains a single reviewed match, the command exits
+`0` with:
 
 - `status: "ok"`
 - `input_text`
@@ -167,15 +164,15 @@ resolver finds multiple candidates, the command exits `2` with
 input field (`origin` or `destination`), input text, ambiguity reason, ordered
 choices, and evidence. JSON-array search input preserves item order and reports
 ambiguity per affected item instead of failing the whole batch.
-If route fixtures cannot resolve a `city_or_airport` endpoint at all, `search`
-and `dates scan` exit `3` with `status: "unsupported"` and the route resolver's
-`unsupported` entries. They must not continue with date-pair generation or
-offline search bootstrap behavior for an unproven route.
+If route resolution cannot resolve a `city_or_airport` endpoint at all,
+`search` and `dates scan` exit `3` with `status: "unsupported"` and the route
+resolver's `unsupported` entries. They must not continue with date-pair
+generation for an unproven route.
 
-When `--offline-fixtures` is omitted, route resolution opens the live Google
-Flights shell through cdp, fills the route autocomplete field, writes
-task-scoped route evidence under the state root, and stops on browser safety
-boundaries. When it owns a page target, its run bundle includes
+Route resolution opens the live Google Flights shell through cdp, fills the
+route autocomplete field, writes task-scoped route evidence under the state
+root, and stops on browser safety boundaries. When it owns a page target, its
+run bundle includes
 `managed-tab-close.json`. Live route run ids include subsecond time plus a
 random suffix so rapid route resolves do not share artifact directories.
 The command waits past `about:blank` before filling route controls. Transient
@@ -185,8 +182,8 @@ label and then falls back to bounded alternate label attempts before returning a
 structured `tool_error`.
 
 If visible autocomplete evidence contains parser-backed choices, the command
-returns the same `ok` or `ambiguous` shape as offline route resolution. Airport
-rows may set `code_or_id` from a visible IATA code. City rows keep
+returns the same `ok` or `ambiguous` shape as route resolution service tests.
+Airport rows may set `code_or_id` from a visible IATA code. City rows keep
 `code_or_id: null` unless a separate reviewed decode surface supplies a stable
 ID.
 
@@ -233,45 +230,32 @@ artifacts are written under the app-state
 `artifacts/date-scan-live-probes/` directory with concrete date keys to avoid
 collisions.
 
-`--offline-fixtures` remains the deterministic bootstrap/replay path for the
-older e2e contract. Default validation does not probe live Google Flights from
-`dates scan`.
+Default validation does not probe live Google Flights from `dates scan`.
 
-When `dates scan` receives route fixtures and a route endpoint is ambiguous
-without a selected route choice, it returns exit `2`, `status: "ambiguous"`,
-and `route_ambiguities` before generating ranked pairs. This keeps date
+When `dates scan` receives a route endpoint that is ambiguous without a
+selected route choice, it returns exit `2`, `status: "ambiguous"`, and
+`route_ambiguities` before generating ranked pairs. This keeps date
 recommendations from being built on unresolved Google Flights route semantics.
-When route fixtures cannot resolve a route endpoint, `dates scan` returns exit
+When route resolution cannot resolve an endpoint, `dates scan` returns exit
 `3`, `status: "unsupported"`, `generated_pairs: 0`, and the resolver's
 `unsupported` entries.
 
-When `ranking_policy` is `comfort_aware_v1`, each ranked pair has a
+When `ranking_policy` is `price_duration_v1`, each ranked pair has a
 `scoring_explanation` with `score`, `google_flights_filters_applied: false`,
-and component entries for price, duration, stops, preferred-airline status,
-senior-comfort weight, and emissions when visible. The same explanation also
-contains `airline_preference` with `preferred_airlines`, `status`,
-`matched_carriers`, `matched_carrier_count`, `visible_carriers`,
-`local_ranking_preference_applied`, and
-`google_flights_filters_applied: false` until a future Google Flights airline
-filter implementation is proven.
+and component entries for price, duration, stops, and emissions when visible.
+This is local post-result ranking over visible or cached observations; it must
+not claim that Google Flights filters were applied.
 
 The optional analysis adapter can flatten `dates scan` output into table rows.
 If pandas is unavailable, it returns `status: "unavailable"` with an install
 hint instead of importing pandas from the pure domain core or failing default
 validation.
 
-## Selected Itinerary Replay
+## Selected Itinerary Details
 
-Deterministic replay:
-
-```bash
-gflights evidence replay <selected_itinerary_visible_text_fixture.json> --json
-```
-
-For `fixture_type: "selected_itinerary_visible_text"`, replay returns
-`status: "ok"` and an `itinerary` object when the redacted visible-text fixture
-contains parseable selected-itinerary details. The current replay contract may
-include:
+`gflights itinerary inspect --booking-url <url> --json` returns `status: "ok"`
+and an `itinerary` object when visible selected-itinerary details are parseable.
+The current detail contract may include:
 
 - `summary` with route, trip type, cabin, passenger count, and total price
 - `segments` with direction, airport codes, airline, flight number, aircraft,
@@ -284,13 +268,10 @@ include:
 - `booking_options` with provider names, visible prices, and `Continue` as a
   booking-boundary control
 - `baggage_policy_links` only when a visible policy link is safely decoded to
-  an absolute URL in the redacted fixture metadata
+  an absolute URL
 - `terminal_info.status = "not_found"` when terminal text is absent
 - `boundary` flags proving provider checkout, payment, login, and personal-data
   flows were not entered
-
-Replay fixtures must not include raw browser URLs, raw network payloads, raw
-storage payloads, cookies, target IDs, or unredacted cdp artifacts.
 
 ## Task-Specific Report Reducers
 
@@ -358,7 +339,7 @@ Allowed command status values:
 - `blocked`
 - `no_results`
 - `experimental`
-- `stale_fixture`
+- `stale_evidence`
 - `tool_error`
 
 Unsupported, deferred, ambiguous, blocked, stale, and experimental behavior must
@@ -377,11 +358,11 @@ Allowed confidence values:
 
 Current Google Flights query/protobuf behavior must not emit `proven`.
 
-`gflights codec decode --fixture <fixture.json> --json` returns the
-fixture-backed hypothesis paths plus a `codec` object with generic observed wire
-paths, decoded byte length, string anchors, and URL-safe-base64 round-trip
-status. The generic decoder may validate `tfs`/`tfu` wire structure, but it must
-not promote semantic field names by itself.
+`gflights codec decode --key <tfs|tfu> --value <raw-value> --json` returns a
+`codec` object with generic observed wire paths, decoded byte length, string
+anchors, and URL-safe-base64 round-trip status. The generic decoder may validate
+`tfs`/`tfu` wire structure, but it must not promote semantic field names by
+itself.
 
 ## Exit Codes
 
@@ -392,7 +373,7 @@ Stable exit-code classes:
 - `3`: unsupported or deferred capability requested
 - `4`: browser blocked, login required, unusual traffic, human required, or
   safety boundary reached
-- `5`: stale fixture, stale codec hypothesis, or evidence mismatch
+- `5`: stale evidence, stale codec hypothesis, or evidence mismatch
 - `6`: toolchain or project configuration failure
 
 ## Stop States

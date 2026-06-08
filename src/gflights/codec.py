@@ -1,7 +1,8 @@
 """Generic helpers for Google Flights protobuf-like URL evidence.
 
 The codec intentionally emits numeric wire paths only. Human field names stay
-in fixture ledgers until controlled evidence is strong enough to promote them.
+in reviewed evidence ledgers until controlled evidence is strong enough to
+promote them.
 """
 
 from __future__ import annotations

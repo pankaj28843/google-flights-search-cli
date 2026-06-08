@@ -55,7 +55,6 @@ def test_help_lists_atomic_command_families() -> None:
         "dates",
         "search",
         "itinerary",
-        "evidence",
         "codec",
         "doctor",
     ]:
@@ -73,7 +72,6 @@ def test_root_help_is_self_explanatory_without_repo_docs() -> None:
         "Workflow:",
         "Agent contract:",
         "Environment:",
-        "--offline-fixtures",
         "~/.gflights",
         "Examples:",
         "gflights search --input-json intents.json --json",
@@ -83,6 +81,45 @@ def test_root_help_is_self_explanatory_without_repo_docs() -> None:
         'Use "gflights <command> --help"',
     ]:
         assert expected in help_text
+
+
+def test_installed_help_does_not_expose_tdd_fixture_workflows() -> None:
+    help_commands = [
+        ("--help",),
+        ("search", "--help"),
+        ("route", "resolve", "--help"),
+        ("dates", "scan", "--help"),
+        ("project", "init", "--help"),
+        ("codec", "decode", "--help"),
+    ]
+    forbidden = [
+        "--offline-fixtures",
+        "offline fixture",
+        "offline-fixture",
+        "fixture",
+        "fixture replay",
+        "fixtures/",
+        "gflights evidence replay",
+        "--fixture",
+    ]
+
+    for args in help_commands:
+        result = run_cli(*args)
+        assert result.returncode == 0, f"{args}: {result.stderr}"
+        help_text = f"{result.stdout}\n{result.stderr}".casefold()
+        for phrase in forbidden:
+            assert phrase not in help_text, f"{args}: leaked {phrase!r}\n{help_text}"
+
+
+def test_installed_package_sources_do_not_ship_tdd_fixture_workflows() -> None:
+    package_root = ROOT / "src" / "gflights"
+    leaked = [
+        path.relative_to(ROOT)
+        for path in sorted(package_root.rglob("*.py"))
+        if "fixture" in path.read_text().casefold()
+    ]
+
+    assert leaked == []
 
 
 def test_every_command_help_has_examples_and_documented_options() -> None:
@@ -96,7 +133,6 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "gflights itinerary select",
             "gflights itinerary inspect",
         ],
-        ("evidence", "--help"): ["Examples:", "gflights evidence replay"],
         ("codec", "--help"): ["Examples:", "gflights codec decode"],
         ("schema", "--help"): [
             "Examples:",
@@ -110,7 +146,6 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "Examples:",
             "--input-json",
             "JSON array",
-            "--offline-fixtures",
             "live Google Flights",
             "--browser-mode",
             "headless",
@@ -124,8 +159,6 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "Examples:",
             "--input-text",
             "Airport code",
-            "--offline-fixtures",
-            "route_autocomplete_choices",
             "--browser-mode",
             "--project-root",
         ],
@@ -157,8 +190,7 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "--project-root",
             "booking-summary",
         ],
-        ("evidence", "replay", "--help"): ["Examples:", "FIXTURE", "Redacted fixture"],
-        ("codec", "decode", "--help"): ["Examples:", "--fixture", "wire-path"],
+        ("codec", "decode", "--help"): ["Examples:", "--key", "--value", "wire paths"],
     }
 
     for args, expected_items in expectations.items():
@@ -186,7 +218,6 @@ def test_route_resolve_help_exposes_agent_options() -> None:
     assert result.returncode == 0, result.stderr
     help_text = f"{result.stdout}\n{result.stderr}"
     assert "--input-text" in help_text
-    assert "--offline-fixtures" in help_text
     assert "--browser-mode" in help_text
     assert "--project-root" in help_text
 
@@ -212,6 +243,12 @@ def test_schema_search_intent_json_contract() -> None:
         "sort",
     ]:
         assert property_name in schema["properties"]
+    for tdd_only_or_removed_name in [
+        "traveler_profiles",
+        "airline_preferences",
+        "consider_all_airlines",
+    ]:
+        assert tdd_only_or_removed_name not in schema["properties"]
     route_endpoint = schema["$defs"]["RouteEndpoint"]
     route_choice = schema["$defs"]["RouteChoice"]
     assert "selected" in route_endpoint["properties"]
@@ -236,11 +273,11 @@ def test_project_init_creates_project_local_state(tmp_path: Path) -> None:
     assert (tmp_path / "cache").is_dir()
     assert (tmp_path / "cache" / "cache.sqlite").is_file()
     assert (tmp_path / "artifacts").is_dir()
-    assert (tmp_path / "fixtures").is_dir()
+    assert not (tmp_path / "fixtures").exists()
     assert (tmp_path / "runs").is_dir()
     assert payload["cache_root"] == str(tmp_path / "cache")
     assert payload["database_path"] == str(tmp_path / "cache" / "cache.sqlite")
-    assert payload["fixture_root"] == str(tmp_path / "fixtures")
+    assert "fixture_root" not in payload
     assert payload["run_root"] == str(tmp_path / "runs")
 
 
@@ -254,69 +291,6 @@ def test_intent_parse_accepts_json_array_and_preserves_order() -> None:
     assert isinstance(payload, list)
     assert [item["query_id"] for item in payload] == expected_query_ids
     assert all(item["status"] == "ok" for item in payload)
-
-
-def test_dates_scan_offline_fixtures_returns_json_array_with_explanations() -> None:
-    result = run_cli(
-        "dates",
-        "scan",
-        "--input-json",
-        str(INTENTS),
-        "--offline-fixtures",
-        str(FIXTURES),
-        "--json",
-    )
-
-    assert result.returncode == 0, result.stderr
-    payload = assert_json_stdout(result)
-    assert isinstance(payload, list)
-    assert [item["query_id"] for item in payload] == [
-        "del-cph-senior-oct-nov",
-        "cph-lko-oneway-jun",
-    ]
-    for item in payload:
-        assert item["status"] == "ok"
-        assert item["generated_pairs"] >= 1
-        assert item["ranked_pairs"]
-        assert "scoring_explanation" in item["ranked_pairs"][0]
-        assert item["evidence"]["source_surfaces"]
-
-
-def test_dates_scan_exits_unsupported_for_unresolved_route_text(tmp_path: Path) -> None:
-    intent_path = tmp_path / "unknown-route-intent.json"
-    intent_path.write_text(
-        json.dumps(
-            {
-                "query_id": "cph-unknown-route",
-                "origin": {"text": "CPH", "kind": "airport_code"},
-                "destination": {"text": "Atlantis", "kind": "city_or_airport"},
-                "trip_type": "one_way",
-                "departure_window": {"start": "2026-06-15", "end": "2026-06-15"},
-                "return_window": None,
-                "passengers": {"adults": 1},
-                "cabin": "economy",
-                "currency": "EUR",
-                "language": "en",
-                "sort": "price",
-            }
-        )
-    )
-
-    result = run_cli(
-        "dates",
-        "scan",
-        "--input-json",
-        str(intent_path),
-        "--offline-fixtures",
-        str(FIXTURES),
-        "--json",
-    )
-
-    assert result.returncode == 3, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload[0]["status"] == "unsupported"
-    assert payload[0]["generated_pairs"] == 0
-    assert payload[0]["unsupported"][0]["field"] == "route.resolve.input_text"
 
 
 def test_dates_scan_project_root_uses_fresh_cache_without_live_browser(tmp_path: Path) -> None:
@@ -375,115 +349,6 @@ def test_dates_scan_project_root_uses_fresh_cache_without_live_browser(tmp_path:
     assert payload[0]["ranked_pairs"][0]["evidence"]["source_surfaces"] == ["sqlite-cache"]
 
 
-def test_evidence_replay_parses_saved_fixture_offline() -> None:
-    result = run_cli("evidence", "replay", str(FIXTURES / "offline_results_fixture.json"), "--json")
-
-    assert result.returncode == 0, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload["status"] == "ok"
-    assert payload["confidence"] == "strong"
-    assert payload["evidence"]["run_id"] == "gf-20260607-073838-04-result-controls-cheap-dates"
-    assert payload["results"][0]["source_surface"] == "primary-results-dom"
-    assert payload["results"][0]["carriers"] == ["KLM", "IndiGo"]
-
-
-def test_evidence_replay_extracts_visible_text_primary_results() -> None:
-    result = run_cli(
-        "evidence",
-        "replay",
-        str(FIXTURES / "primary_results_visible_text_fixture.json"),
-        "--json",
-    )
-
-    assert result.returncode == 0, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload["status"] == "ok"
-    assert payload["confidence"] == "strong"
-    assert payload["results"][0]["source_surface"] == "primary-results-visible-text"
-    assert payload["results"][0]["carriers"] == ["KLM", "IndiGo"]
-    assert payload["results"][0]["price"] == {"amount": 3206, "currency": "EUR", "text": "€3,206"}
-
-
-def test_evidence_replay_extracts_selected_itinerary_details() -> None:
-    result = run_cli(
-        "evidence",
-        "replay",
-        str(FIXTURES / "selected_itinerary_visible_text_fixture.json"),
-        "--json",
-    )
-
-    assert result.returncode == 0, result.stderr
-    payload = assert_json_stdout(result)
-    itinerary = payload["itinerary"]
-    assert payload["status"] == "ok"
-    assert itinerary["segments"][0]["flight_number"] == "KL 1268"
-    assert itinerary["segments"][3]["flight_number"] == "6E 6480"
-    assert itinerary["baggage"]["included"] == ["1 free carry-on", "1st checked bag free"]
-    assert itinerary["booking_options"][0]["provider"] == "KLM"
-    assert itinerary["booking_options"][1]["price"] == {
-        "amount": 1756,
-        "currency": "EUR",
-        "text": "EUR 1,756",
-    }
-    assert itinerary["terminal_info"]["status"] == "not_found"
-    assert itinerary["boundary"]["provider_continue_clicked"] is False
-    assert itinerary["boundary"]["checkout_entered"] is False
-    assert itinerary["baggage_policy_links"][0]["url"].startswith("https://www.klm.co.uk/")
-
-
-def test_route_resolve_offline_fixture_returns_ambiguous_candidates() -> None:
-    result = run_cli(
-        "route",
-        "resolve",
-        "--input-text",
-        "Washington DC",
-        "--offline-fixtures",
-        str(FIXTURES),
-        "--json",
-    )
-
-    assert result.returncode == 2, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload["status"] == "ambiguous"
-    assert payload["selected"] is None
-    assert payload["ambiguity_reason"] == "multi_airport_city_autocomplete"
-    assert [choice["code_or_id"] for choice in payload["choices"]] == [
-        "/m/0rh6k",
-        "DCA",
-        "IAD",
-        "BWI",
-    ]
-    assert payload["evidence"]["source_surfaces"] == ["route-autocomplete-visible-text"]
-
-
-def test_evidence_replay_extracts_route_autocomplete_visible_text_fixture() -> None:
-    result = run_cli(
-        "evidence",
-        "replay",
-        str(FIXTURES / "route_autocomplete_visible_text_fixture.json"),
-        "--json",
-    )
-
-    assert result.returncode == 2, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload["status"] == "ambiguous"
-    assert [item["input_text"] for item in payload["queries"]] == [
-        "Washington DC",
-        "Lucknow",
-        "Copenhagen",
-        "Delhi",
-    ]
-    washington = payload["queries"][0]
-    assert [choice["code_or_id"] for choice in washington["choices"]] == [
-        None,
-        "DCA",
-        "IAD",
-        "BWI",
-    ]
-    assert washington["selected"] is None
-    assert washington["ambiguity_reason"] == "multiple_route_choices"
-
-
 def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) -> None:
     result = run_cli(
         "doctor",
@@ -502,76 +367,32 @@ def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) 
     assert payload["app_state"]["database_path"] == str(
         tmp_path / "app-state" / "cache" / "cache.sqlite"
     )
+    assert "fixture_root" not in payload["app_state"]
     assert payload["app_state"]["cache_max_age_seconds"] == 6 * 60 * 60
 
 
-def test_blocked_headless_fixture_recommends_headed_fallback() -> None:
+def test_codec_decode_reports_generic_wire_paths_from_raw_value() -> None:
     result = run_cli(
-        "evidence", "replay", str(FIXTURES / "blocked_headless_fixture.json"), "--json"
-    )
-
-    assert result.returncode == 4, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload["status"] == "blocked"
-    assert payload["browser_mode"] == "headless"
-    assert payload["fallback"]["recommended_browser_mode"] == "headed"
-    assert payload["evidence"]["fixture_id"] == "headless-blocked-policy-20260607"
-
-
-def test_codec_decode_reports_wire_paths_and_confidence_from_fixture() -> None:
-    result = run_cli(
-        "codec", "decode", "--fixture", str(FIXTURES / "codec_tfu_price_fixture.json"), "--json"
+        "codec",
+        "decode",
+        "--key",
+        "tfu",
+        "--value",
+        "EgYIAhAAGAA",
+        "--json",
     )
 
     assert result.returncode == 0, result.stderr
     payload = assert_json_stdout(result)
     assert payload["status"] == "ok"
     assert payload["key"] == "tfu"
-    assert payload["confidence"] == "strong"
+    assert payload["confidence"] == "weak"
     assert payload["confidence"] != "proven"
-    assert {"path": "tfu.2.1", "value": 2, "hypothesis": "price sort"} in payload["wire_paths"]
+    assert {"path": "tfu.2.1", "wire_type": "varint", "value": 2} in payload["wire_paths"]
     assert payload["codec"]["round_trip_ok"] is True
     assert {"path": "tfu.2.1", "wire_type": "varint", "value": 2} in payload["codec"][
         "observed_wire_paths"
     ]
-
-
-def test_deferred_live_google_filter_exits_unsupported() -> None:
-    result = run_cli(
-        "search",
-        "--input-json",
-        str(FIXTURES / "unsupported_live_filter_intent.json"),
-        "--offline-fixtures",
-        str(FIXTURES),
-        "--json",
-    )
-
-    assert result.returncode == 3, result.stderr
-    payload = assert_json_stdout(result)
-    assert payload["status"] in {"unsupported", "deferred"}
-    assert any(
-        item["field"] == "google_filters.maximum_layover_minutes" for item in payload["unsupported"]
-    )
-
-
-def test_search_offline_accepts_json_array_and_preserves_order() -> None:
-    result = run_cli(
-        "search",
-        "--input-json",
-        str(INTENTS),
-        "--offline-fixtures",
-        str(FIXTURES),
-        "--json",
-    )
-
-    assert result.returncode == 0, result.stderr
-    payload = assert_json_stdout(result)
-    assert isinstance(payload, list)
-    assert [item["query_id"] for item in payload] == [
-        "del-cph-senior-oct-nov",
-        "cph-lko-oneway-jun",
-    ]
-    assert all(item["status"] == "ok" for item in payload)
 
 
 def test_make_install_editable_exposes_agent_entrypoint(tmp_path: Path) -> None:
