@@ -25,7 +25,9 @@ for path in "${required_files[@]}"; do
   fi
 done
 
-selector_scan=/tmp/gflights-selector-scan.txt
+selector_scan=$(mktemp)
+hygiene_scan=$(mktemp)
+trap 'rm -f "$selector_scan" "$hygiene_scan"' EXIT
 : > "$selector_scan"
 grep -RInF "querySelector(" docs README.md AGENTS.md >> "$selector_scan" || true
 grep -RInF "nth-child" docs README.md AGENTS.md >> "$selector_scan" || true
@@ -33,6 +35,15 @@ grep -RInE '(\\.[A-Za-z0-9_-]{12,}|#[A-Za-z0-9_-]{12,}|\\[[A-Za-z-]+=[^]]+\\])' 
 if [[ -s "$selector_scan" ]]; then
   echo "durable docs contain selector-like authoritative language:" >&2
   cat "$selector_scan" >&2
+  exit 1
+fi
+
+: > "$hygiene_scan"
+grep -RInE 'research/runs/|handoffs/|capsule:|plan-capsules/|~/Personal/Code/|/Personal/Code/|paternity-leave-research|mummy-copenhagen-2026-trip' \
+  AGENTS.md README.md docs src tests fixtures >> "$hygiene_scan" || true
+if [[ -s "$hygiene_scan" ]]; then
+  echo "checked-in files cite non-repo capsule, handoff, temp, or personal-path artifacts:" >&2
+  cat "$hygiene_scan" >&2
   exit 1
 fi
 

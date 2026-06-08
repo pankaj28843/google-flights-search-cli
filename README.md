@@ -81,25 +81,6 @@ live cdp evidence capture when fixtures are absent and returns either parsed
 visible autocomplete choices, explicit live extraction deferral, or a structured
 browser stop state.
 
-India trip usefulness gate:
-
-```bash
-gflights trip india --json
-gflights trip india --execute-live --search-concurrency 3 --date-scan-max-probes 1 --json
-make live-india-trip-plan
-```
-
-`gflights trip india` writes the canonical CPH-Delhi DKK family-trip inputs and
-reduces saved outputs into summary JSON plus `flight-options-cph-delhi-dkk.md`
-under `~/Personal/Code/paternity-leave-research/india-trip-plan/`. It opens
-Google Flights only with `--execute-live`, records CDP preflight/postrun
-evidence, and reports `useful` only when ranked options have prices and
-evidence. The report states whether ranking came from date scan or from parsed
-concrete live-search rows. A zero-row experimental run is reported as
-`not_useful` or as a precise blocked or inconclusive state. During live
-execution, `--search-concurrency` bounds the 100 concrete live-search probes and
-`--date-scan-max-probes` bounds extra date-window probing.
-
 Date-window scans are cache-first. They rank fresh SQLite price observations by
 default and open Google Flights for missing date pairs only when explicitly
 bounded:
@@ -116,7 +97,7 @@ booking-summary URL, then repeat the same settle/query cycle. They stop before
 login, unusual-traffic bypass, provider checkout, payment, booking, or personal
 data.
 
-Use `gflights itinerary select --search-url <url> --preferred-carrier "Air India"
+Use `gflights itinerary select --search-url <url> --preferred-carrier "<carrier>"
 --require-nonstop --json` when an agent needs to turn a Google Flights search
 URL into a Google booking-summary URL before running `gflights itinerary
 inspect`.
@@ -155,10 +136,9 @@ scripts/
 ```
 
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
-`project`, `route`, `dates`, `evidence`, `codec`, `trip`, `doctor`,
+`project`, `route`, `dates`, `evidence`, `codec`, `doctor`,
 unsupported/deferred/ambiguous exit codes, isolated editable `uv tool install
 --editable --link-mode symlink .` smoke behavior, domain/service invariants,
 generic `tfs`/`tfu` wire decode round trips, fake live form interaction
-planning, the India-trip usefulness reducer, and cdp adapter command
-construction and stop-state handling. Live tests cover local cdp smoke and
-Google Flights evidence capture.
+planning, and cdp adapter command construction and stop-state handling. Live
+tests cover local cdp smoke and Google Flights evidence capture.

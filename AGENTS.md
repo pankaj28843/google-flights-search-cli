@@ -38,6 +38,28 @@ Run:
 make validate
 ```
 
+## Repo Hygiene
+
+- Checked-in docs, source, tests, fixtures, and agent instructions must not cite
+  capsule scratch files, temporary research runs, personal home-directory
+  projects, or any other artifact that is not checked into this repository as
+  durable evidence. If outside evidence informs a behavior contract, summarize
+  it in a checked-in doc or fixture first, then cite that repo-relative file.
+- Before committing cleanup or documentation changes, run `make validate`; the
+  harness includes a stale-reference scan for non-repo capsule, handoff, and
+  personal-path citations.
+
+## Forward-Only Maintenance
+
+- This is a small, fast-moving, agent-facing CLI. Do not preserve backward
+  compatibility or legacy behavior unless a checked-in contract explicitly says
+  it is still supported. When Google Flights behavior changes, update the
+  relevant docs, fixtures, contracts, and implementation for the current
+  behavior in the same bug-fix pass.
+- Prefer deleting obsolete code, stale fixtures, dead options, and legacy docs
+  over adding compatibility layers. It is acceptable to remove code as part of a
+  fix when the remaining behavior is evidence-backed and validation stays green.
+
 ## Live Google Flights Changes
 
 - When changing live Google Flights orchestration, settlement, or batch

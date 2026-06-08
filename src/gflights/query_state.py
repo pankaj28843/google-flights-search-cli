@@ -51,8 +51,8 @@ _SORT_VALUES = {
 }
 _EVIDENCE_REFS = [
     "docs/query-state-maintenance.md",
-    "research/query-parameter-ledger.md",
-    "research/runs/gf-20260607-113947-slice02-populated-trip-cabin/decode-summary.md",
+    "docs/fixture-contract.md",
+    "tests/e2e/fixtures/codec_tfu_price_fixture.json",
 ]
 
 

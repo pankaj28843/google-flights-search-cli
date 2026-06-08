@@ -5,11 +5,8 @@
   "capture_date": "2026-06-07",
   "source_surface": "route-autocomplete-visible-text",
   "source_artifacts": [
-    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/origin-copenhagen-autocomplete-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/destination-delhi-autocomplete-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/notes.md"
+    "tests/e2e/fixtures/route_autocomplete_visible_text_fixture.json",
+    "docs/fixture-contract.md"
   ],
   "scenario": "Redacted route autocomplete visible-text snapshots for common and ambiguous route inputs.",
   "confidence": "weak",
@@ -43,7 +40,12 @@
           "Dulles International Airport",
           "Baltimore/Washington International Thurgood Marshall Airport"
         ],
-        "candidate_code_or_ids": [null, "DCA", "IAD", "BWI"]
+        "candidate_code_or_ids": [
+          null,
+          "DCA",
+          "IAD",
+          "BWI"
+        ]
       }
     },
     {
@@ -66,7 +68,13 @@
           "Lucknow, Australia",
           "Lucknow, Australia"
         ],
-        "candidate_code_or_ids": [null, "LKO", null, null, null]
+        "candidate_code_or_ids": [
+          null,
+          "LKO",
+          null,
+          null,
+          null
+        ]
       }
     },
     {
@@ -88,7 +96,12 @@
           "Copenhagen Central Station",
           "Copenhagen, New York, USA"
         ],
-        "candidate_code_or_ids": [null, "CPH", null, null]
+        "candidate_code_or_ids": [
+          null,
+          "CPH",
+          null,
+          null
+        ]
       }
     },
     {
@@ -112,7 +125,14 @@
           "North East Delhi, India",
           "Delhi, New York, USA"
         ],
-        "candidate_code_or_ids": [null, "DEL", null, null, null, null]
+        "candidate_code_or_ids": [
+          null,
+          "DEL",
+          null,
+          null,
+          null,
+          null
+        ]
       }
     }
   ]

@@ -61,8 +61,24 @@ Google Flights result pages must use a composite settle policy before DOM/text
 extraction: terminal page content first, then the minimum live dwell and network
 steadiness metadata. Do not treat `DOMContentLoaded`, `load`, body stability,
 network idle, or footer currency text as sufficient result readiness by itself.
-Source-backed rationale is recorded in capsule
-`research/runs/gf-20260608-page-settlement-patterns/settlement-patterns.md`.
+Source-backed rationale must be captured in checked-in docs or fixtures before
+it is cited by repo docs, source, tests, or fixture metadata.
+
+This policy matches current browser-automation guidance: Playwright documents
+`networkidle` as discouraged for readiness and points users toward web
+assertions; Selenium documents that browser `readyState` can return before
+JavaScript-driven UI is ready and recommends explicit waits for concrete
+application conditions; Puppeteer exposes network-idle waits as network
+quiescence telemetry with configurable idle time/concurrency. For this CLI,
+visible Google Flights rows, no-results text, booking-summary text, or browser
+stop-state text are the semantic condition. Body stability and network
+steadiness only corroborate that late rendering has quieted down.
+
+References:
+
+- https://playwright.dev/docs/api/class-frame
+- https://www.selenium.dev/documentation/webdriver/waits/
+- https://pptr.dev/api/puppeteer.page.waitfornetworkidle
 
 Do not treat a random existing Google Flights tab as semantic state for a new
 search. Existing tabs may be inspected for cleanup and budget health, but route,

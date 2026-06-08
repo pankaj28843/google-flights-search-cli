@@ -6,10 +6,8 @@
   "captured_at": "2026-06-07T07:38:38+02:00",
   "source_surface": "selected-itinerary-visible-text",
   "source_artifacts": [
-    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/after-return-select-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/after-outbound-details-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/after-return-details-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/05-itinerary-detail-booking/notes.md"
+    "tests/e2e/fixtures/selected_itinerary_visible_text_fixture.json",
+    "docs/fixture-contract.md"
   ],
   "scenario": {
     "origin": "Copenhagen CPH",

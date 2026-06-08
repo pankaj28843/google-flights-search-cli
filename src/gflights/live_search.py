@@ -1056,9 +1056,7 @@ def _write_settlement_artifact(
         artifact_path,
         {
             "policy": "terminal-dom-then-dwell-then-network-steady-v1",
-            "research": (
-                "capsule:research/runs/gf-20260608-page-settlement-patterns/settlement-patterns.md"
-            ),
+            "policy_reference": "docs/cdp-usage-discipline.md",
             "minimum_dwell_seconds": MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS,
             "dwell_seconds": round(dwell_seconds, 3),
             "dwell_enforced": dwell_enforced,

@@ -12,7 +12,6 @@ import typer
 from gflights import services
 from gflights.browser import BrowserMode
 from gflights.date_scan_live import LiveDatePairProbe
-from gflights.india_trip import DEFAULT_REPORT_ROOT, run_india_trip_workflow
 from gflights.live_itinerary import run_live_itinerary_inspection
 from gflights.live_route import run_live_route_resolution
 from gflights.live_search import run_live_search
@@ -27,7 +26,6 @@ Workflow:
   gflights itinerary select --search-url URL --json   Select visible rows to a booking URL
   gflights dates scan --input-json intents.json --json Rank date combinations
   gflights itinerary inspect --booking-url URL --json Inspect visible itinerary details
-  gflights trip india --json                         Generate/reduce the CPH-DEL India trip gate
 
 Default search:
   gflights search opens live Google Flights through headless cdp unless --offline-fixtures is supplied.
@@ -48,7 +46,6 @@ Examples:
   gflights search --input-json intents.json --offline-fixtures fixtures --json
   gflights route resolve --input-text "Washington DC" --offline-fixtures fixtures --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights --json
-  gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
 
 Exit codes:
   0 ok
@@ -113,7 +110,7 @@ Google booking-summary URL. Both commands stop before provider checkout,
 payment, login, or personal-data entry.
 
 Examples:
-  gflights itinerary select --search-url URL --preferred-carrier "Air India" --json
+  gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --json
   gflights itinerary inspect --booking-url URL --browser-mode headless --json
 """
 
@@ -134,18 +131,6 @@ Examples:
   gflights codec decode --fixture fixtures/codec_tfu_price_fixture.json --json
 """
 
-TRIP_HELP = """Run task-specific trip-planning gates with saved inputs and reports.
-
-The India gate writes the canonical CPH-Delhi family-trip inputs, can run the
-live commands only when --execute-live is supplied, and reduces saved command
-outputs into useful, blocked, not_useful, or inconclusive verdicts.
-
-Examples:
-  gflights trip india --json
-  gflights trip india --execute-live --browser-mode headless --search-concurrency 3 --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
-  gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
-"""
-
 app = typer.Typer(
     help=ROOT_HELP,
     no_args_is_help=True,
@@ -157,7 +142,6 @@ dates_app = typer.Typer(help=DATES_HELP)
 itinerary_app = typer.Typer(help=ITINERARY_HELP)
 evidence_app = typer.Typer(help=EVIDENCE_HELP)
 codec_app = typer.Typer(help=CODEC_HELP)
-trip_app = typer.Typer(help=TRIP_HELP)
 
 app.add_typer(intent_app, name="intent")
 app.add_typer(project_app, name="project")
@@ -166,7 +150,6 @@ app.add_typer(dates_app, name="dates")
 app.add_typer(itinerary_app, name="itinerary")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(codec_app, name="codec")
-app.add_typer(trip_app, name="trip")
 
 
 def emit(payload: Any, exit_code: int = 0) -> None:
@@ -519,9 +502,9 @@ def itinerary_select_command(
         help="Google Flights search URL whose visible outbound and return rows should be selected.",
     ),
     preferred_carrier: str = typer.Option(
-        "Air India",
+        "",
         "--preferred-carrier",
-        help="Visible carrier text to prefer when selecting rows.",
+        help="Optional visible carrier text to prefer when selecting rows.",
     ),
     require_nonstop: bool = typer.Option(
         False,
@@ -554,7 +537,7 @@ def itinerary_select_command(
     enter checkout.
 
     Examples:
-      gflights itinerary select --search-url URL --preferred-carrier "Air India" --require-nonstop --json
+      gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --require-nonstop --json
     """
     del json_output
     exit_code, payload = asyncio.run(
@@ -601,74 +584,6 @@ def codec_decode_command(
     """
     del json_output
     emit(services.decode_codec_fixture(fixture))
-
-
-@trip_app.command("india")
-def trip_india_command(
-    report_root: Path = typer.Option(
-        DEFAULT_REPORT_ROOT,
-        "--report-root",
-        help="Directory for inputs, outputs, CDP evidence, state, summary JSON, and report.",
-    ),
-    project_root: Path | None = typer.Option(
-        None,
-        "--project-root",
-        help="State root for live commands; defaults to <report-root>/state.",
-    ),
-    browser_mode: BrowserMode = typer.Option(
-        "headless",
-        "--browser-mode",
-        help="Browser mode for opt-in live cdp runs.",
-    ),
-    execute_live: bool = typer.Option(
-        False,
-        "--execute-live",
-        help="Opt in to opening Google Flights through cdp; omitted means reduce saved outputs only.",
-    ),
-    date_scan_max_probes: int = typer.Option(
-        1,
-        "--date-scan-max-probes",
-        min=0,
-        help="Maximum date-window cache misses to live-probe during --execute-live.",
-    ),
-    date_scan_probe_timeout_seconds: float = typer.Option(
-        45.0,
-        "--date-scan-probe-timeout-seconds",
-        min=1.0,
-        help="Timeout in seconds for each trip date-scan live probe.",
-    ),
-    search_concurrency: int = typer.Option(
-        3,
-        "--search-concurrency",
-        min=1,
-        max=5,
-        help="Maximum parallel Google Flights tabs for the trip live-search batch.",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
-) -> None:
-    """Generate and judge the CPH-Delhi India trip usefulness gate.
-
-    Without --execute-live, this command writes deterministic inputs and reduces
-    existing outputs under --report-root. With --execute-live, it records CDP
-    preflight/postrun evidence, runs route/search/date commands, and writes a
-    summary JSON plus Markdown report.
-
-    Examples:
-      gflights trip india --json
-      gflights trip india --execute-live --browser-mode headless --json
-      gflights trip india --execute-live --search-concurrency 3 --date-scan-max-probes 1 --date-scan-probe-timeout-seconds 45 --json
-    """
-    del json_output
-    exit_code, payload = run_india_trip_workflow(
-        report_root=report_root,
-        project_root=project_root,
-        browser_mode=browser_mode,
-        execute_live=execute_live,
-        date_scan_max_probes=date_scan_max_probes,
-        date_scan_probe_timeout_seconds=date_scan_probe_timeout_seconds,
-        search_concurrency=search_concurrency,
-    )
-    emit(payload, exit_code)
 
 
 def main() -> None:

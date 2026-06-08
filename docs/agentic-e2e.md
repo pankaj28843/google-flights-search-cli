@@ -18,8 +18,6 @@ Write failing tests for:
 - blocked headless fixture recommends headed fallback
 - `codec decode` reports raw wire paths, round-trip codec metadata, and
   confidence
-- `trip india` writes deterministic task inputs and reduces saved outputs to a
-  useful/blocked/not_useful/inconclusive verdict
 - deterministic exit codes
 - `uv tool install --editable --link-mode symlink .` exposes the CLI entry point
 
@@ -62,11 +60,6 @@ agentic contract for the first implementation. It asserts:
 - blocked headless replay returns exit `4` and headed fallback guidance
 - `codec decode --fixture` reports raw wire paths, verifies fixture hypotheses
   against the generic Python codec, and keeps confidence non-`proven`
-- `trip india` is listed in help, writes the canonical CPH-Delhi DKK India-trip
-  inputs, and has offline reducer coverage proving zero-row experimental output
-  is `not_useful`
-- `trip india` can rank parsed concrete live-search rows as
-  `ranking_source: live_search_results` when date scan has no ranked pairs
 - `search` defaults to live cdp when `--offline-fixtures` is absent, with fake
   adapters used in unit tests so default validation stays offline
 - live `route resolve` reports explicit deferred extraction or structured
@@ -128,19 +121,6 @@ The command path under test is:
 ```bash
 gflights search --input-json <intent.json> --browser-mode headless --json
 ```
-
-Opt-in India trip usefulness gate:
-
-```bash
-make live-india-trip-plan
-```
-
-This target runs `gflights trip india --execute-live --json`. It may open
-Google Flights through cdp, records preflight/postrun browser budget evidence,
-uses bounded live-search/date-probe concurrency, and must not be part of default
-validation. The gate is allowed to fail with `not_useful`, `blocked`, or
-`inconclusive` as long as the saved summary/report explain the actionable
-reason.
 
 ## Test Layers
 

@@ -292,60 +292,27 @@ include:
 Replay fixtures must not include raw browser URLs, raw network payloads, raw
 storage payloads, cookies, target IDs, or unredacted cdp artifacts.
 
-## India Trip Usefulness Gate
+## Task-Specific Report Reducers
 
-Task-specific gate:
+Task-specific reducers are not part of the maintained CLI JSON contract. Agents
+should build reports by composing stable command outputs from `search`, `dates
+scan`, `itinerary select`, and `itinerary inspect`.
 
-```bash
-gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
-gflights trip india --execute-live --browser-mode headless --search-concurrency 3 --date-scan-max-probes 1 --json
-```
-
-The command returns a JSON envelope with:
-
-- `status`: `ok`, `blocked`, `unsupported`, or `tool_error`
-- `verdict`: `useful`, `blocked`, `not_useful`, or `inconclusive`
-- `useful`: boolean shortcut for `verdict == "useful"`
-- `reason`: human-readable but stable enough for reports
-- `report_root`
-- `live_attempted`
-- `artifacts.window_intent`
-- `artifacts.concrete_intents`
-- `artifacts.summary_json`
-- `artifacts.markdown_report`
-- `counts`
-- `ranking_source`: `date_scan`, `live_search_results`, or `none`
-- `airline_preference`
-- `next_actions`
-
-The command writes `inputs/cph-delhi-dkk-window-intent.json`,
-`inputs/cph-delhi-dkk-100-concrete-intents.json`, `analysis/summary.json`, and
-`flight-options-cph-delhi-dkk.md`. With `--execute-live`, it also writes command
-stdout JSON, exit-code files, timing files, cdp preflight/postrun JSON, and
-state-local run artifacts under the report root. During `--execute-live`,
-`--search-concurrency` controls the bounded 100-intent live-search batch,
-`--date-scan-max-probes` controls how many cache-miss date pairs the window scan may live-probe, and
-`--date-scan-probe-timeout-seconds` controls each probe timeout. These bounds
-must be explicit in command output and saved timing/evidence.
-
-`verdict: "useful"` is allowed only when ranked options have visible prices and
-non-empty evidence. Date-scan ranked pairs are preferred; if date scan produces
-no ranked pairs but the 100 concrete live searches parsed priced rows, the
-reducer may rank those live-search rows and report
-`ranking_source: "live_search_results"`. A zero-row `experimental` search with
-closed tabs is `not_useful`, not useful. Air India preference must be visible
-through `airline_preference`, including whether Google Flights filters were
-applied or only local ranking preference was used. The reducer also reports
-result-row and ranked-pair match counts, visible-carrier denominators, and a
-`preference_observation_status` of `matched`, `not_matched`, `not_observable`,
-or `not_requested`.
+External report scripts should preserve the generic command JSON envelopes and
+write their own project-local summary files. A useful report may include
+ranked date pairs, visible prices, source command paths, local airline
+preference counts, and user-supplied travel context. It must include a Google
+Flights search URL for each ranked option when query state can encode one.
+Google Flights booking-summary URLs are evidence-only and must be reported as
+`not captured` unless `gflights itinerary select` actually reached
+`/travel/flights/booking`.
 
 ## Live Itinerary Select And Inspect
 
 Selection from a search URL:
 
 ```bash
-gflights itinerary select --search-url <google-flights-search-url> --preferred-carrier "Air India" --require-nonstop --json
+gflights itinerary select --search-url <google-flights-search-url> --preferred-carrier "<carrier>" --require-nonstop --json
 ```
 
 The command returns `status`, `confidence`, `live_mode`, `browser_mode`,

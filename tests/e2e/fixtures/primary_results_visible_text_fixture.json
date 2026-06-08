@@ -4,7 +4,7 @@
   "run_id": "gf-20260607-113947-slice02-populated-trip-cabin",
   "capture_date": "2026-06-07",
   "source_surface": "primary-results-visible-text",
-  "source_artifact": "research/runs/gf-20260607-113947-slice02-populated-trip-cabin/populated-roundtrip-business-visible-text.json",
+  "source_artifact": "tests/e2e/fixtures/primary_results_visible_text_fixture.json",
   "scenario": "CPH to Lucknow round trip, June 15 to June 22, EUR, business",
   "confidence": "strong",
   "redaction_status": "redacted",
@@ -23,17 +23,40 @@
     "first_result": {
       "source_surface": "primary-results-visible-text",
       "confidence": "strong",
-      "origin_airports": ["CPH"],
-      "destination_airports": ["LKO"],
-      "departure_times": ["11:50 AM"],
-      "arrival_times": ["6:40 AM+1"],
-      "carriers": ["KLM", "IndiGo"],
+      "origin_airports": [
+        "CPH"
+      ],
+      "destination_airports": [
+        "LKO"
+      ],
+      "departure_times": [
+        "11:50 AM"
+      ],
+      "arrival_times": [
+        "6:40 AM+1"
+      ],
+      "carriers": [
+        "KLM",
+        "IndiGo"
+      ],
       "duration_text": "15 hr 20 min",
       "duration_minutes": 920,
-      "stops": {"count": 2, "text": "2 stops"},
-      "layovers": ["AMS", "DEL"],
-      "price": {"amount": 3206, "currency": "EUR", "text": "\u20ac3,206"},
-      "emissions": {"text": "1,538 kg CO2e -17% emissions"}
+      "stops": {
+        "count": 2,
+        "text": "2 stops"
+      },
+      "layovers": [
+        "AMS",
+        "DEL"
+      ],
+      "price": {
+        "amount": 3206,
+        "currency": "EUR",
+        "text": "\u20ac3,206"
+      },
+      "emissions": {
+        "text": "1,538 kg CO2e -17% emissions"
+      }
     }
   }
 }

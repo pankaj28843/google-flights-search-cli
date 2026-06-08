@@ -54,7 +54,7 @@ async def run_live_itinerary_selection(
     browser_mode: BrowserMode = "headless",
     run_id: str | None = None,
     timeout_seconds: float = 45.0,
-    preferred_carrier: str = "Air India",
+    preferred_carrier: str = "",
     require_nonstop: bool = False,
     row_rank: int = 1,
 ) -> tuple[int, dict[str, Any]]:

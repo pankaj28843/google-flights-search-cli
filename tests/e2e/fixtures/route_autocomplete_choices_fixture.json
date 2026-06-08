@@ -5,11 +5,8 @@
   "capture_date": "2026-06-07",
   "source_surface": "route-autocomplete-visible-text",
   "source_artifacts": [
-    "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/route-cph-del-selected-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json",
-    "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/notes.md",
-    "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+    "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+    "docs/fixture-contract.md"
   ],
   "scenario": "Route autocomplete choices for CPH, Delhi, Washington DC, and Lucknow.",
   "confidence": "strong",
@@ -34,12 +31,18 @@
           "display_name": "Copenhagen Airport",
           "code_or_id": "CPH",
           "confidence": "strong",
-          "aliases": ["Copenhagen", "Copenhagen CPH"],
+          "aliases": [
+            "Copenhagen",
+            "Copenhagen CPH"
+          ],
           "evidence": {
-            "source_surfaces": ["route-cph-del-selected-visible-text", "protobuf-decode-report"],
+            "source_surfaces": [
+              "route-cph-del-selected-visible-text",
+              "protobuf-decode-report"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/route-cph-del-selected-visible-text.json",
-              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         }
@@ -56,12 +59,19 @@
           "display_name": "Indira Gandhi International Airport",
           "code_or_id": "DEL",
           "confidence": "strong",
-          "aliases": ["DEL", "New Delhi", "New Delhi DEL"],
+          "aliases": [
+            "DEL",
+            "New Delhi",
+            "New Delhi DEL"
+          ],
           "evidence": {
-            "source_surfaces": ["route-cph-del-selected-visible-text", "protobuf-decode-report"],
+            "source_surfaces": [
+              "route-cph-del-selected-visible-text",
+              "protobuf-decode-report"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/01-cph-del-baseline/route-cph-del-selected-visible-text.json",
-              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         }
@@ -79,12 +89,18 @@
           "display_name": "Washington, USA",
           "code_or_id": "/m/0rh6k",
           "confidence": "strong",
-          "aliases": ["Washington", "Washington DC"],
+          "aliases": [
+            "Washington",
+            "Washington DC"
+          ],
           "evidence": {
-            "source_surfaces": ["washington-autocomplete-visible-text", "protobuf-decode-report"],
+            "source_surfaces": [
+              "washington-autocomplete-visible-text",
+              "protobuf-decode-report"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json",
-              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         },
@@ -94,11 +110,16 @@
           "display_name": "Ronald Reagan Washington National Airport",
           "code_or_id": "DCA",
           "confidence": "strong",
-          "aliases": ["DCA"],
+          "aliases": [
+            "DCA"
+          ],
           "evidence": {
-            "source_surfaces": ["washington-autocomplete-visible-text"],
+            "source_surfaces": [
+              "washington-autocomplete-visible-text"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         },
@@ -108,11 +129,16 @@
           "display_name": "Dulles International Airport",
           "code_or_id": "IAD",
           "confidence": "strong",
-          "aliases": ["IAD"],
+          "aliases": [
+            "IAD"
+          ],
           "evidence": {
-            "source_surfaces": ["washington-autocomplete-visible-text"],
+            "source_surfaces": [
+              "washington-autocomplete-visible-text"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         },
@@ -122,11 +148,16 @@
           "display_name": "Baltimore/Washington International Thurgood Marshall Airport",
           "code_or_id": "BWI",
           "confidence": "strong",
-          "aliases": ["BWI"],
+          "aliases": [
+            "BWI"
+          ],
           "evidence": {
-            "source_surfaces": ["washington-autocomplete-visible-text"],
+            "source_surfaces": [
+              "washington-autocomplete-visible-text"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/washington-autocomplete-visible-text.json"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         }
@@ -144,12 +175,17 @@
           "display_name": "Lucknow, Uttar Pradesh, India",
           "code_or_id": "/m/022tq4",
           "confidence": "strong",
-          "aliases": ["Lucknow"],
+          "aliases": [
+            "Lucknow"
+          ],
           "evidence": {
-            "source_surfaces": ["lucknow-autocomplete-visible-text", "protobuf-decode-report"],
+            "source_surfaces": [
+              "lucknow-autocomplete-visible-text",
+              "protobuf-decode-report"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json",
-              "research/runs/gf-20260607-073838-capability-surface/06-query-protobuf-decode/decode-report.md"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         },
@@ -159,11 +195,16 @@
           "display_name": "Chaudhary Charan Singh International Airport",
           "code_or_id": "LKO",
           "confidence": "strong",
-          "aliases": ["LKO"],
+          "aliases": [
+            "LKO"
+          ],
           "evidence": {
-            "source_surfaces": ["lucknow-autocomplete-visible-text"],
+            "source_surfaces": [
+              "lucknow-autocomplete-visible-text"
+            ],
             "artifacts": [
-              "research/runs/gf-20260607-073838-capability-surface/03-route-mutations/lucknow-autocomplete-visible-text.json"
+              "tests/e2e/fixtures/route_autocomplete_choices_fixture.json",
+              "docs/fixture-contract.md"
             ]
           }
         }
@@ -179,7 +220,12 @@
     "Washington DC": {
       "status": "ambiguous",
       "exit_code": 2,
-      "candidate_code_or_ids": ["/m/0rh6k", "DCA", "IAD", "BWI"]
+      "candidate_code_or_ids": [
+        "/m/0rh6k",
+        "DCA",
+        "IAD",
+        "BWI"
+      ]
     }
   }
 }

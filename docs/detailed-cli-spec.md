@@ -14,20 +14,16 @@ marked implementation policy.
 
 ## Evidence Baseline
 
-Included evidence:
+Included evidence is limited to checked-in repository files:
 
-- `research/google-flights-capability-matrix.md`
-- `research/query-parameter-ledger.md`
-- `research/network-ledger.md`
-- `research/protobuf-ledger.md`
-- `research/evidence-to-spec-gates.md`
-- `research/reverse-engineering-confidence-report.md`
-- `research/spec-readiness-decision.md`
-- `research/runs/gf-20260607-073838-capability-surface/`
-- `research/runs/gf-20260607-104222-slice02-url-counterexamples/`
-- `research/runs/gf-20260607-113947-slice02-populated-trip-cabin/`
-- `handoffs/agentic-e2e-tdd-plan.md`
-- `handoffs/implementation-harness-plan.md`
+- `docs/fixture-contract.md`
+- `docs/browser-evidence-policy.md`
+- `docs/query-state-maintenance.md`
+- `docs/flight-search-first-principles.md`
+- `tests/e2e/fixtures/route_autocomplete_choices_fixture.json`
+- `tests/e2e/fixtures/route_autocomplete_visible_text_fixture.json`
+- `tests/e2e/fixtures/primary_results_visible_text_fixture.json`
+- `tests/e2e/fixtures/selected_itinerary_visible_text_fixture.json`
 
 No query/protobuf/RPC parser field is `proven`. Strong hypotheses may become
 supported behavior only with caveats, fixture replay, and explicit stale-codec
@@ -109,7 +105,6 @@ agents must rely on JSON schemas and stable JSON output, not terminal prose.
 | `gflights evidence capture` | Capture headed/headless browser evidence for a named scenario. | imperative shell | harness policy |
 | `gflights evidence replay` | Replay redacted fixtures offline and return parsed result/evidence summaries. | functional core + file shell | harness policy |
 | `gflights codec decode` | Decode captured `tfs`/`tfu` values and report raw wire paths plus confidence. | functional core | strong hypothesis evidence |
-| `gflights trip india` | Generate the CPH-Delhi DKK family-trip inputs, optionally run the live usefulness gate, and write a verdict report. | shell + reducer | harness policy |
 | `gflights doctor` | Report toolchain, browser, project, fixture, and codec health. | imperative shell | implementation policy |
 
 Commands must be atomic and composable. A command that cannot satisfy an input
@@ -207,7 +202,7 @@ The canonical input object is:
   "passengers": {"adults": 2, "children": 0, "infants_in_seat": 0, "infants_on_lap": 0},
   "traveler_profiles": [{"kind": "senior", "comfort_weight": "high"}],
   "cabin": "economy",
-  "airline_preferences": [{"airline": "Air India", "mode": "preferred"}],
+  "airline_preferences": [{"airline": "Preferred Carrier", "mode": "preferred"}],
   "consider_all_airlines": true,
   "currency": "EUR",
   "language": "en",
@@ -500,53 +495,30 @@ for live `itinerary inspect`. Actual live inspection remains an explicit
 browser-orchestration step and must keep checkout, login, payment, and
 personal-data flows as stop boundaries.
 
-## India Trip Usefulness Gate
+## Task-Specific Reports
 
-Task-specific gate:
+The maintained CLI must stay generic. Trip-specific reports belong in external
+project scripts that stitch together the stable command families, the same way
+an agent would compose `gh --help`, `cdp --help`, or `docsearch --help`.
 
-```bash
-gflights trip india --report-root ~/Personal/Code/paternity-leave-research/india-trip-plan --json
-gflights trip india --execute-live --browser-mode headless --search-concurrency 3 --date-scan-max-probes 1 --json
-```
+A report script may:
 
-The command writes deterministic inputs for the CPH-Delhi DKK family-trip ask:
-departures 2026-11-21..2026-11-30, returns 2027-01-01..2027-01-10,
-two adults, one 9-month infant represented as `infants_on_lap = 1`, and 100
-concrete date-pair intents. Air India is represented as a local
-preferred-airline ranking preference with `consider_all_airlines: true`; the
-gate must state whether Google Flights filters were applied. Current behavior
-does not apply a Google airline filter. The summary/report must include
-result-row and ranked-pair Air India match counts, visible-carrier
-denominators, and a `matched`, `not_matched`, `not_observable`, or
-`not_requested` preference status.
+- generate one window intent and a concrete date-pair JSON array;
+- run `gflights search --input-json <intents.json> --project-root ~/.gflights
+  --concurrency 3 --json` for bounded live probing;
+- run `gflights dates scan` for cache-first date-window coverage;
+- run `gflights itinerary select --search-url <url> --preferred-carrier
+  "<carrier>" --json` only when an evidence-backed booking-summary URL is
+  needed;
+- run `gflights itinerary inspect --booking-url <url> --json` for visible
+  selected-itinerary details.
 
-Without `--execute-live`, the command reduces existing artifacts under
-`--report-root` and writes `analysis/summary.json` plus
-`flight-options-cph-delhi-dkk.md`. If saved live artifacts are present, the
-reduced output still reports `live_attempted: true`. With `--execute-live`, it
-first records cdp daemon health and page budget, refuses routine over-budget
-browser runs, runs route resolution, live search, and date scan commands,
-records postrun cdp evidence, then writes the same summary and report artifacts.
-The live-search batch is bounded by `--search-concurrency`, and the live
-date-window scan is bounded by
-`--date-scan-max-probes` and `--date-scan-probe-timeout-seconds`; a skipped
-date pair due to this limit must remain explicit in `pair_coverage`.
-
-The report verdict values are:
-
-- `useful`: ranked options exist with prices and evidence.
-- `blocked`: cdp or Google Flights stopped at a browser/safety boundary.
-- `not_useful`: command outputs exist but contain no ranked options or no
-  actionable trip answer.
-- `inconclusive`: the gate could not collect or reduce enough evidence to
-  judge usefulness.
-
-The command JSON uses normal CLI status classes: `ok` for `useful`, `blocked`
-for `blocked`, `unsupported` for `not_useful`, and `tool_error` for
-`inconclusive`. A zero-row `experimental` live search must not produce a
-`useful` verdict. The summary also reports `ranking_source`: `date_scan` when
-date scan supplied ranked pairs, `live_search_results` when concrete live
-search rows were ranked as the fallback, or `none`.
+The report reducer is outside this repository. It must not be added as a
+first-party CLI command unless a future checked-in contract proves the workflow
+is generic and reusable. Reports must show Google Flights search URLs whenever
+the current query state can derive them. Google Flights booking-summary URLs
+are evidence-only and must be shown as `not captured` unless row selection
+actually reached `/travel/flights/booking`.
 
 ## Query And Protobuf Policy
 
@@ -714,20 +686,17 @@ marker or task-scoped runs.
 
 Required references by spec area:
 
-- capability admission: `research/spec-readiness-decision.md`
-- capability rows: `research/google-flights-capability-matrix.md`
-- query params: `research/query-parameter-ledger.md`
-- protobuf hypotheses: `research/protobuf-ledger.md`
-- network surfaces: `research/network-ledger.md`
-- rough command and e2e seed: `handoffs/rough-agentic-cli-spec-draft.md`
-- TDD implementation plan: `handoffs/agentic-e2e-tdd-plan.md`
-- harness and safety rules: `handoffs/implementation-harness-plan.md`
+- capability admission and rows: `docs/detailed-cli-spec.md`
+- query params and protobuf hypotheses: `docs/query-state-maintenance.md`
+- browser surfaces and safety rules: `docs/browser-evidence-policy.md`
+- fixture replay and redaction rules: `docs/fixture-contract.md`
+- implementation test contracts: `docs/agentic-e2e.md`
 
 Any future spec change that adds support for a deferred capability must add:
 
 - capability matrix update
 - probe scenario row or update
-- raw evidence path
+- checked-in redacted fixture or checked-in evidence summary
 - one-variable mutation or documented edge/counterexample
 - confidence class
 - functional-core/service/shell owner
