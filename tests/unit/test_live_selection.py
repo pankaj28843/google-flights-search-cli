@@ -10,9 +10,12 @@ from gflights.live_selection import run_live_itinerary_selection
 
 
 class FakeSelectionCdpAdapter:
-    def __init__(self) -> None:
+    def __init__(self, *, selection_point: dict[str, float] | None = None) -> None:
         self.calls: list[tuple[list[str], BrowserMode, float]] = []
         self.selection_calls = 0
+        self.stage_state_calls: dict[str, int] = {}
+        self.click_attempts = 0
+        self.selection_point = selection_point
 
     async def run_json(
         self,
@@ -77,6 +80,85 @@ class FakeSelectionCdpAdapter:
                     },
                 },
             )
+        if call_args[0] == "eval" and "const requestedStage =" in call_args[1]:
+            stage = _requested_stage(call_args[1])
+            self.stage_state_calls[stage] = self.stage_state_calls.get(stage, 0) + 1
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": _stage_state(stage),
+                    },
+                },
+            )
+        if call_args[0] == "eval" and "consideredRankCount" in call_args[1]:
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "consideredRankCount": 5,
+                            "expandedClickCount": 5,
+                            "alreadyExpandedCount": 0,
+                            "records": [
+                                {
+                                    "rank": index,
+                                    "expandedBefore": "false",
+                                    "expandedAfter": "true",
+                                }
+                                for index in range(1, 6)
+                            ],
+                        }
+                    },
+                },
+            )
+        if call_args[0] == "eval" and "found: true" in call_args[1]:
+            self.selection_calls += 1
+            selected_text = (
+                "7:40 AM – 6:05 AM+1 Finnair 12 hr 25 min DEL–CPH "
+                "1 stop HEL 467 kg CO2e DKK 13,997 round trip"
+                if self.selection_calls == 1
+                else "1:00 PM – 6:35 AM+1 Finnair 11 hr 5 min CPH–DEL "
+                "1 stop HEL 452 kg CO2e DKK 13,997 round trip"
+            )
+            row_rank = 2 if "Math.max(1, 2)" in call_args[1] else 1
+            match_text = "7:40 AM" if "7:40 AM" in call_args[1] else "1:00 PM"
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "found": True,
+                            "selected": False,
+                            "text": selected_text,
+                            "ariaLabel": selected_text,
+                            "combinedText": selected_text,
+                            "rowRank": row_rank,
+                            "matchText": match_text,
+                            "candidateCount": 3,
+                            "matchCount": 1,
+                            "locatorStrategy": "stage-heading > [role=list] > [role=link][aria-label*=Select flight] -> closest li",
+                        }
+                    },
+                },
+            )
+        if call_args[0] == "eval" and "clickDispatch: 'dom-link-click'" in call_args[1]:
+            self.click_attempts += 1
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "clicked": True,
+                            "clickDispatch": "dom-link-click",
+                        }
+                    },
+                },
+            )
         if call_args[0] == "snapshot":
             return cdp_result(
                 call_args,
@@ -104,38 +186,187 @@ class FakeSelectionCdpAdapter:
                     ],
                 },
             )
+        if call_args[:3] == ["protocol", "exec", "Input.dispatchMouseEvent"]:
+            return cdp_result(call_args, {"ok": True, "result": {}})
         if call_args[0] == "eval":
-            self.selection_calls += 1
-            selected_text = (
-                "7:40 AM – 6:05 AM+1 Finnair 12 hr 25 min DEL–CPH "
-                "1 stop HEL 467 kg CO2e DKK 13,997 round trip"
-                if self.selection_calls == 1
-                else "1:00 PM – 6:35 AM+1 Finnair 11 hr 5 min CPH–DEL "
-                "1 stop HEL 452 kg CO2e DKK 13,997 round trip"
-            )
-            row_rank = 2 if "Math.max(1, 2)" in call_args[1] else 1
-            match_text = "7:40 AM" if "7:40 AM" in call_args[1] else "1:00 PM"
+            return cdp_result(call_args, {"ok": True, "result": {"value": {}}})
+        if call_args[0] == "click":
+            return cdp_result(call_args, {"ok": True, "click": {"clicked": True}})
+        if call_args[:2] == ["page", "close"]:
+            return cdp_result(call_args, {"ok": True})
+        raise AssertionError(f"unexpected cdp call: {call_args}")
+
+
+class StableRetrySelectionCdpAdapter(FakeSelectionCdpAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.click_attempts = 0
+
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if call_args[0] == "eval" and "clickDispatch: 'dom-link-click'" in call_args[1]:
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            self.click_attempts += 1
             return cdp_result(
                 call_args,
                 {
                     "ok": True,
                     "result": {
                         "value": {
-                            "selected": True,
-                            "text": selected_text,
-                            "rowRank": row_rank,
-                            "matchText": match_text,
-                            "candidateCount": 3,
-                            "matchCount": 1,
+                            "clicked": self.click_attempts > 1,
+                            "clickDispatch": "dom-link-click",
                         }
                     },
                 },
             )
-        if call_args[0] == "click":
-            return cdp_result(call_args, {"ok": True, "click": {"clicked": True}})
-        if call_args[:2] == ["page", "close"]:
-            return cdp_result(call_args, {"ok": True})
-        raise AssertionError(f"unexpected cdp call: {call_args}")
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class ReturnStageTimeoutSelectionCdpAdapter(FakeSelectionCdpAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.return_stage_calls = 0
+
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if call_args[0] == "eval" and 'const requestedStage = "return"' in call_args[1]:
+            self.return_stage_calls += 1
+            if self.return_stage_calls == 1:
+                return await super().run_json(
+                    args,
+                    browser_mode=browser_mode,
+                    timeout_seconds=timeout_seconds,
+                )
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "return",
+                            "terminalCondition": "no_results",
+                            "rowCount": 0,
+                            "rows": [],
+                        }
+                    },
+                },
+            )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class SearchUrlAfterSelectionCdpAdapter(FakeSelectionCdpAdapter):
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if call_args[0] == "eval" and call_args[1] == "window.location.href":
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": "https://www.google.com/travel/flights/search?tfs=still-search"
+                    },
+                },
+            )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class ContextRaceSelectionCdpAdapter(FakeSelectionCdpAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.outbound_wait_attempts = 0
+
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if call_args[0] == "eval" and 'const requestedStage = "outbound"' in call_args[1]:
+            self.outbound_wait_attempts += 1
+            if self.outbound_wait_attempts == 1:
+                self.calls.append((call_args, browser_mode, timeout_seconds))
+                return cdp_result(
+                    call_args,
+                    {
+                        "ok": False,
+                        "code": "connection_failed",
+                        "message": (
+                            "cdp Runtime.evaluate failed: Cannot find default execution context"
+                        ),
+                    },
+                    status="tool_error",
+                    exit_code=6,
+                )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _requested_stage(js: str) -> str:
+    for stage in ("outbound", "return", "booking"):
+        if f'const requestedStage = "{stage}"' in js:
+            return stage
+    return "outbound"
+
+
+def _stage_state(stage: str) -> dict[str, object]:
+    if stage == "booking":
+        return {
+            "requestedStage": "booking",
+            "terminalCondition": "booking_summary",
+            "rowCount": 0,
+            "rows": [],
+            "currentUrl": "https://www.google.com/travel/flights/booking?tfs=encoded",
+            "currentTitle": "Round trip | Google Flights",
+            "hasBookingOptions": True,
+            "bodySample": "Booking options Book with Finnair Airline DKK 13,997 Continue",
+        }
+    return {
+        "requestedStage": stage,
+        "terminalCondition": "fare_rows",
+        "rowCount": 3,
+        "rows": [],
+        "currentUrl": "https://www.google.com/travel/flights/search?tfs=encoded",
+        "currentTitle": "Google Flights",
+        "hasBookingOptions": False,
+        "bodySample": f"{stage} flights DKK 13,997 round trip Finnair",
+    }
 
 
 def cdp_result(
@@ -195,6 +426,133 @@ def test_live_itinerary_selection_returns_booking_url_and_closes_tab(tmp_path: P
     assert adapter.calls[-1][0] == ["page", "close", "--target", "page-1"]
 
 
+def test_live_itinerary_selection_retries_animation_click_with_force(tmp_path: Path) -> None:
+    adapter = StableRetrySelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-click-retry",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert adapter.click_attempts == 2
+    assert not any(call[0][0] == "click" for call in adapter.calls)
+    assert (
+        tmp_path / "runs" / "gf-test-selection-click-retry" / "outbound-click-selected-row-01.json"
+    ).is_file()
+    assert (
+        tmp_path / "runs" / "gf-test-selection-click-retry" / "return-click-selected-row-01.json"
+    ).is_file()
+
+
+def test_live_itinerary_selection_stops_when_return_stage_never_appears(
+    tmp_path: Path,
+) -> None:
+    adapter = ReturnStageTimeoutSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-return-not-ready",
+        )
+    )
+
+    assert exit_code == 3
+    assert payload["status"] == "unsupported"
+    assert payload["booking_url"] == ""
+    assert payload["settlement"]["stage"] == "return"
+    assert payload["settlement"]["ready"] is False
+    assert payload["unsupported"][0]["field"] == "google_flights_stage.return"
+    assert adapter.selection_calls == 1
+
+
+def test_live_itinerary_selection_retries_terminal_eval_after_context_race(
+    tmp_path: Path,
+) -> None:
+    adapter = ContextRaceSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-context-race",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert adapter.outbound_wait_attempts == 2
+    assert adapter.selection_calls == 2
+    assert (
+        tmp_path / "runs" / "gf-test-selection-context-race" / "outbound-stage-state-02.json"
+    ).is_file()
+
+
+def test_live_itinerary_selection_does_not_report_search_url_as_booking_url(
+    tmp_path: Path,
+) -> None:
+    adapter = SearchUrlAfterSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-not-booking-url",
+        )
+    )
+
+    assert exit_code == 3
+    assert payload["status"] == "unsupported"
+    assert payload["booking_url"] == ""
+    assert payload["current_url"].endswith("search?tfs=still-search")
+    assert payload["selected_outbound"]["parsed"] is True
+    assert payload["selected_return"]["parsed"] is True
+
+
+def test_live_itinerary_selection_uses_coordinate_protocol_click(tmp_path: Path) -> None:
+    adapter = FakeSelectionCdpAdapter(selection_point={"x": 392.5, "y": 256.25})
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-coordinate-click",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert not any(call[0][0] == "click" for call in adapter.calls)
+    protocol_calls = [
+        call[0]
+        for call in adapter.calls
+        if call[0][:3] == ["protocol", "exec", "Input.dispatchMouseEvent"]
+    ]
+    assert len(protocol_calls) == 0
+    assert (
+        tmp_path
+        / "runs"
+        / "gf-test-selection-coordinate-click"
+        / "outbound-click-selected-row-01.json"
+    ).is_file()
+    assert (
+        tmp_path
+        / "runs"
+        / "gf-test-selection-coordinate-click"
+        / "return-click-selected-row-01.json"
+    ).is_file()
+
+
 def test_live_itinerary_selection_reuses_explicit_google_flights_target(
     tmp_path: Path,
 ) -> None:
@@ -232,10 +590,64 @@ def test_live_itinerary_selection_reuses_explicit_google_flights_target(
     ]
     assert not any(call[0][:2] == ["page", "close"] for call in adapter.calls)
     selection_evals = [
-        call[0][1]
-        for call in adapter.calls
-        if call[0][0] == "eval" and call[0][1] != "window.location.href"
+        call[0][1] for call in adapter.calls if call[0][0] == "eval" and "found: true" in call[0][1]
     ]
     assert "7:40 AM" in selection_evals[0]
     assert "Math.max(1, 2)" in selection_evals[0]
     assert "1:00 PM" in selection_evals[1]
+
+
+class ConsentBlockedSelectionCdpAdapter(FakeSelectionCdpAdapter):
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        self.calls.append((call_args, browser_mode, timeout_seconds))
+        if call_args[0] == "pages":
+            return cdp_result(call_args, {"ok": True, "budget": {"tab_count": 1, "max_tabs": 3}})
+        if call_args[0] == "open":
+            return cdp_result(call_args, {"ok": True, "page": {"id": "page-1"}})
+        if call_args[0] == "eval" and "const requestedStage =" in call_args[1]:
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "outbound",
+                            "terminalCondition": "login_required",
+                            "rowCount": 0,
+                            "rows": [],
+                        }
+                    },
+                },
+            )
+        if call_args[:2] == ["page", "close"]:
+            return cdp_result(call_args, {"ok": True})
+        raise AssertionError(f"unexpected cdp call: {call_args}")
+
+
+def test_live_itinerary_selection_stops_when_wait_returns_login_required(
+    tmp_path: Path,
+) -> None:
+    adapter = ConsentBlockedSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-consent",
+            max_tabs=3,
+        )
+    )
+
+    assert exit_code == 4
+    assert payload["status"] == "login_required"
+    assert payload["stop_state"] == "login_required"
+    assert payload["selection"] is None
+    assert not any(call[0][0] == "eval" and "found: true" in call[0][1] for call in adapter.calls)

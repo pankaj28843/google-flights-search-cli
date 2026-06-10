@@ -22,6 +22,7 @@ class FakeCdpAdapter:
         settlement_terminal_result: CdpResult | None = None,
         settlement_network_result: CdpResult | None = None,
         settlement_text_samples: list[str] | None = None,
+        accessible_rows_payload: dict[str, object] | None = None,
     ) -> None:
         self.results = results
         self.close_result = close_result
@@ -31,6 +32,10 @@ class FakeCdpAdapter:
             "Search results DKK 12,054 round trip Nonstop",
             "Search results DKK 12,054 round trip Nonstop",
         ]
+        self.accessible_rows_payload = accessible_rows_payload or {
+            "ok": True,
+            "result": {"value": []},
+        }
         self.calls: list[tuple[list[str], BrowserMode, float]] = []
         self._settlement_network_pending = False
 
@@ -70,10 +75,19 @@ class FakeCdpAdapter:
                 return self.close_result
             return cdp_result(call_args, {"ok": True})
         if call_args[:2] == ["wait", "eval"] and "document.body" in call_args[2]:
-            self._settlement_network_pending = True
-            return self.settlement_terminal_result or cdp_result(
+            result = self.settlement_terminal_result or cdp_result(
                 call_args, {"ok": True, "result": {"value": "fare_rows"}}
             )
+            terminal = ""
+            payload = result.json_payload or {}
+            value = payload.get("result")
+            if isinstance(value, dict) and isinstance(value.get("value"), str):
+                terminal = value["value"]
+            self._settlement_network_pending = terminal not in {
+                "fare_rows",
+                "booking_summary",
+            }
+            return result
         if (
             self._settlement_network_pending
             and call_args[:2] == ["wait", "network-idle"]
@@ -88,6 +102,8 @@ class FakeCdpAdapter:
                 else "Search results DKK 12,054 round trip Nonstop"
             )
             return cdp_result(call_args, {"ok": True, "items": [{"text": text}]})
+        if call_args[0] == "eval" and "collectAccessibleFlightRows" in call_args[1]:
+            return cdp_result(call_args, self.accessible_rows_payload)
         return self.results.pop(0)
 
 
@@ -286,11 +302,10 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
         "cdp:open",
         "cdp:wait",
         "cdp:wait:terminal-dom",
-        "cdp:text:settlement-sample",
-        "cdp:text:settlement-sample",
-        "cdp:wait:terminal-network-steady",
         "cdp:settlement",
         "cdp:snapshot",
+        "cdp:eval:accessible-flight-row-expand",
+        "cdp:eval:accessible-flight-rows",
         "cdp:network",
         "cdp:page-close",
     ]
@@ -309,10 +324,9 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
     assert adapter.calls[1:] == [
         (["wait", "load-state", "domcontentloaded", "--target", "page-1"], "headless", 30.0),
         (adapter.calls[2][0], "headless", 30.0),
-        (["text", "body", "--target", "page-1", "--limit", "0"], "headless", 10.0),
-        (["text", "body", "--target", "page-1", "--limit", "0"], "headless", 10.0),
-        (["wait", "network-idle", "--target", "page-1", "--idle", "1s"], "headless", 10.0),
         (["snapshot", "--target", "page-1", "--limit", "80"], "headless", 30.0),
+        (adapter.calls[4][0], "headless", 10.0),
+        (adapter.calls[5][0], "headless", 10.0),
         (["network", "--target", "page-1", "--limit", "50", "--wait", "1s"], "headless", 30.0),
         (["page", "close", "--target", "page-1"], "headless", 5.0),
     ]
@@ -514,11 +528,10 @@ def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> Non
         "cdp:wait",
         "cdp:wait:retry",
         "cdp:wait:terminal-dom",
-        "cdp:text:settlement-sample",
-        "cdp:text:settlement-sample",
-        "cdp:wait:terminal-network-steady",
         "cdp:settlement",
         "cdp:snapshot",
+        "cdp:eval:accessible-flight-row-expand",
+        "cdp:eval:accessible-flight-rows",
         "cdp:network",
         "cdp:page-close",
     ]
@@ -648,12 +661,11 @@ def test_live_search_retries_transient_snapshot_context_error(tmp_path: Path) ->
         "cdp:open",
         "cdp:wait",
         "cdp:wait:terminal-dom",
-        "cdp:text:settlement-sample",
-        "cdp:text:settlement-sample",
-        "cdp:wait:terminal-network-steady",
         "cdp:settlement",
         "cdp:snapshot",
         "cdp:snapshot:retry",
+        "cdp:eval:accessible-flight-row-expand",
+        "cdp:eval:accessible-flight-rows",
         "cdp:network",
         "cdp:page-close",
     ]
@@ -742,6 +754,50 @@ def test_live_search_stops_on_blocked_headless_state(tmp_path: Path) -> None:
     assert (tmp_path / "runs" / "gf-test-blocked" / "open.json").is_file()
 
 
+def test_live_search_stops_when_terminal_wait_returns_login_required(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights/search?tfs=encoded",
+                    },
+                },
+            ),
+            cdp_result(["wait", "load-state"], {"ok": True}),
+        ],
+        settlement_terminal_result=cdp_result(
+            ["wait", "eval"],
+            {
+                "ok": True,
+                "wait": {
+                    "matched": True,
+                    "evidence": {"value": "login_required"},
+                },
+            },
+        ),
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-consent-stop",
+        )
+    )
+
+    assert exit_code == 4
+    assert payload["status"] == "login_required"
+    assert payload["stop_state"] == "login_required"
+    assert payload["fallback"]["recommended_browser_mode"] == "headed"
+    assert not any(call[0][:2] == ["text", "body"] for call in adapter.calls)
+
+
 def test_live_search_can_execute_fake_form_interaction_steps(tmp_path: Path) -> None:
     adapter = FakeCdpAdapter(
         [
@@ -790,7 +846,12 @@ def test_live_search_can_execute_fake_form_interaction_steps(tmp_path: Path) -> 
         "CPH",
     ]
     assert any(call[0][0:2] == ["click", "Add adult"] for call in adapter.calls)
-    assert adapter.calls[-3][0][0] == "snapshot"
+    assert any(call[0][0] == "snapshot" for call in adapter.calls)
+    assert any(call[0][0] == "eval" and "Flight details" in call[0][1] for call in adapter.calls)
+    assert any(
+        call[0][0] == "eval" and "collectAccessibleFlightRows" in call[0][1]
+        for call in adapter.calls
+    )
 
     run_root = tmp_path / "runs" / "gf-test-live-form"
     assert (run_root / "form-origin-fill.json").is_file()
@@ -839,6 +900,76 @@ def test_live_search_extracts_primary_results_from_snapshot_payload(tmp_path: Pa
     ]
 
 
+def test_live_search_prefers_accessible_rows_over_snapshot_payload(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=USD",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ],
+        accessible_rows_payload={
+            "ok": True,
+            "result": {
+                "value": [
+                    {
+                        "rank": 3,
+                        "text": (
+                            "8:59 PM JFK 12:36 AM+1 SFO $275 round trip "
+                            "Nonstop6 hr 37 minJetBlue +15% emissions"
+                        ),
+                        "ariaLabel": (
+                            "Select flight, JetBlue flight with JetBlue. "
+                            "Total duration 6 hr 37 min. Nonstop. "
+                            "From 275 US dollars round trip. "
+                            "1 carry-on bag included. 0 checked bags included."
+                        ),
+                        "combinedText": (
+                            "8:59 PM JFK 12:36 AM+1 SFO $275 round trip "
+                            "Nonstop6 hr 37 minJetBlue +15% emissions "
+                            "Select flight, JetBlue flight with JetBlue. "
+                            "Total duration 6 hr 37 min. Nonstop. "
+                            "From 275 US dollars round trip. "
+                            "1 carry-on bag included. 0 checked bags included."
+                        ),
+                    }
+                ]
+            },
+        },
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-accessible-results",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["confidence"] == "medium"
+    assert payload["results"][0]["source_surface"] == "primary-results-accessible-rows"
+    assert payload["results"][0]["carriers"] == ["JetBlue"]
+    assert payload["results"][0]["price"] == {"amount": 275, "currency": "USD", "text": "$275"}
+    assert payload["results"][0]["baggage_summary"]["checked_bags_included"] == 0
+    assert payload["results"][0]["evidence"]["artifacts"] == [
+        str(tmp_path / "runs" / "gf-test-accessible-results" / "accessible-rows.json")
+    ]
+    assert (tmp_path / "runs" / "gf-test-accessible-results" / "accessible-rows.json").is_file()
+
+
 def test_live_search_retries_loading_snapshot_before_parsing_rows(tmp_path: Path) -> None:
     fixture = json.loads((FIXTURES / "primary_results_visible_text_fixture.json").read_text())
     adapter = FakeCdpAdapter(
@@ -880,12 +1011,14 @@ def test_live_search_retries_loading_snapshot_before_parsing_rows(tmp_path: Path
     assert payload["results"][0]["evidence"]["artifacts"] == [
         str(tmp_path / "runs" / "gf-test-results-retry" / "snapshot-results-retry-1.json")
     ]
-    assert adapter.calls[7] == (
+    assert (
         ["wait", "network-idle", "--target", "page-1", "--idle", "2s"],
         "headless",
         10.0,
+    ) in adapter.calls
+    assert any(
+        call[0] == ["snapshot", "--target", "page-1", "--limit", "120"] for call in adapter.calls
     )
-    assert adapter.calls[8][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
 
 
 def test_live_search_does_not_retry_when_loading_snapshot_already_has_rows(
@@ -1071,7 +1204,9 @@ def test_live_search_retries_snapshot_after_result_wait_timeout(tmp_path: Path) 
     assert payload["status"] == "ok"
     assert payload["results"][0]["price"]["amount"] == 3206
     assert any("network-idle wait failed" in warning for warning in payload["warnings"])
-    assert adapter.calls[8][0] == ["snapshot", "--target", "page-1", "--limit", "120"]
+    assert any(
+        call[0] == ["snapshot", "--target", "page-1", "--limit", "120"] for call in adapter.calls
+    )
 
 
 def test_live_search_reports_visible_no_results_status(tmp_path: Path) -> None:
@@ -1189,7 +1324,7 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
         "del-cph-window-oct-nov",
         "cph-lko-oneway-jun",
     ]
-    assert len(adapter.calls) == 19
+    assert len(adapter.calls) == 17
 
 
 def test_live_search_real_adapter_batch_uses_bounded_concurrency(tmp_path: Path) -> None:

@@ -6,7 +6,10 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-_PRICE_RE = re.compile(r"(?P<currency>EUR|DKK)\s+(?P<amount>[\d,]+)")
+_PRICE_RE = re.compile(
+    r"(?:(?P<currency>EUR|DKK|USD|INR)\s+|(?P<symbol>[$€₹])\s*)(?P<amount>[\d,]+)"
+)
+_PRICE_SYMBOL_CURRENCIES = {"$": "USD", "€": "EUR", "₹": "INR"}
 _AIRPORT_RE = re.compile(r"\(([A-Z]{3})\)")
 _SEGMENT_LINE_RE = re.compile(r"\([A-Z]{3}\)\s+to\s+.*\([A-Z]{3}\)")
 _FLIGHT_LINE_RE = re.compile(
@@ -282,6 +285,10 @@ def _cabin_facilities(lines: list[str]) -> list[str]:
 
 
 def _booking_options(lines: list[str]) -> list[dict[str, Any]]:
+    flat_options = _booking_options_from_flat_text(" ".join(lines))
+    if flat_options:
+        return flat_options
+
     options: list[dict[str, Any]] = []
     option_lines = _section_after(
         lines,
@@ -318,18 +325,181 @@ def _booking_options(lines: list[str]) -> list[dict[str, Any]]:
     return options
 
 
+def _booking_options_from_flat_text(text: str) -> list[dict[str, Any]]:
+    if "Booking options" not in text:
+        return []
+
+    section = text.split("Booking options", 1)[1]
+    section = re.split(
+        r"\s+(?:Prices include required taxes|Price insights)\b",
+        section,
+        maxsplit=1,
+    )[0]
+    blocks = list(
+        re.finditer(
+            r"Book with\s+(?P<block>.*?)(?=\s+Book with\s+|\s+Prices include required taxes|\s+Price insights|$)",
+            section,
+        )
+    )
+    options: list[dict[str, Any]] = []
+    for block_match in blocks:
+        provider, provider_type, block_body = _booking_provider_parts(
+            block_match.group("block").strip()
+        )
+        if not provider:
+            continue
+        options.extend(
+            _booking_options_from_provider_block(
+                provider=provider,
+                provider_type=provider_type,
+                section=block_body,
+            )
+        )
+    return options
+
+
+def _booking_options_from_provider_block(
+    *,
+    provider: str,
+    provider_type: str | None,
+    section: str,
+) -> list[dict[str, Any]]:
+    section = section.replace("Hide options", " ").strip()
+    fare_matches = list(_fare_price_matches(section))
+    if fare_matches:
+        options: list[dict[str, Any]] = []
+        for index, fare_match in enumerate(fare_matches):
+            next_start = (
+                fare_matches[index + 1].start() if index + 1 < len(fare_matches) else len(section)
+            )
+            details = section[fare_match.end() : next_start].strip()
+            option: dict[str, Any] = {
+                "provider": provider,
+                "fare": fare_match.group("fare"),
+                "price": _parse_price(fare_match.group("price")),
+                "boundary_control": "Continue" if " Continue" in f" {details}" else None,
+                "features": _booking_feature_lines(details),
+            }
+            if provider_type:
+                option["provider_type"] = provider_type
+            options.append(option)
+        return options
+
+    price_matches = list(_PRICE_RE.finditer(section))
+    if not price_matches:
+        return []
+    option = {
+        "provider": provider,
+        "price": _parse_price(price_matches[0].group(0)),
+        "boundary_control": "Continue" if " Continue" in section else None,
+    }
+    if len(price_matches) > 1:
+        secondary_price = _parse_price(price_matches[1].group(0))
+        if secondary_price is not None:
+            option["secondary_price"] = secondary_price
+    if provider_type:
+        option["provider_type"] = provider_type
+    return [option]
+
+
+def _booking_provider_parts(block: str) -> tuple[str, str | None, str]:
+    typed = re.match(
+        r"(?P<provider>.+?)(?P<provider_type>Airline|Online travel agency)\b(?P<body>.*)",
+        block,
+    )
+    if typed:
+        return (
+            typed.group("provider").strip(),
+            typed.group("provider_type"),
+            typed.group("body").strip(),
+        )
+
+    price_match = _PRICE_RE.search(block)
+    if price_match:
+        return block[: price_match.start()].strip(), None, block[price_match.start() :].strip()
+
+    fare_match = _first_fare_name_match(block)
+    if fare_match:
+        return block[: fare_match.start()].strip(), None, block[fare_match.start() :].strip()
+
+    return block.strip(), None, ""
+
+
+def _fare_price_matches(section: str) -> list[re.Match[str]]:
+    fare_pattern = "|".join(re.escape(fare) for fare in _fare_names())
+    return list(
+        re.finditer(
+            rf"(?P<fare>{fare_pattern})\s+(?P<price>{_PRICE_RE.pattern})",
+            section,
+        )
+    )
+
+
+def _first_fare_name_match(section: str) -> re.Match[str] | None:
+    return re.search(rf"({'|'.join(re.escape(fare) for fare in _fare_names())})", section)
+
+
+def _fare_names() -> tuple[str, ...]:
+    return (
+        "Basic Economy",
+        "Blue Basic",
+        "Premium Economy",
+        "Main Cabin",
+        "Main Plus",
+        "Blue Extra",
+        "Even More",
+        "Business",
+        "First",
+        "Economy",
+        "Blue",
+    )
+
+
+def _booking_feature_lines(text: str) -> list[str]:
+    cleaned = text.replace(" Continue", " ").strip()
+    markers = [
+        "Seat selection for a fee",
+        "Standard seat",
+        "No ticket changes",
+        "No mileage counted",
+        "Free seat selection",
+        "Extra legroom available for a fee",
+        "Free change, possible fare difference",
+        "Mileage counted",
+        "Extra legroom",
+        "1 free carry-on",
+        "First checked bag costs",
+        "1st checked bag free",
+    ]
+    features: list[str] = []
+    for marker in markers:
+        if marker in cleaned and marker not in features:
+            if marker == "First checked bag costs":
+                cost_match = re.search(
+                    r"First checked bag costs\s+(.+?)(?:\s+1st checked bag:|\s+Continue|$)",
+                    cleaned,
+                )
+                if cost_match:
+                    features.append(f"{marker} {cost_match.group(1).strip()}")
+                    continue
+            features.append(marker)
+    return features
+
+
 def _parse_price(line: str | None) -> dict[str, Any] | None:
     if line is None:
         return None
     match = _PRICE_RE.search(line)
     if not match:
         return None
-    currency = match.group("currency")
+    currency = match.group("currency") or _PRICE_SYMBOL_CURRENCIES.get(
+        match.group("symbol") or "", "unknown"
+    )
     amount_text = match.group("amount")
     return {
         "amount": int(amount_text.replace(",", "")),
         "currency": currency,
-        "text": f"{currency} {amount_text}",
+        "text": match.group(0).strip(),
     }
 
 

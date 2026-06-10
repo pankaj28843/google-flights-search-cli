@@ -5,12 +5,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from typing import Any
 from urllib.parse import urlencode
 
+from gflights.accessible_rows import accessible_row_expand_js, accessible_rows_js
 from gflights.app_state import AppState, init_app_state, price_cache_for_state
 from gflights.browser import (
     BLOCKED_STOP_STATES,
@@ -40,6 +42,7 @@ from gflights.services import load_intents
 GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
 GOOGLE_FLIGHTS_SEARCH_URL = "https://www.google.com/travel/flights/search"
 MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS = 10.0
+READY_TERMINAL_CONDITIONS = {"fare_rows", "booking_summary"}
 TERMINAL_DOM_CONDITION_JS = r"""
 (() => {
   const text = (document.body && (document.body.innerText || document.body.textContent) || "")
@@ -626,6 +629,31 @@ async def _run_one_live_search(
             artifacts=artifacts,
             source_surfaces=source_surfaces,
         )
+    await _expand_considered_accessible_rows(
+        adapter=adapter,
+        page_id=page_id,
+        browser_mode=browser_mode,
+        timeout_seconds=timeout_seconds,
+        run_root=run_root,
+        considered_limit=_considered_row_expand_limit(top_k),
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        warnings=nonfatal_warnings,
+    )
+    accessible_rows_evidence_artifact = str(run_root / "accessible-rows.json")
+    accessible_rows_result = await _run_step(
+        adapter=adapter,
+        args=["eval", accessible_rows_js(stage="auto", limit=20), "--target", page_id],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 10.0),
+        run_root=run_root,
+        artifact_name="accessible-rows.json",
+        source_surface="cdp:eval:accessible-flight-rows",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
     network_result = await _run_step(
         adapter=adapter,
         args=["network", "--target", page_id, "--limit", "50", "--wait", "1s"],
@@ -667,12 +695,28 @@ async def _run_one_live_search(
             "network evidence capture failed after snapshot evidence was collected"
         )
 
-    extracted_results = extract_primary_results(
-        snapshot_result.json_payload or {},
-        source_surface="primary-results-visible-text",
-        evidence_artifact=snapshot_evidence_artifact,
-        confidence="weak",
-    )
+    extracted_results: list[dict[str, Any]] = []
+    extracted_confidence = "weak"
+    if accessible_rows_result.status != "tool_error":
+        extracted_results = extract_primary_results(
+            accessible_rows_result.json_payload or {},
+            source_surface="primary-results-accessible-rows",
+            evidence_artifact=accessible_rows_evidence_artifact,
+            confidence="medium",
+        )
+        extracted_confidence = "medium" if extracted_results else "weak"
+    else:
+        nonfatal_warnings.append(
+            "accessible ARIA row extraction failed; falling back to visible text snapshot parsing"
+        )
+    if not extracted_results:
+        extracted_results = extract_primary_results(
+            snapshot_result.json_payload or {},
+            source_surface="primary-results-visible-text",
+            evidence_artifact=snapshot_evidence_artifact,
+            confidence="weak",
+        )
+        extracted_confidence = "weak"
     price_observations_written = _write_price_observations(
         state=state,
         intent=intent,
@@ -701,7 +745,7 @@ async def _run_one_live_search(
             payload={
                 "query_id": intent.query_id,
                 "status": "ok",
-                "confidence": "weak",
+                "confidence": extracted_confidence,
                 "live_mode": True,
                 "browser_mode": browser_mode,
                 "target_url": target_url,
@@ -712,7 +756,11 @@ async def _run_one_live_search(
                 "warnings": [
                     *query_population["warnings"],
                     *nonfatal_warnings,
-                    "primary result rows were parsed from visible text evidence; missing optional fields are left empty or null",
+                    (
+                        "primary result rows were parsed from ARIA/role row evidence; visible text snapshot remains fallback evidence"
+                        if extracted_confidence == "medium"
+                        else "primary result rows were parsed from visible text evidence; missing optional fields are left empty or null"
+                    ),
                     *(
                         ["live form interaction is experimental and limited to observed controls"]
                         if interact_with_form
@@ -870,6 +918,63 @@ async def _run_one_live_search(
     )
 
 
+async def _expand_considered_accessible_rows(
+    *,
+    adapter: CdpAdapter,
+    page_id: str,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    run_root: Path,
+    considered_limit: int,
+    executed: list[dict[str, Any]],
+    artifacts: list[str],
+    source_surfaces: list[str],
+    warnings: list[str],
+) -> None:
+    expand_result = await _run_step(
+        adapter=adapter,
+        args=[
+            "eval",
+            accessible_row_expand_js(
+                stage="auto",
+                limit=considered_limit,
+            ),
+            "--target",
+            page_id,
+        ],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 10.0),
+        run_root=run_root,
+        artifact_name="accessible-row-expand.json",
+        source_surface="cdp:eval:accessible-flight-row-expand",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if expand_result.status == "tool_error":
+        warnings.append(
+            "accessible row expansion failed; continuing with row evidence"
+        )
+
+
+def _considered_row_expand_limit(top_k: int) -> int:
+    return min(max(top_k if top_k > 0 else 5, 5), 10)
+
+
+def _eval_value(payload: dict[str, Any]) -> Any:
+    for key in ("value", "result"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            if "value" in value:
+                return value["value"]
+            nested_result = value.get("result")
+            if isinstance(nested_result, dict) and "value" in nested_result:
+                return nested_result["value"]
+        if isinstance(value, list | str):
+            return value
+    return None
+
+
 async def _run_step(
     *,
     adapter: CdpAdapter,
@@ -931,6 +1036,21 @@ async def _settle_google_flights_page(
         source_surfaces=source_surfaces,
     )
     terminal_condition = _terminal_condition_from_wait(terminal_result)
+    if terminal_condition in BLOCKED_STOP_STATES:
+        stop_result = _blocked_terminal_result(terminal_result, terminal_condition)
+        _write_settlement_artifact(
+            run_root=run_root,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            terminal_condition=terminal_condition,
+            terminal_status=stop_result.status,
+            body_stability=_body_stability_from_samples(stop_result, None),
+            network_status="not_run",
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=False,
+            warnings=warnings,
+        )
+        return {"stop_result": stop_result, "warnings": warnings}
     if _is_stop_result(terminal_result):
         _write_settlement_artifact(
             run_root=run_root,
@@ -949,6 +1069,20 @@ async def _settle_google_flights_page(
         warnings.append(
             "terminal Google Flights content did not appear before the bounded settlement wait; capturing snapshot evidence anyway"
         )
+    elif terminal_condition in READY_TERMINAL_CONDITIONS:
+        _write_settlement_artifact(
+            run_root=run_root,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            terminal_condition=terminal_condition,
+            terminal_status=terminal_result.status,
+            body_stability={"status": "skipped_terminal_ready", "sample_count": 0},
+            network_status="skipped_terminal_ready",
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=False,
+            warnings=warnings,
+        )
+        return {"stop_result": None, "warnings": warnings}
 
     dwell_enforced = False
     elapsed = perf_counter() - started
@@ -1076,7 +1210,25 @@ def _terminal_condition_from_wait(result: CdpResult) -> str:
         value = wait.get("value") or wait.get("result")
         if isinstance(value, str):
             return value
+        evidence = wait.get("evidence")
+        if isinstance(evidence, dict) and isinstance(evidence.get("value"), str):
+            return evidence["value"]
     return "unknown"
+
+
+def _blocked_terminal_result(result: CdpResult, terminal_condition: str) -> CdpResult:
+    return replace(
+        result,
+        status=terminal_condition,
+        exit_code=4,
+        stop_state=terminal_condition,
+        fallback={
+            "recommended_browser_mode": "headed",
+            "reason": "headless blocked or human confirmation required",
+        }
+        if result.browser_mode == "headless"
+        else None,
+    )
 
 
 def _body_stability_from_samples(
