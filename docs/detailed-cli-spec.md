@@ -117,16 +117,25 @@ CLI must stop before login, unusual-traffic bypass, provider checkout, payment,
 booking, or personal-data entry.
 
 `gflights itinerary select` is the row-clicking workflow. It accepts
-`--search-url`, `--preferred-carrier`, `--require-nonstop`, and `--row-rank`,
-opens the search URL, selects one visible outbound row and one visible return
-row, and returns only a Google Flights booking-summary URL. It must not click a
-provider `Continue` button or enter provider checkout.
+`--search-url`, `--preferred-carrier`, `--require-nonstop`, `--row-rank`,
+`--outbound-row-rank`, `--return-row-rank`, `--outbound-match-text`, and
+`--return-match-text`, opens the search URL, selects one visible outbound row
+and one visible return row, and returns a Google Flights booking-summary URL
+plus selected row summaries and visible booking options when parseable. It must
+not click a provider `Continue` button or enter provider checkout.
 
 For JSON-array live search, `--concurrency` controls bounded parallel managed
 tabs. The default is 3, allowed range is 1-5, and outputs must preserve input
 order. This is resource discipline and polite pacing, not anti-automation
 bypass. If Google or the browser presents a stop state, the CLI stops and saves
 evidence.
+
+For headed/profile workflows, `gflights search --managed-tab-policy reuse
+--max-tabs <N>` and `gflights itinerary select --reuse-target google-flights
+--max-tabs <N>` may record `cdp pages` tab-budget evidence before and after the
+workflow. Reuse means navigating an explicit existing Google Flights target for
+the supplied command URL; existing tab state is not semantic evidence for route,
+date, passenger, cabin, or result fields. Reused tabs are not closed by the CLI.
 
 ## Exit Codes
 
@@ -341,7 +350,14 @@ Google Flights filter was applied.
 The maintained post-result ranking policy is `price_duration_v1`. It is a pure
 service-layer policy over visible or cached fields, not a browser adapter
 feature. Its explanation includes price, duration, stops, emissions when
-visible, a numeric score, and `google_flights_filters_applied: false`.
+visible, max layover when visible, denied transit airports when configured, a
+numeric score, and `google_flights_filters_applied: false`.
+
+`gflights search --rank cheapest,fastest,least-layover,balanced --top-k <N>`
+may emit `top_cheapest`, `top_fastest`, `top_least_layover`, and `top_balanced`
+arrays while preserving the raw `results` array. `--allow-transit` and
+`--deny-transit` are local post-result ranking hints over visible layover
+airport codes only; they do not apply Google Flights filters.
 
 Optional tabular analysis may use pandas through an adapter outside the pure
 domain core. The core date-scan JSON remains the stable contract; pandas-backed
@@ -413,6 +429,8 @@ Absence behavior:
 - `pair_coverage`
 - `ranked_pairs`
 - `ranking_policy`
+- `objective`
+- `top_k`
 - `unsupported`
 - `warnings`
 - `evidence`
@@ -426,6 +444,10 @@ Each ranked pair includes:
 - top result summary
 - scoring explanation
 - evidence references
+
+`--objective cheapest|fastest|least-layover|balanced` chooses the local
+post-result sort for `ranked_pairs`; `--top-k <N>` limits returned ranked pairs
+without removing generated-pair coverage entries.
 
 Each pair coverage entry includes:
 
@@ -456,6 +478,12 @@ Observed itinerary/detail fields:
 - emissions estimates
 - cabin facilities
 - absolute baggage-policy links when decodable from visible link targets
+
+`itinerary select` may return top-level `selected_outbound`, `selected_return`,
+`booking_options`, and `itinerary` fields after it reaches a Google Flights
+booking-summary URL. These fields come from selected row text and the visible
+booking-summary snapshot; missing optional fields remain absent/null rather
+than guessed.
 
 Terminal information was not found in the selected itinerary evidence. The CLI
 must output `terminal_info.status = "not_found"` or omit the field with an
@@ -595,6 +623,8 @@ Implementation policy:
   replacements for valid domain results.
 - `cdp --browser-mode headed pages --json` is an accepted tab-discovery surface
   for headed exploration.
+- When an explicit reuse option navigates an existing target, record tab-budget
+  evidence and skip target close because the CLI did not create that tab.
 
 Default validation must not hit live Google Flights. Normal CLI search may use
 the live Google Flights path; repository validation remains offline unless a

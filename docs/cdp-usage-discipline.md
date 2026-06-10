@@ -85,6 +85,12 @@ search. Existing tabs may be inspected for cleanup and budget health, but route,
 date, passenger, cabin, and result semantics must come from the current intent,
 cache, repository TDD assets, or captured evidence.
 
+An explicit reuse option may navigate an existing Google Flights target to the
+new command URL to reduce headed/profile tab pressure. That target's previous
+page state is still not semantic evidence. Because the CLI did not create a
+reused target, it records tab-budget before/after evidence and skips target
+close.
+
 ## Managed Tab Memory
 
 Every live command that opens a page owns that page target until it is closed or

@@ -83,6 +83,8 @@ Live search evidence capture:
 ```bash
 gflights search --input-json <intent.json> --browser-mode headless --json
 gflights search --input-json <intents.json> --concurrency 3 --json
+gflights search --input-json <intents.json> --rank cheapest,fastest,least-layover,balanced --top-k 10 --json
+gflights search --input-json <intents.json> --browser-mode headed --managed-tab-policy reuse --max-tabs 3 --json
 ```
 
 The command accepts either one `SearchIntent` object or a JSON array of
@@ -106,6 +108,17 @@ writes a state-local `runs/<run-id>/` evidence bundle, records
   written, or
 - `blocked` with exit code `4` and headed fallback guidance when a browser stop
   state appears.
+
+When ranking flags are supplied, `ok` outputs preserve raw `results` and add a
+`ranking` object plus one array per requested objective, for example
+`top_cheapest`, `top_fastest`, `top_least_layover`, and `top_balanced`. Ranking
+is local post-result ordering over visible fields and always reports
+`google_flights_filters_applied: false`.
+
+When tab-budget flags are supplied, output includes `managed_tab_id` and a
+`tab_budget` object with before/after budget snapshots, policy, max-tabs,
+whether the tab was created by the CLI, and cleanup status. A reused target is
+navigated for the supplied command URL and is not closed by the CLI.
 
 `search` uses live cdp by default.
 For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
@@ -242,9 +255,14 @@ When route resolution cannot resolve an endpoint, `dates scan` returns exit
 
 When `ranking_policy` is `price_duration_v1`, each ranked pair has a
 `scoring_explanation` with `score`, `google_flights_filters_applied: false`,
-and component entries for price, duration, stops, and emissions when visible.
+and component entries for price, duration, stops, max layover, denied transit
+airports, overnight indicators, and emissions when visible.
 This is local post-result ranking over visible or cached observations; it must
 not claim that Google Flights filters were applied.
+
+`dates scan --objective cheapest|fastest|least-layover|balanced --top-k <N>`
+limits `ranked_pairs` to the requested objective/top-K while preserving every
+generated date pair in `pair_coverage`.
 
 The optional analysis adapter can flatten `dates scan` output into table rows.
 If pandas is unavailable, it returns `status: "unavailable"` with an install
@@ -294,16 +312,19 @@ Selection from a search URL:
 
 ```bash
 gflights itinerary select --search-url <google-flights-search-url> --preferred-carrier "<carrier>" --require-nonstop --json
+gflights itinerary select --search-url <google-flights-search-url> --outbound-row-rank 2 --return-row-rank 1 --outbound-match-text "7:40 AM" --return-match-text "1:00 PM" --json
+gflights itinerary select --search-url <google-flights-search-url> --browser-mode headed --reuse-target google-flights --max-tabs 3 --json
 ```
 
 The command returns `status`, `confidence`, `live_mode`, `browser_mode`,
 `search_url`, `booking_url`, `selection.outbound`, `selection.return`,
-`unsupported`, `warnings`, and `evidence`. It opens the search URL, waits for
-visible fare rows, clicks only explicit Google Flights rows matching the
-requested visible criteria, waits for the Google booking-summary state, and
-returns a `booking_url` only when the current URL remains under
-`/travel/flights/booking`. It stops before provider checkout, payment, login,
-or personal-data entry.
+`selected_outbound`, `selected_return`, `booking_options`, `itinerary`,
+`unsupported`, `warnings`, and `evidence`. It opens or explicitly reuses a page
+for the search URL, waits for visible fare rows, clicks only explicit Google
+Flights rows matching the requested visible criteria, waits for the Google
+booking-summary state, captures visible booking-summary text, and returns a
+`booking_url` only when the current URL remains under `/travel/flights/booking`.
+It stops before provider checkout, payment, login, or personal-data entry.
 
 Live selected-itinerary inspection:
 

@@ -43,6 +43,28 @@ class FakeCdpAdapter:
     ) -> CdpResult:
         call_args = list(args)
         self.calls.append((call_args, browser_mode, timeout_seconds))
+        if call_args[0] == "pages":
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "budget": {
+                        "tab_count": 2,
+                        "max_tabs": 3,
+                        "tabs_over_budget": False,
+                        "browser_mode": browser_mode,
+                    },
+                    "pages": [
+                        {
+                            "id": "page-1",
+                            "type": "page",
+                            "title": "Google Flights",
+                            "url": "https://www.google.com/travel/flights/search?tfs=old",
+                            "attached": False,
+                        }
+                    ],
+                },
+            )
         if call_args[:2] == ["page", "close"]:
             if self.close_result is not None:
                 return self.close_result
@@ -392,6 +414,57 @@ def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Pa
     assert payload["unsupported"][0]["field"] == "live_result_extraction"
     assert (tmp_path / "runs" / "gf-test-query-state" / "query-state.json").is_file()
     assert (tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json").is_file()
+
+
+def test_live_search_reuse_policy_records_tab_budget_and_top_k_results(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeCdpAdapter(
+        successful_capture_results(
+            {
+                "ok": True,
+                "items": [
+                    {
+                        "text": (
+                            "7:40 AM – 6:05 AM+1 Finnair 12 hr 25 min DEL–CPH "
+                            "1 stop HEL 467 kg CO2e DKK 13,997 round trip "
+                            "1:00 PM – 6:35 AM+1 Qatar Airways 15 hr 5 min DEL–CPH "
+                            "1 stop DOH 752 kg CO2e DKK 12,900 round trip"
+                        )
+                    }
+                ],
+            }
+        )
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headed",
+            run_id="gf-test-search-reuse",
+            managed_tab_policy="reuse",
+            max_tabs=3,
+            rank_objectives=["cheapest", "fastest", "least-layover", "balanced"],
+            top_k=1,
+            deny_transit=["DOH"],
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["managed_tab_id"] == "page-1"
+    assert payload["tab_budget"]["managed_tab_created"] is False
+    assert payload["tab_budget"]["cleanup_status"] == "skipped_reused_tab"
+    assert payload["tab_budget"]["before"]["tab_count"] == 2
+    assert payload["ranking"]["top_k"] == 1
+    assert payload["ranking"]["transit_policy"]["deny"] == ["DOH"]
+    assert payload["top_cheapest"][0]["carriers"] == ["Finnair"]
+    assert payload["top_fastest"][0]["carriers"] == ["Finnair"]
+    open_call = next(call for call in adapter.calls if call[0][0] == "open")
+    assert open_call[0][2:] == ["--new-tab=false", "--target", "page-1"]
+    assert not any(call[0][:2] == ["page", "close"] for call in adapter.calls)
 
 
 def test_live_search_retries_transient_wait_context_error(tmp_path: Path) -> None:

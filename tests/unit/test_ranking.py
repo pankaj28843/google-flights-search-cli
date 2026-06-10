@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from gflights.domain import SearchIntent
-from gflights.ranking import rank_observed_pairs
+from gflights.ranking import rank_observed_pairs, rank_observed_results
 
 
 def test_price_duration_ranking_prefers_lower_scored_visible_observation() -> None:
@@ -74,6 +74,60 @@ def test_price_ranking_wins_when_duration_and_stops_are_close() -> None:
     assert "airline_preference" not in ranked[0]["scoring_explanation"]
 
 
+def test_top_k_result_objectives_preserve_raw_rows_and_penalize_denied_transit() -> None:
+    results = [
+        _result(
+            "cheap-doha",
+            price=640,
+            duration_minutes=870,
+            stops=1,
+            layovers=["2 hr 10 min DOH"],
+        ),
+        _result(
+            "fast-helsinki",
+            price=780,
+            duration_minutes=760,
+            stops=1,
+            layovers=["1 hr 20 min HEL"],
+        ),
+        _result(
+            "long-helsinki",
+            price=700,
+            duration_minutes=990,
+            stops=1,
+            layovers=["4 hr 50 min HEL"],
+        ),
+    ]
+
+    payload = rank_observed_results(
+        results,
+        objectives=["cheapest", "fastest", "least-layover", "balanced"],
+        top_k=2,
+        deny_transit=["DOH"],
+    )
+
+    assert payload["ranking"]["google_flights_filters_applied"] is False
+    assert payload["ranking"]["transit_policy"]["deny"] == ["DOH"]
+    assert [row["result_id"] for row in payload["top_cheapest"]] == [
+        "long-helsinki",
+        "fast-helsinki",
+    ]
+    assert [row["result_id"] for row in payload["top_fastest"]] == [
+        "fast-helsinki",
+        "long-helsinki",
+    ]
+    assert [row["result_id"] for row in payload["top_least_layover"]] == [
+        "fast-helsinki",
+        "long-helsinki",
+    ]
+    assert payload["top_balanced"][0]["result_id"] == "fast-helsinki"
+    components = {
+        component["name"]: component
+        for component in payload["top_cheapest"][0]["scoring_explanation"]["components"]
+    }
+    assert components["disallowed_transit_airports"]["value"] == []
+
+
 def _intent() -> SearchIntent:
     return SearchIntent.model_validate(
         {
@@ -114,4 +168,23 @@ def _pair(
             "emissions": {"text": emissions},
         },
         "evidence": {"source_surfaces": ["unit-test"], "artifacts": []},
+    }
+
+
+def _result(
+    result_id: str,
+    *,
+    price: int,
+    duration_minutes: int,
+    stops: int,
+    layovers: list[str],
+) -> dict[str, object]:
+    return {
+        "result_id": result_id,
+        "price": {"amount": price, "currency": "EUR", "text": f"EUR {price}"},
+        "duration_minutes": duration_minutes,
+        "stops": {"count": stops, "text": f"{stops} stop"},
+        "layovers": layovers,
+        "emissions": {"text": "800 kg CO2e"},
+        "carriers": ["Finnair"],
     }

@@ -141,6 +141,43 @@ def test_scan_dates_uses_fresh_cache_or_probe_for_every_generated_pair(
     assert result["ranked_pairs"][1]["evidence"]["source_surfaces"] == ["sqlite-cache"]
 
 
+def test_scan_dates_top_k_limits_ranked_pairs_not_coverage(tmp_path: Path) -> None:
+    now = datetime(2026, 6, 7, 12, 0, tzinfo=UTC)
+    state = init_app_state(tmp_path / "state")
+    cache = PriceCache(state.database_path)
+    for departure, price in [("2026-10-01", 701), ("2026-10-02", 650)]:
+        cache.put_price(
+            cache_key=f"del-cph-{departure}-2026-11-24",
+            query_id="del-cph-window",
+            departure_date=departure,
+            return_date="2026-11-24",
+            currency="EUR",
+            price_amount=price,
+            price_payload={
+                "result_id": f"cache-{departure}",
+                "price": {"amount": price, "currency": "EUR", "text": f"EUR {price}"},
+                "duration_minutes": 900,
+                "stops": {"count": 1, "text": "1 stop"},
+            },
+            captured_at=now,
+            source_run_id="gf-cache-top-k",
+        )
+
+    result = services.scan_dates(
+        _write_window_intent(tmp_path),
+        project_root=state.root,
+        now=now,
+        objective="cheapest",
+        top_k=1,
+    )[0]
+
+    assert result["generated_pairs"] == 2
+    assert len(result["pair_coverage"]) == 2
+    assert [pair["best_observed_price"]["amount"] for pair in result["ranked_pairs"]] == [650]
+    assert result["objective"] == "cheapest"
+    assert result["top_k"] == 1
+
+
 def test_scan_dates_without_cache_or_probe_records_skipped_pairs(
     tmp_path: Path,
 ) -> None:

@@ -42,8 +42,8 @@ Agent contract:
 
 Examples:
   gflights doctor --json
-  gflights search --input-json intents.json --concurrency 3 --json
-  gflights dates scan --input-json intents.json --project-root ~/.gflights --json
+  gflights search --input-json intents.json --concurrency 3 --rank balanced --top-k 10 --json
+  gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
 
 Exit codes:
   0 ok
@@ -95,6 +95,7 @@ are opt-in and require an explicit --max-probes limit.
 
 Examples:
   gflights dates scan --input-json intents.json --project-root ~/.gflights --json
+  gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
 """
 
@@ -106,7 +107,7 @@ Google booking-summary URL. Both commands stop before provider checkout,
 payment, login, or personal-data entry.
 
 Examples:
-  gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --json
+  gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --outbound-row-rank 2 --return-row-rank 1 --json
   gflights itinerary inspect --booking-url URL --browser-mode headless --json
 """
 
@@ -202,6 +203,38 @@ def search_command(
         max=5,
         help="Maximum parallel live Google Flights tabs for JSON-array search input.",
     ),
+    rank: str = typer.Option(
+        "",
+        "--rank",
+        help="Comma-separated post-result objectives: cheapest, fastest, least-layover, balanced.",
+    ),
+    top_k: int = typer.Option(
+        0,
+        "--top-k",
+        min=0,
+        help="Emit top-K post-result alternatives for requested ranking objectives.",
+    ),
+    allow_transit: list[str] | None = typer.Option(
+        None,
+        "--allow-transit",
+        help="Allowed visible transit airport code for local ranking; repeat for multiple.",
+    ),
+    deny_transit: list[str] | None = typer.Option(
+        None,
+        "--deny-transit",
+        help="Disallowed visible transit airport code for local ranking; repeat for multiple.",
+    ),
+    managed_tab_policy: str = typer.Option(
+        "new",
+        "--managed-tab-policy",
+        help="Managed tab policy: new or reuse. Reuse navigates an existing Google Flights tab when visible.",
+    ),
+    max_tabs: int = typer.Option(
+        0,
+        "--max-tabs",
+        min=0,
+        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+    ),
     project_root: Path | None = typer.Option(
         None,
         "--project-root",
@@ -219,6 +252,8 @@ def search_command(
 
     Examples:
       gflights search --input-json intents.json --json
+      gflights search --input-json intents.json --rank cheapest,fastest,least-layover,balanced --top-k 10 --json
+      gflights search --input-json intents.json --browser-mode headed --managed-tab-policy reuse --max-tabs 3 --json
       gflights search --input-json concrete-intents.json --concurrency 3 --json
       gflights search --input-json intents.json --browser-mode headed --json
     """
@@ -231,6 +266,12 @@ def search_command(
                 browser_mode=browser_mode,
                 interact_with_form=live_form,
                 batch_concurrency=concurrency,
+                managed_tab_policy=managed_tab_policy.replace("-", "_"),
+                max_tabs=max_tabs,
+                rank_objectives=_split_csv(rank),
+                top_k=top_k,
+                allow_transit=allow_transit,
+                deny_transit=deny_transit,
             )
         )
     except services.ServiceError as error:
@@ -354,12 +395,34 @@ def dates_scan_command(
         "--browser-mode",
         help="Browser mode for opt-in live date-pair probes.",
     ),
+    objective: str = typer.Option(
+        "balanced",
+        "--objective",
+        help="Date-pair ranking objective: cheapest, fastest, least-layover, or balanced.",
+    ),
+    top_k: int = typer.Option(
+        0,
+        "--top-k",
+        min=0,
+        help="Limit ranked date-pair alternatives; 0 keeps all observed pairs.",
+    ),
+    allow_transit: list[str] | None = typer.Option(
+        None,
+        "--allow-transit",
+        help="Allowed visible transit airport code for local ranking; repeat for multiple.",
+    ),
+    deny_transit: list[str] | None = typer.Option(
+        None,
+        "--deny-transit",
+        help="Disallowed visible transit airport code for local ranking; repeat for multiple.",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
 ) -> None:
     """Expand date windows, use fresh cache/probes, and rank candidate date pairs.
 
     Examples:
       gflights dates scan --input-json intents.json --project-root ~/.gflights --json
+      gflights dates scan --input-json intents.json --objective balanced --top-k 10 --json
       gflights dates scan --input-json intents.json --live-probe --max-probes 5 --probe-timeout-seconds 30 --json
     """
     del json_output
@@ -388,6 +451,10 @@ def dates_scan_command(
             input_json,
             project_root=project_root,
             date_pair_probe=date_pair_probe,
+            objective=objective.replace("-", "_"),
+            top_k=top_k,
+            allow_transit=allow_transit,
+            deny_transit=deny_transit,
         )
         emit(payload, services.exit_code_for_payload(payload))
     except services.ServiceError as error:
@@ -455,6 +522,39 @@ def itinerary_select_command(
         min=1,
         help="1-based matching row rank to select after preferred-carrier/nonstop filtering.",
     ),
+    outbound_row_rank: int | None = typer.Option(
+        None,
+        "--outbound-row-rank",
+        min=1,
+        help="1-based outbound row rank; falls back to --row-rank when omitted.",
+    ),
+    return_row_rank: int | None = typer.Option(
+        None,
+        "--return-row-rank",
+        min=1,
+        help="1-based return row rank; falls back to --row-rank when omitted.",
+    ),
+    outbound_match_text: str = typer.Option(
+        "",
+        "--outbound-match-text",
+        help="Visible text that must appear in the outbound row before selection.",
+    ),
+    return_match_text: str = typer.Option(
+        "",
+        "--return-match-text",
+        help="Visible text that must appear in the return row before selection.",
+    ),
+    reuse_target: str = typer.Option(
+        "",
+        "--reuse-target",
+        help="Reuse target id/prefix or google-flights to navigate an existing Google Flights tab.",
+    ),
+    max_tabs: int = typer.Option(
+        0,
+        "--max-tabs",
+        min=0,
+        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+    ),
     browser_mode: BrowserMode = typer.Option(
         "headless",
         "--browser-mode",
@@ -476,6 +576,8 @@ def itinerary_select_command(
 
     Examples:
       gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --require-nonstop --json
+      gflights itinerary select --search-url URL --outbound-row-rank 2 --return-row-rank 1 --outbound-match-text "7:40 AM" --return-match-text "1:00 PM" --json
+      gflights itinerary select --search-url URL --browser-mode headed --reuse-target google-flights --max-tabs 3 --json
     """
     del json_output
     exit_code, payload = asyncio.run(
@@ -486,6 +588,12 @@ def itinerary_select_command(
             preferred_carrier=preferred_carrier,
             require_nonstop=require_nonstop,
             row_rank=row_rank,
+            outbound_row_rank=outbound_row_rank,
+            return_row_rank=return_row_rank,
+            outbound_match_text=outbound_match_text,
+            return_match_text=return_match_text,
+            reuse_target=reuse_target,
+            max_tabs=max_tabs,
         )
     )
     emit(payload, exit_code)
@@ -518,6 +626,10 @@ def codec_decode_command(
 def main() -> None:
     """Run the CLI shell."""
     app()
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 if __name__ == "__main__":

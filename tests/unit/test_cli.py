@@ -62,6 +62,8 @@ def test_search_defaults_to_live_cdp_without_tdd_replay(
     assert json.loads(result.stdout)["status"] == "experimental"
     assert calls[0]["browser_mode"] == "headless"
     assert calls[0]["interact_with_form"] is False
+    assert calls[0]["rank_objectives"] == []
+    assert calls[0]["top_k"] == 0
 
 
 def test_search_live_form_uses_live_cdp_by_default(tmp_path: Path, monkeypatch: Any) -> None:
@@ -88,6 +90,51 @@ def test_search_live_form_uses_live_cdp_by_default(tmp_path: Path, monkeypatch: 
 
     assert result.exit_code == 0, result.output
     assert calls[0]["interact_with_form"] is True
+
+
+def test_search_passes_ranking_and_tab_budget_options(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_live_search(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 0, {"status": "ok", "warnings": [], "results": []}
+
+    monkeypatch.setattr(cli, "run_live_search", fake_run_live_search)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "search",
+            "--input-json",
+            str(write_intent(tmp_path)),
+            "--rank",
+            "cheapest,fastest,least-layover,balanced",
+            "--top-k",
+            "10",
+            "--deny-transit",
+            "DOH",
+            "--managed-tab-policy",
+            "reuse",
+            "--max-tabs",
+            "3",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["rank_objectives"] == [
+        "cheapest",
+        "fastest",
+        "least-layover",
+        "balanced",
+    ]
+    assert calls[0]["top_k"] == 10
+    assert calls[0]["deny_transit"] == ["DOH"]
+    assert calls[0]["managed_tab_policy"] == "reuse"
+    assert calls[0]["max_tabs"] == 3
 
 
 def test_itinerary_inspect_uses_headless_live_cdp_by_default(
@@ -191,3 +238,49 @@ def test_dates_scan_live_probe_requires_positive_max_probes(tmp_path: Path) -> N
     payload = json.loads(result.stdout)
     assert payload["status"] == "tool_error"
     assert payload["error"] == "--live-probe requires --max-probes greater than zero"
+
+
+def test_itinerary_select_passes_independent_leg_and_reuse_options(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_live_itinerary_selection(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 0, {"status": "ok", "warnings": [], "booking_url": "https://example.test"}
+
+    monkeypatch.setattr(cli, "run_live_itinerary_selection", fake_run_live_itinerary_selection)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "itinerary",
+            "select",
+            "--search-url",
+            "https://www.google.com/travel/flights/search?tfs=redacted",
+            "--outbound-row-rank",
+            "2",
+            "--return-row-rank",
+            "1",
+            "--outbound-match-text",
+            "7:40 AM",
+            "--return-match-text",
+            "1:00 PM",
+            "--reuse-target",
+            "google-flights",
+            "--max-tabs",
+            "3",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["outbound_row_rank"] == 2
+    assert calls[0]["return_row_rank"] == 1
+    assert calls[0]["outbound_match_text"] == "7:40 AM"
+    assert calls[0]["return_match_text"] == "1:00 PM"
+    assert calls[0]["reuse_target"] == "google-flights"
+    assert calls[0]["max_tabs"] == 3

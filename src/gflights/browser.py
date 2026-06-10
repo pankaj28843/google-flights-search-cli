@@ -51,9 +51,11 @@ class CdpAdapter:
         self,
         runner: Runner | None = None,
         executable: str = "cdp",
+        max_tabs: int | None = None,
     ) -> None:
         self._runner = runner or run_subprocess
         self._executable = executable
+        self._max_tabs = max_tabs if max_tabs and max_tabs > 0 else None
 
     async def run_json(
         self,
@@ -69,8 +71,10 @@ class CdpAdapter:
             "--json",
             "--timeout",
             _format_timeout(timeout_seconds),
-            *args,
         ]
+        if self._max_tabs is not None:
+            argv.extend(["--max-tabs", str(self._max_tabs)])
+        argv.extend(args)
         try:
             process = await self._runner(argv, timeout_seconds)
         except asyncio.TimeoutError:

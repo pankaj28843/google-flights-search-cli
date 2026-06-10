@@ -7,8 +7,11 @@ Current phase: live-cdp-by-default search orchestration, parser-backed live
 route visible-text extraction, generic query-codec validation, fake-tested live
 form interaction planning, and visible-text primary-result extraction. The
 behavior spec is written, the Python project passes the offline agentic
-contract, and `gflights search` uses headless cdp by default. `--live-form` is
-an additional explicit experimental mode for observed form controls.
+contract, and `gflights search` uses headless cdp by default. Post-result
+ranking objectives, top-K alternatives, independent itinerary row selection,
+structured booking-summary extraction, and opt-in tab-budget evidence now exist
+for the live workflows. `--live-form` is an additional explicit experimental
+mode for observed form controls.
 
 Runtime state defaults to `~/.gflights`: `config.json`,
 `cache/cache.sqlite`, and task-scoped `runs/` evidence bundles live there unless
@@ -86,6 +89,7 @@ bounded:
 
 ```bash
 gflights dates scan --input-json intents.json --project-root ~/.gflights --json
+gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
 gflights dates scan --input-json intents.json --project-root ~/.gflights --live-probe --max-probes 5 --json
 ```
 
@@ -97,9 +101,9 @@ login, unusual-traffic bypass, provider checkout, payment, booking, or personal
 data.
 
 Use `gflights itinerary select --search-url <url> --preferred-carrier "<carrier>"
---require-nonstop --json` when an agent needs to turn a Google Flights search
-URL into a Google booking-summary URL before running `gflights itinerary
-inspect`.
+--outbound-row-rank 2 --return-row-rank 1 --json` when an agent needs to turn a
+Google Flights search URL into a Google booking-summary URL before running
+`gflights itinerary inspect`.
 
 ## Behavior Contract
 

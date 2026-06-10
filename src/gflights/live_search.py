@@ -26,7 +26,14 @@ from gflights.live_form import (
     plan_live_form_interaction,
     validate_live_form_support,
 )
+from gflights.live_tabs import (
+    capture_tab_budget,
+    open_args_for_policy,
+    tab_budget_enabled,
+    tab_budget_summary,
+)
 from gflights.query_state import UnsupportedQueryState, build_query_state
+from gflights.ranking import rank_observed_results
 from gflights.result_extraction import classify_primary_result_absence, extract_primary_results
 from gflights.services import load_intents
 
@@ -62,8 +69,14 @@ async def run_live_search(
     timeout_seconds: float = 30.0,
     interact_with_form: bool = False,
     batch_concurrency: int = 3,
+    managed_tab_policy: str = "new",
+    max_tabs: int | None = None,
+    rank_objectives: list[str] | None = None,
+    top_k: int = 0,
+    allow_transit: list[str] | None = None,
+    deny_transit: list[str] | None = None,
 ) -> tuple[int, dict[str, Any] | list[dict[str, Any]]]:
-    adapter = adapter or CdpAdapter()
+    adapter = adapter or CdpAdapter(max_tabs=max_tabs)
     intents = load_intents(input_json)
     state = init_app_state(project_root)
     if len(intents) == 1:
@@ -75,6 +88,12 @@ async def run_live_search(
             run_id=run_id,
             timeout_seconds=timeout_seconds,
             interact_with_form=interact_with_form,
+            managed_tab_policy=managed_tab_policy,
+            max_tabs=max_tabs,
+            rank_objectives=rank_objectives,
+            top_k=top_k,
+            allow_transit=allow_transit,
+            deny_transit=deny_transit,
         )
 
     concurrency = max(1, min(batch_concurrency, 5))
@@ -91,6 +110,12 @@ async def run_live_search(
                     run_id=_batch_run_id(run_id, intent.query_id, index),
                     timeout_seconds=timeout_seconds,
                     interact_with_form=interact_with_form,
+                    managed_tab_policy=managed_tab_policy,
+                    max_tabs=max_tabs,
+                    rank_objectives=rank_objectives,
+                    top_k=top_k,
+                    allow_transit=allow_transit,
+                    deny_transit=deny_transit,
                 )
 
         indexed_results = await asyncio.gather(
@@ -112,6 +137,12 @@ async def run_live_search(
             run_id=item_run_id,
             timeout_seconds=timeout_seconds,
             interact_with_form=interact_with_form,
+            managed_tab_policy=managed_tab_policy,
+            max_tabs=max_tabs,
+            rank_objectives=rank_objectives,
+            top_k=top_k,
+            allow_transit=allow_transit,
+            deny_transit=deny_transit,
         )
         exit_codes.append(exit_code)
         outputs.append(payload)
@@ -127,6 +158,12 @@ async def _run_one_live_search(
     run_id: str | None,
     timeout_seconds: float,
     interact_with_form: bool,
+    managed_tab_policy: str,
+    max_tabs: int | None,
+    rank_objectives: list[str] | None,
+    top_k: int,
+    allow_transit: list[str] | None,
+    deny_transit: list[str] | None,
 ) -> tuple[int, dict[str, Any]]:
     run_id = run_id or _new_run_id(intent.query_id)
     run_root = state.run_root / run_id
@@ -157,9 +194,39 @@ async def _run_one_live_search(
             )
 
     page_id = ""
+    tab_context: dict[str, Any] = {
+        "enabled": tab_budget_enabled(
+            max_tabs=max_tabs,
+            managed_tab_policy=managed_tab_policy,
+        ),
+        "before": None,
+        "after": None,
+        "managed_tab_policy": managed_tab_policy,
+        "max_tabs": max_tabs,
+        "reuse_target": "",
+        "managed_tab_created": True,
+        "cleanup_status": "not_run",
+    }
+    if tab_context["enabled"]:
+        tab_context["before"] = await capture_tab_budget(
+            adapter=adapter,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            stage="before",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+    open_args, managed_tab_created = open_args_for_policy(
+        url=target_url,
+        managed_tab_policy=managed_tab_policy,
+        tab_budget_before=tab_context["before"],
+    )
+    tab_context["managed_tab_created"] = managed_tab_created
     open_result = await _run_step(
         adapter=adapter,
-        args=["open", target_url],
+        args=open_args,
         browser_mode=browser_mode,
         timeout_seconds=timeout_seconds,
         run_root=run_root,
@@ -180,6 +247,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=open_result.exit_code or 4,
             payload=_stop_payload(
                 intent_query_id=intent.query_id,
@@ -202,6 +270,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=6,
             payload=_tool_error_payload(
                 intent.query_id,
@@ -268,6 +337,7 @@ async def _run_one_live_search(
                 executed=executed,
                 artifacts=artifacts,
                 source_surfaces=source_surfaces,
+                tab_context=tab_context,
                 exit_code=navigation_result.exit_code or 4,
                 payload=_stop_payload(
                     intent_query_id=intent.query_id,
@@ -303,6 +373,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=wait_result.exit_code or 4,
             payload=_stop_payload(
                 intent_query_id=intent.query_id,
@@ -325,6 +396,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=6,
             payload=_tool_error_payload(
                 intent.query_id,
@@ -360,6 +432,7 @@ async def _run_one_live_search(
                 executed=executed,
                 artifacts=artifacts,
                 source_surfaces=source_surfaces,
+                tab_context=tab_context,
                 exit_code=settle_result.exit_code or 4,
                 payload=_stop_payload(
                     intent_query_id=intent.query_id,
@@ -401,6 +474,7 @@ async def _run_one_live_search(
                     executed=executed,
                     artifacts=artifacts,
                     source_surfaces=source_surfaces,
+                    tab_context=tab_context,
                     exit_code=result.exit_code or 4,
                     payload=_stop_payload(
                         intent_query_id=intent.query_id,
@@ -423,6 +497,7 @@ async def _run_one_live_search(
                     executed=executed,
                     artifacts=artifacts,
                     source_surfaces=source_surfaces,
+                    tab_context=tab_context,
                     exit_code=6,
                     payload=_tool_error_payload(
                         intent.query_id,
@@ -458,6 +533,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=stop_result.exit_code or 4,
             payload=_stop_payload(
                 intent_query_id=intent.query_id,
@@ -520,6 +596,7 @@ async def _run_one_live_search(
                 executed=executed,
                 artifacts=artifacts,
                 source_surfaces=source_surfaces,
+                tab_context=tab_context,
                 exit_code=settle_result.exit_code or 4,
                 payload=_stop_payload(
                     intent_query_id=intent.query_id,
@@ -573,6 +650,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=6,
             payload=_tool_error_payload(
                 intent.query_id,
@@ -602,6 +680,13 @@ async def _run_one_live_search(
         run_id=run_id,
     )
     if extracted_results:
+        ranking_payload = _ranked_result_payload(
+            extracted_results,
+            rank_objectives=rank_objectives,
+            top_k=top_k,
+            allow_transit=allow_transit,
+            deny_transit=deny_transit,
+        )
         return await _finish_live_search(
             adapter=adapter,
             page_id=page_id,
@@ -611,6 +696,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=0,
             payload={
                 "query_id": intent.query_id,
@@ -621,6 +707,7 @@ async def _run_one_live_search(
                 "target_url": target_url,
                 "query_population": query_population["payload"],
                 "results": extracted_results,
+                **ranking_payload,
                 "unsupported": [],
                 "warnings": [
                     *query_population["warnings"],
@@ -656,6 +743,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=0,
             payload={
                 "query_id": intent.query_id,
@@ -693,6 +781,7 @@ async def _run_one_live_search(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             exit_code=3,
             payload={
                 "query_id": intent.query_id,
@@ -738,6 +827,7 @@ async def _run_one_live_search(
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
+        tab_context=tab_context,
         exit_code=0,
         payload={
             "query_id": intent.query_id,
@@ -1081,20 +1171,53 @@ async def _finish_live_search(
     executed: list[dict[str, Any]],
     artifacts: list[str],
     source_surfaces: list[str],
+    tab_context: dict[str, Any] | None = None,
     exit_code: int,
     payload: dict[str, Any],
 ) -> tuple[int, dict[str, Any]]:
-    await close_managed_page(
-        adapter=adapter,
-        page_id=page_id,
-        browser_mode=browser_mode,
-        timeout_seconds=timeout_seconds,
-        run_root=run_root,
-        executed=executed,
-        artifacts=artifacts,
-        source_surfaces=source_surfaces,
-        warnings=_payload_warnings(payload),
-    )
+    cleanup_status = "not_run"
+    should_close = tab_context is None or bool(tab_context.get("managed_tab_created", True))
+    if should_close:
+        close_result = await close_managed_page(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            warnings=_payload_warnings(payload),
+        )
+        cleanup_status = close_result.status if close_result is not None else "not_run_no_page_id"
+    elif tab_context is not None:
+        cleanup_status = "skipped_reused_tab"
+
+    if tab_context is not None:
+        tab_context["cleanup_status"] = cleanup_status
+        tab_context["managed_tab_id"] = page_id
+        if tab_context.get("enabled"):
+            tab_context["after"] = await capture_tab_budget(
+                adapter=adapter,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                stage="after",
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            )
+            payload["managed_tab_id"] = page_id or None
+            payload["tab_budget"] = tab_budget_summary(
+                before=tab_context.get("before"),
+                after=tab_context.get("after"),
+                managed_tab_policy=str(tab_context.get("managed_tab_policy") or "new"),
+                max_tabs=tab_context.get("max_tabs"),
+                reuse_target=str(tab_context.get("reuse_target") or ""),
+                managed_tab_id=page_id,
+                managed_tab_created=bool(tab_context.get("managed_tab_created", True)),
+                cleanup_status=cleanup_status,
+            )
     _write_command_log(run_root, executed, artifacts)
     return exit_code, payload
 
@@ -1104,6 +1227,25 @@ def _payload_warnings(payload: dict[str, Any]) -> list[str] | None:
     if isinstance(warnings, list):
         return warnings
     return None
+
+
+def _ranked_result_payload(
+    results: list[dict[str, Any]],
+    *,
+    rank_objectives: list[str] | None,
+    top_k: int,
+    allow_transit: list[str] | None,
+    deny_transit: list[str] | None,
+) -> dict[str, Any]:
+    if not rank_objectives and top_k <= 0:
+        return {}
+    return rank_observed_results(
+        results,
+        objectives=rank_objectives or ["balanced"],
+        top_k=top_k if top_k > 0 else 10,
+        allow_transit=allow_transit,
+        deny_transit=deny_transit,
+    )
 
 
 def _snapshot_needs_result_retry(result: CdpResult) -> bool:

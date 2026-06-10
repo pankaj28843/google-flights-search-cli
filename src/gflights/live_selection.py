@@ -11,8 +11,16 @@ from typing import Any
 
 from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult, run_subprocess
+from gflights.itinerary_extraction import extract_selected_itinerary
 from gflights.live_cleanup import close_managed_page
 from gflights.live_search import MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS
+from gflights.live_tabs import (
+    capture_tab_budget,
+    open_args_for_policy,
+    tab_budget_enabled,
+    tab_budget_summary,
+)
+from gflights.result_extraction import extract_primary_results
 
 SEARCH_TERMINAL_JS = r"""
 (() => {
@@ -57,10 +65,16 @@ async def run_live_itinerary_selection(
     preferred_carrier: str = "",
     require_nonstop: bool = False,
     row_rank: int = 1,
+    outbound_row_rank: int | None = None,
+    return_row_rank: int | None = None,
+    outbound_match_text: str = "",
+    return_match_text: str = "",
+    reuse_target: str = "",
+    max_tabs: int | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Select visible Google Flights outbound/return rows and return booking URL."""
 
-    adapter = adapter or CdpAdapter()
+    adapter = adapter or CdpAdapter(max_tabs=max_tabs)
     state = init_app_state(project_root)
     run_id = run_id or _new_run_id()
     run_root = state.run_root / run_id
@@ -79,14 +93,48 @@ async def run_live_itinerary_selection(
             "preferred_carrier": preferred_carrier,
             "require_nonstop": require_nonstop,
             "row_rank": row_rank,
+            "outbound_row_rank": outbound_row_rank,
+            "return_row_rank": return_row_rank,
+            "outbound_match_text": outbound_match_text,
+            "return_match_text": return_match_text,
+            "reuse_target": reuse_target,
+            "max_tabs": max_tabs,
         },
     )
     artifacts.append(str(run_root / "selection-input.json"))
     page_id = ""
+    tab_context: dict[str, Any] = {
+        "enabled": tab_budget_enabled(max_tabs=max_tabs, reuse_target=reuse_target),
+        "before": None,
+        "after": None,
+        "managed_tab_policy": "reuse" if reuse_target else "new",
+        "max_tabs": max_tabs,
+        "reuse_target": reuse_target,
+        "managed_tab_created": True,
+        "cleanup_status": "not_run",
+    }
+    if tab_context["enabled"]:
+        tab_context["before"] = await capture_tab_budget(
+            adapter=adapter,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            stage="before",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+    open_args, managed_tab_created = open_args_for_policy(
+        url=search_url,
+        managed_tab_policy="reuse" if reuse_target else "new",
+        reuse_target=reuse_target,
+        tab_budget_before=tab_context["before"],
+    )
+    tab_context["managed_tab_created"] = managed_tab_created
 
     open_result = await _run_step(
         adapter=adapter,
-        args=["open", search_url],
+        args=open_args,
         browser_mode=browser_mode,
         timeout_seconds=timeout_seconds,
         run_root=run_root,
@@ -107,6 +155,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_stop_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -127,6 +176,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_tool_error_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -160,6 +210,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_stop_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -180,7 +231,8 @@ async def run_live_itinerary_selection(
         stage="outbound",
         preferred_carrier=preferred_carrier,
         require_nonstop=require_nonstop,
-        row_rank=row_rank,
+        row_rank=outbound_row_rank or row_rank,
+        match_text=outbound_match_text,
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
@@ -195,6 +247,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_selection_unavailable_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -230,6 +283,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_stop_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -250,7 +304,8 @@ async def run_live_itinerary_selection(
         stage="return",
         preferred_carrier=preferred_carrier,
         require_nonstop=require_nonstop,
-        row_rank=row_rank,
+        row_rank=return_row_rank or row_rank,
+        match_text=return_match_text,
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
@@ -265,6 +320,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_selection_unavailable_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -300,6 +356,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_stop_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -333,6 +390,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=_stop_payload(
                 run_id=run_id,
                 search_url=search_url,
@@ -345,6 +403,11 @@ async def run_live_itinerary_selection(
         )
     booking_url = _string_value(location_result.json_payload or {})
     if "/travel/flights/booking" not in booking_url:
+        selection_details = _selection_details(
+            outbound_selection=outbound_selection,
+            return_selection=return_selection,
+            itinerary=None,
+        )
         return await _finish_selection(
             adapter=adapter,
             page_id=page_id,
@@ -354,6 +417,7 @@ async def run_live_itinerary_selection(
             executed=executed,
             artifacts=artifacts,
             source_surfaces=source_surfaces,
+            tab_context=tab_context,
             result=(
                 3,
                 {
@@ -367,6 +431,7 @@ async def run_live_itinerary_selection(
                         "outbound": outbound_selection,
                         "return": return_selection,
                     },
+                    **selection_details,
                     "unsupported": [
                         {
                             "field": "google_flights_booking_url",
@@ -384,6 +449,52 @@ async def run_live_itinerary_selection(
             ),
         )
 
+    booking_snapshot = await _run_step(
+        adapter=adapter,
+        args=["snapshot", "--target", page_id, "--limit", "160"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 20.0),
+        run_root=run_root,
+        artifact_name="booking-snapshot.json",
+        source_surface="cdp:snapshot:booking-summary",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    if _is_stop_result(booking_snapshot):
+        return await _finish_selection(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            tab_context=tab_context,
+            result=_stop_payload(
+                run_id=run_id,
+                search_url=search_url,
+                browser_mode=browser_mode,
+                result=booking_snapshot,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                warnings=warnings,
+            ),
+        )
+    itinerary = _itinerary_from_booking_snapshot(booking_snapshot)
+    if booking_snapshot.status == "tool_error":
+        warnings.append("booking-summary snapshot failed; returning row-selection details only")
+    elif not itinerary:
+        warnings.append(
+            "booking-summary snapshot was captured but no structured itinerary fields parsed"
+        )
+    selection_details = _selection_details(
+        outbound_selection=outbound_selection,
+        return_selection=return_selection,
+        itinerary=itinerary,
+    )
+
     return await _finish_selection(
         adapter=adapter,
         page_id=page_id,
@@ -393,6 +504,7 @@ async def run_live_itinerary_selection(
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
+        tab_context=tab_context,
         result=(
             0,
             {
@@ -406,6 +518,7 @@ async def run_live_itinerary_selection(
                     "outbound": outbound_selection,
                     "return": return_selection,
                 },
+                **selection_details,
                 "unsupported": [],
                 "warnings": warnings,
                 "evidence": {
@@ -554,6 +667,7 @@ async def _select_row(
     preferred_carrier: str,
     require_nonstop: bool,
     row_rank: int,
+    match_text: str,
     executed: list[dict[str, Any]],
     artifacts: list[str],
     source_surfaces: list[str],
@@ -568,6 +682,7 @@ async def _select_row(
                 preferred_carrier=preferred_carrier,
                 require_nonstop=require_nonstop,
                 row_rank=row_rank,
+                match_text=match_text,
             ),
             "--target",
             page_id,
@@ -619,18 +734,133 @@ async def _select_row(
     return selection
 
 
+def _itinerary_from_booking_snapshot(result: CdpResult) -> dict[str, Any] | None:
+    if result.status == "tool_error":
+        return None
+    itinerary = extract_selected_itinerary(
+        {"snapshot": result.json_payload or {}},
+        source_surface="selected-itinerary-visible-text",
+        confidence="weak",
+    )
+    if itinerary.get("segments") or itinerary.get("booking_options"):
+        return itinerary
+    return None
+
+
+def _selection_details(
+    *,
+    outbound_selection: dict[str, Any],
+    return_selection: dict[str, Any],
+    itinerary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "selected_outbound": _selected_leg_summary(
+            stage="outbound",
+            selection=outbound_selection,
+            itinerary=itinerary,
+        ),
+        "selected_return": _selected_leg_summary(
+            stage="return",
+            selection=return_selection,
+            itinerary=itinerary,
+        ),
+        "booking_options": (itinerary or {}).get("booking_options") if itinerary else [],
+        "itinerary": itinerary,
+    }
+
+
+def _selected_leg_summary(
+    *,
+    stage: str,
+    selection: dict[str, Any],
+    itinerary: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not selection.get("selected"):
+        return None
+
+    summary = _row_selection_summary(stage, selection)
+    if itinerary:
+        segments = [
+            segment
+            for segment in itinerary.get("segments", [])
+            if isinstance(segment, dict) and segment.get("direction") == stage
+        ]
+        layovers = [
+            layover
+            for layover in itinerary.get("layovers", [])
+            if isinstance(layover, dict) and layover.get("direction") == stage
+        ]
+        if segments:
+            summary["segments"] = segments
+            summary["layovers"] = layovers
+            summary["flight_numbers"] = [
+                segment["flight_number"]
+                for segment in segments
+                if isinstance(segment.get("flight_number"), str)
+            ]
+            summary["carriers"] = sorted(
+                {
+                    segment["airline"]
+                    for segment in segments
+                    if isinstance(segment.get("airline"), str)
+                }
+            )
+    return summary
+
+
+def _row_selection_summary(stage: str, selection: dict[str, Any]) -> dict[str, Any]:
+    text = str(selection.get("text") or "")
+    parsed = extract_primary_results(
+        {"items": [{"text": text}]},
+        source_surface=f"itinerary-selection-{stage}-visible-row",
+        confidence="weak",
+    )
+    summary: dict[str, Any] = {
+        "stage": stage,
+        "text": text,
+        "confidence": "weak",
+        "source_surface": f"itinerary-selection-{stage}-visible-row",
+        "row_rank": selection.get("rowRank"),
+        "match_text": selection.get("matchText") or "",
+    }
+    if not parsed:
+        summary["parsed"] = False
+        return summary
+
+    row = parsed[0]
+    summary.update(
+        {
+            "parsed": True,
+            "carrier": row["carriers"][0] if row.get("carriers") else None,
+            "carriers": row.get("carriers", []),
+            "depart": row["departure_times"][0] if row.get("departure_times") else None,
+            "arrive": row["arrival_times"][0] if row.get("arrival_times") else None,
+            "origin_airports": row.get("origin_airports", []),
+            "destination_airports": row.get("destination_airports", []),
+            "duration_minutes": row.get("duration_minutes"),
+            "duration_text": row.get("duration_text"),
+            "stops": row.get("stops"),
+            "layovers": row.get("layovers", []),
+            "price": row.get("price"),
+        }
+    )
+    return summary
+
+
 def _selection_js(
     *,
     marker: str,
     preferred_carrier: str,
     require_nonstop: bool,
     row_rank: int,
+    match_text: str,
 ) -> str:
     return f"""
 (() => {{
   const preferredCarrier = {json.dumps(preferred_carrier)};
   const requireNonstop = {str(require_nonstop).lower()};
   const rowRank = Math.max(1, {row_rank});
+  const matchText = {json.dumps(match_text)};
   const marker = {json.dumps(marker)};
   const priceRe = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\\$)\\s*[0-9][0-9,.]*(?:\\s+round trip)?/i;
   const rowSelector = 'li.pIav2d, div[role="listitem"], div[role="button"], li';
@@ -652,6 +882,7 @@ def _selection_js(
   const matches = rows.filter((row) => {{
     if (preferredCarrier && !row.text.toLowerCase().includes(preferredCarrier.toLowerCase())) return false;
     if (requireNonstop && !/\\bNonstop\\b/i.test(row.text)) return false;
+    if (matchText && !row.text.toLowerCase().includes(matchText.toLowerCase())) return false;
     return true;
   }});
   const selected = matches[rowRank - 1] || matches[0] || null;
@@ -661,6 +892,7 @@ def _selection_js(
       preferredCarrier,
       requireNonstop,
       rowRank,
+      matchText,
       candidateCount: rows.length,
       candidates: rows.slice(0, 8).map((row) => row.text.slice(0, 320))
     }};
@@ -672,6 +904,7 @@ def _selection_js(
     preferredCarrier,
     requireNonstop,
     rowRank,
+    matchText,
     candidateCount: rows.length,
     matchCount: matches.length,
     text: selected.text.slice(0, 700)
@@ -725,19 +958,51 @@ async def _finish_selection(
     executed: list[dict[str, Any]],
     artifacts: list[str],
     source_surfaces: list[str],
+    tab_context: dict[str, Any] | None = None,
     result: tuple[int, dict[str, Any]],
 ) -> tuple[int, dict[str, Any]]:
-    await close_managed_page(
-        adapter=adapter,
-        page_id=page_id,
-        browser_mode=browser_mode,
-        timeout_seconds=timeout_seconds,
-        run_root=run_root,
-        executed=executed,
-        artifacts=artifacts,
-        source_surfaces=source_surfaces,
-        warnings=_payload_warnings(result[1]),
-    )
+    cleanup_status = "not_run"
+    should_close = tab_context is None or bool(tab_context.get("managed_tab_created", True))
+    if should_close:
+        close_result = await close_managed_page(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            warnings=_payload_warnings(result[1]),
+        )
+        cleanup_status = close_result.status if close_result is not None else "not_run_no_page_id"
+    elif tab_context is not None:
+        cleanup_status = "skipped_reused_tab"
+
+    if tab_context is not None:
+        tab_context["cleanup_status"] = cleanup_status
+        if tab_context.get("enabled"):
+            tab_context["after"] = await capture_tab_budget(
+                adapter=adapter,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                stage="after",
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+            )
+            result[1]["managed_tab_id"] = page_id or None
+            result[1]["tab_budget"] = tab_budget_summary(
+                before=tab_context.get("before"),
+                after=tab_context.get("after"),
+                managed_tab_policy=str(tab_context.get("managed_tab_policy") or "new"),
+                max_tabs=tab_context.get("max_tabs"),
+                reuse_target=str(tab_context.get("reuse_target") or ""),
+                managed_tab_id=page_id,
+                managed_tab_created=bool(tab_context.get("managed_tab_created", True)),
+                cleanup_status=cleanup_status,
+            )
     _write_command_log(run_root, executed, artifacts)
     return result
 

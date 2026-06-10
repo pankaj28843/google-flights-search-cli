@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from gflights.app_state import AppState, PriceCache, init_app_state, price_cache_for_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
-from gflights.ranking import rank_observed_pairs
+from gflights.ranking import normalize_objectives, rank_observed_pairs
 
 DatePairProbe = Callable[[SearchIntent], dict[str, Any]]
 
@@ -84,12 +84,17 @@ def scan_dates(
     project_root: Path | None = None,
     now: datetime | None = None,
     date_pair_probe: DatePairProbe | None = None,
+    objective: str = "balanced",
+    top_k: int | None = None,
+    allow_transit: list[str] | None = None,
+    deny_transit: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     intents = load_intents(input_json)
 
     state = init_app_state(project_root)
     cache = price_cache_for_state(state)
     observed_at = now or datetime.now(UTC)
+    normalized_objective = normalize_objectives([objective])[0]
     return [
         _date_scan_live_or_cache_result(
             intent,
@@ -97,6 +102,10 @@ def scan_dates(
             cache=cache,
             now=observed_at,
             date_pair_probe=date_pair_probe,
+            objective=normalized_objective,
+            top_k=top_k,
+            allow_transit=allow_transit,
+            deny_transit=deny_transit,
         )
         for intent in intents
     ]
@@ -122,6 +131,10 @@ def _date_scan_live_or_cache_result(
     cache: PriceCache,
     now: datetime,
     date_pair_probe: DatePairProbe | None,
+    objective: str,
+    top_k: int | None,
+    allow_transit: list[str] | None,
+    deny_transit: list[str] | None,
 ) -> dict[str, Any]:
     pairs = _date_pairs(intent)
     counts = {"fresh_cache": 0, "probed": 0, "unsupported": 0, "skipped": 0}
@@ -280,7 +293,14 @@ def _date_scan_live_or_cache_result(
             f"date pair {departure_date}/{return_date or ''} needs a live probe or fresh cache"
         )
 
-    ranked_pairs = rank_observed_pairs(intent, ranked_pairs)
+    ranked_pairs = rank_observed_pairs(
+        intent,
+        ranked_pairs,
+        objective=objective,
+        top_k=top_k,
+        allow_transit=allow_transit,
+        deny_transit=deny_transit,
+    )
     status = (
         "ok"
         if ranked_pairs and counts["skipped"] == 0 and counts["unsupported"] == 0
@@ -295,6 +315,8 @@ def _date_scan_live_or_cache_result(
         "pair_coverage": pair_coverage,
         "ranked_pairs": ranked_pairs,
         "ranking_policy": "price_duration_v1",
+        "objective": objective,
+        "top_k": top_k if top_k and top_k > 0 else None,
         "unsupported": unsupported,
         "warnings": warnings,
         "cache": {
