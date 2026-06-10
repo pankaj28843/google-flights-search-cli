@@ -23,6 +23,16 @@ class FakeRunner:
         return self.result
 
 
+class SequenceRunner:
+    def __init__(self, results: list[ProcessResult]) -> None:
+        self.results = results
+        self.calls: list[tuple[list[str], float]] = []
+
+    async def __call__(self, argv: Sequence[str], timeout_seconds: float) -> ProcessResult:
+        self.calls.append((list(argv), timeout_seconds))
+        return self.results.pop(0)
+
+
 def test_cdp_adapter_builds_headless_json_command() -> None:
     runner = FakeRunner(ProcessResult(returncode=0, stdout='{"targets":[]}', stderr=""))
     adapter = CdpAdapter(runner=runner)
@@ -38,6 +48,30 @@ def test_cdp_adapter_builds_headless_json_command() -> None:
     assert result.status == "ok"
     assert result.browser_mode == "headless"
     assert result.json_payload == {"targets": []}
+
+
+def test_cdp_adapter_retries_transient_connection_failure() -> None:
+    runner = SequenceRunner(
+        [
+            ProcessResult(
+                returncode=3,
+                stdout=(
+                    '{"ok":false,"code":"connection_failed","err_class":"connection",'
+                    '"message":"check browser resource budget: failed to read JSON message: '
+                    'failed to get reader: use of closed network connection"}'
+                ),
+                stderr="",
+            ),
+            ProcessResult(returncode=0, stdout='{"status":"ok","page_id":"page-1"}', stderr=""),
+        ]
+    )
+    adapter = CdpAdapter(runner=runner)
+
+    result = asyncio.run(adapter.run_json(["open", "https://www.google.com/travel/flights"]))
+
+    assert len(runner.calls) == 2
+    assert result.status == "ok"
+    assert result.json_payload == {"status": "ok", "page_id": "page-1"}
 
 
 def test_cdp_adapter_allows_explicit_headed_mode() -> None:
@@ -56,6 +90,25 @@ def test_cdp_adapter_allows_explicit_headed_mode() -> None:
         "pages",
     ]
     assert runner.calls[0][1] == 12.5
+
+
+def test_cdp_adapter_passes_allow_over_budget_flag() -> None:
+    runner = FakeRunner()
+    adapter = CdpAdapter(runner=runner, allow_over_budget=True)
+
+    asyncio.run(adapter.run_json(["open", "https://www.google.com/travel/flights"]))
+
+    assert runner.calls[0][0] == [
+        "cdp",
+        "--browser-mode",
+        "headless",
+        "--json",
+        "--timeout",
+        "30s",
+        "--allow-over-budget",
+        "open",
+        "https://www.google.com/travel/flights",
+    ]
 
 
 def test_cdp_adapter_reports_invalid_json_as_tool_error() -> None:

@@ -52,10 +52,12 @@ class CdpAdapter:
         runner: Runner | None = None,
         executable: str = "cdp",
         max_tabs: int | None = None,
+        allow_over_budget: bool = False,
     ) -> None:
         self._runner = runner or run_subprocess
         self._executable = executable
         self._max_tabs = max_tabs if max_tabs and max_tabs > 0 else None
+        self._allow_over_budget = allow_over_budget
 
     async def run_json(
         self,
@@ -72,84 +74,33 @@ class CdpAdapter:
             "--timeout",
             _format_timeout(timeout_seconds),
         ]
+        if self._allow_over_budget:
+            argv.append("--allow-over-budget")
         if self._max_tabs is not None:
             argv.extend(["--max-tabs", str(self._max_tabs)])
         argv.extend(args)
-        try:
-            process = await self._runner(argv, timeout_seconds)
-        except asyncio.TimeoutError:
-            return CdpResult(
-                argv=argv,
-                browser_mode=browser_mode,
-                returncode=-1,
-                stdout="",
-                stderr="",
-                status="tool_error",
-                exit_code=6,
-                error=f"cdp command timed out after {_format_timeout(timeout_seconds)}",
-                timeout=True,
-            )
-
-        if process.returncode != 0:
-            payload = _json_object(process.stdout)
-            message = payload.get("message") if payload is not None else None
-            if _is_resource_budget_payload(payload):
-                stop_state = str(payload.get("code"))
+        attempts = 3
+        for attempt in range(1, attempts + 1):
+            try:
+                process = await self._runner(argv, timeout_seconds)
+            except asyncio.TimeoutError:
                 return CdpResult(
                     argv=argv,
                     browser_mode=browser_mode,
-                    returncode=process.returncode,
-                    stdout=process.stdout,
-                    stderr=process.stderr,
-                    status="blocked",
-                    exit_code=4,
-                    json_payload=payload,
-                    stop_state=stop_state,
-                    fallback=_headed_fallback(browser_mode, "blocked", stop_state),
-                    error=process.stderr or str(message or f"cdp exited with {process.returncode}"),
+                    returncode=-1,
+                    stdout="",
+                    stderr="",
+                    status="tool_error",
+                    exit_code=6,
+                    error=f"cdp command timed out after {_format_timeout(timeout_seconds)}",
+                    timeout=True,
                 )
-            return CdpResult(
-                argv=argv,
-                browser_mode=browser_mode,
-                returncode=process.returncode,
-                stdout=process.stdout,
-                stderr=process.stderr,
-                status="tool_error",
-                exit_code=6,
-                json_payload=payload,
-                error=process.stderr or str(message or f"cdp exited with {process.returncode}"),
-            )
-
-        try:
-            payload = json.loads(process.stdout or "{}")
-        except json.JSONDecodeError as exc:
-            return CdpResult(
-                argv=argv,
-                browser_mode=browser_mode,
-                returncode=process.returncode,
-                stdout=process.stdout,
-                stderr=process.stderr,
-                status="tool_error",
-                exit_code=6,
-                error=f"invalid JSON from cdp: {exc.msg}",
-            )
-
-        status = str(payload.get("status") or "ok")
-        stop_state = payload.get("stop_state")
-        stop_state_text = str(stop_state) if stop_state is not None else None
-        fallback = _headed_fallback(browser_mode, status, stop_state_text)
-        return CdpResult(
-            argv=argv,
-            browser_mode=browser_mode,
-            returncode=process.returncode,
-            stdout=process.stdout,
-            stderr=process.stderr,
-            status=status,
-            exit_code=4 if fallback else 0,
-            json_payload=payload,
-            stop_state=stop_state_text,
-            fallback=fallback,
-        )
+            result = _cdp_result_from_process(argv=argv, browser_mode=browser_mode, process=process)
+            if attempt < attempts and _is_transient_connection_failure(result):
+                await asyncio.sleep(0.25 * attempt)
+                continue
+            return result
+        return result
 
 
 async def run_subprocess(argv: Sequence[str], timeout_seconds: float) -> ProcessResult:
@@ -181,6 +132,100 @@ def _json_object(text: str) -> dict[str, Any] | None:
     if isinstance(payload, dict):
         return payload
     return None
+
+
+def _cdp_result_from_process(
+    *,
+    argv: list[str],
+    browser_mode: BrowserMode,
+    process: ProcessResult,
+) -> CdpResult:
+    if process.returncode != 0:
+        payload = _json_object(process.stdout)
+        message = payload.get("message") if payload is not None else None
+        if _is_resource_budget_payload(payload):
+            stop_state = str(payload.get("code"))
+            return CdpResult(
+                argv=argv,
+                browser_mode=browser_mode,
+                returncode=process.returncode,
+                stdout=process.stdout,
+                stderr=process.stderr,
+                status="blocked",
+                exit_code=4,
+                json_payload=payload,
+                stop_state=stop_state,
+                fallback=_headed_fallback(browser_mode, "blocked", stop_state),
+                error=process.stderr or str(message or f"cdp exited with {process.returncode}"),
+            )
+        return CdpResult(
+            argv=argv,
+            browser_mode=browser_mode,
+            returncode=process.returncode,
+            stdout=process.stdout,
+            stderr=process.stderr,
+            status="tool_error",
+            exit_code=6,
+            json_payload=payload,
+            error=process.stderr or str(message or f"cdp exited with {process.returncode}"),
+        )
+
+    try:
+        payload = json.loads(process.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        return CdpResult(
+            argv=argv,
+            browser_mode=browser_mode,
+            returncode=process.returncode,
+            stdout=process.stdout,
+            stderr=process.stderr,
+            status="tool_error",
+            exit_code=6,
+            error=f"invalid JSON from cdp: {exc.msg}",
+        )
+
+    status = str(payload.get("status") or "ok")
+    stop_state = payload.get("stop_state")
+    stop_state_text = str(stop_state) if stop_state is not None else None
+    fallback = _headed_fallback(browser_mode, status, stop_state_text)
+    return CdpResult(
+        argv=argv,
+        browser_mode=browser_mode,
+        returncode=process.returncode,
+        stdout=process.stdout,
+        stderr=process.stderr,
+        status=status,
+        exit_code=4 if fallback else 0,
+        json_payload=payload,
+        stop_state=stop_state_text,
+        fallback=fallback,
+    )
+
+
+def _is_transient_connection_failure(result: CdpResult) -> bool:
+    payload = result.json_payload or {}
+    if payload.get("code") != "connection_failed" and payload.get("err_class") != "connection":
+        return False
+    text = " ".join(
+        str(value)
+        for value in [
+            result.error,
+            result.stderr,
+            payload.get("message"),
+            payload.get("error"),
+        ]
+        if value
+    ).lower()
+    return any(
+        marker in text
+        for marker in [
+            "failed to read json message",
+            "failed to get reader",
+            "use of closed network connection",
+            "connection refused",
+            "browser_dial_failed",
+        ]
+    )
 
 
 def _is_resource_budget_payload(payload: dict[str, Any] | None) -> bool:

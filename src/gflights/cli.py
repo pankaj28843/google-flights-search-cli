@@ -25,6 +25,7 @@ Workflow:
   gflights route resolve --input-text CPH --json      Resolve an airport or city
   gflights preflight google-flights --json            Verify live browser crawl readiness
   gflights search --input-json intents.json --json    Run live Google Flights
+  gflights search --input-json intents.json --url-only --json
   gflights itinerary select --search-url URL --json   Select visible rows to a booking URL
   gflights dates scan --input-json intents.json --json Rank date combinations
   gflights itinerary inspect --booking-url URL --json Inspect visible itinerary details
@@ -206,6 +207,11 @@ def search_command(
         "--live-form",
         help="Also attempt evidence-scoped form interaction before result capture.",
     ),
+    url_only: bool = typer.Option(
+        False,
+        "--url-only",
+        help="Only encode Google Flights search URLs from SearchIntent JSON; do not open CDP.",
+    ),
     browser_mode: BrowserMode = typer.Option(
         "headless",
         "--browser-mode",
@@ -267,12 +273,21 @@ def search_command(
 
     Examples:
       gflights search --input-json intents.json --json
+      gflights search --input-json concrete-intents.json --url-only --json
       gflights search --input-json intents.json --rank cheapest,fastest,least-layover,balanced --top-k 10 --json
       gflights search --input-json intents.json --browser-mode headed --managed-tab-policy reuse --max-tabs 3 --json
       gflights search --input-json concrete-intents.json --concurrency 3 --json
       gflights search --input-json intents.json --browser-mode headed --json
     """
     del json_output
+    if url_only:
+        try:
+            payload = services.encode_search_urls(input_json)
+        except services.ServiceError as error:
+            emit_service_error(error)
+            return
+        emit(payload, services.exit_code_for_payload(payload))
+        return
     try:
         exit_code, payload = asyncio.run(
             run_live_search(
@@ -639,6 +654,11 @@ def itinerary_select_command(
         min=0,
         help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
     ),
+    allow_over_budget: bool = typer.Option(
+        False,
+        "--allow-over-budget",
+        help="Pass cdp --allow-over-budget for externally bounded fanout runs.",
+    ),
     browser_mode: BrowserMode = typer.Option(
         "headless",
         "--browser-mode",
@@ -662,6 +682,7 @@ def itinerary_select_command(
       gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --require-nonstop --json
       gflights itinerary select --search-url URL --outbound-row-rank 2 --return-row-rank 1 --outbound-match-text "7:40 AM" --return-match-text "1:00 PM" --json
       gflights itinerary select --search-url URL --browser-mode headed --reuse-target google-flights --max-tabs 3 --json
+      gflights itinerary select --search-url URL --allow-over-budget --json
     """
     del json_output
     exit_code, payload = asyncio.run(
@@ -678,6 +699,7 @@ def itinerary_select_command(
             return_match_text=return_match_text,
             reuse_target=reuse_target,
             max_tabs=max_tabs,
+            allow_over_budget=allow_over_budget,
         )
     )
     emit(payload, exit_code)

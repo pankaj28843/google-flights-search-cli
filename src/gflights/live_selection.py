@@ -97,10 +97,11 @@ async def run_live_itinerary_selection(
     return_match_text: str = "",
     reuse_target: str = "",
     max_tabs: int | None = None,
+    allow_over_budget: bool = False,
 ) -> tuple[int, dict[str, Any]]:
     """Select visible Google Flights outbound/return rows and return booking URL."""
 
-    adapter = adapter or CdpAdapter(max_tabs=max_tabs)
+    adapter = adapter or CdpAdapter(max_tabs=max_tabs, allow_over_budget=allow_over_budget)
     state = init_app_state(project_root)
     run_id = run_id or _new_run_id()
     run_root = state.run_root / run_id
@@ -134,6 +135,7 @@ async def run_live_itinerary_selection(
             "return_match_text": return_match_text,
             "reuse_target": reuse_target,
             "max_tabs": max_tabs,
+            "allow_over_budget": allow_over_budget,
         },
     )
     artifacts.append(str(run_root / "selection-input.json"))

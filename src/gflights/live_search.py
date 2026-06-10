@@ -282,6 +282,7 @@ async def _run_one_live_search(
                 open_result,
                 artifacts,
                 source_surfaces,
+                target_url,
                 query_population,
             ),
         )
@@ -408,6 +409,7 @@ async def _run_one_live_search(
                 wait_result,
                 artifacts,
                 source_surfaces,
+                target_url,
                 query_population,
             ),
         )
@@ -509,6 +511,7 @@ async def _run_one_live_search(
                         result,
                         artifacts,
                         source_surfaces,
+                        target_url,
                         query_population,
                     ),
                 )
@@ -687,6 +690,7 @@ async def _run_one_live_search(
                 snapshot_result,
                 artifacts,
                 source_surfaces,
+                target_url,
                 query_population,
             ),
         )
@@ -1490,6 +1494,7 @@ def _tool_error_payload(
     result: CdpResult,
     artifacts: list[str],
     source_surfaces: list[str],
+    target_url: str,
     query_population: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -1498,6 +1503,7 @@ def _tool_error_payload(
         "confidence": "unknown",
         "live_mode": True,
         "browser_mode": browser_mode,
+        "target_url": target_url,
         "query_population": query_population["payload"],
         "results": [],
         "unsupported": [*query_population["unsupported"]],

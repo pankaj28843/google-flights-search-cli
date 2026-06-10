@@ -137,6 +137,35 @@ def test_search_passes_ranking_and_tab_budget_options(
     assert calls[0]["max_tabs"] == 3
 
 
+def test_search_url_only_encodes_target_urls_without_cdp(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    async def fake_run_live_search(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        raise AssertionError("url-only search must not open live cdp")
+
+    monkeypatch.setattr(cli, "run_live_search", fake_run_live_search)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "search",
+            "--input-json",
+            str(write_intent(tmp_path)),
+            "--url-only",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload[0]["status"] == "encoded"
+    assert payload[0]["live_mode"] is False
+    assert payload[0]["target_url"].startswith("https://www.google.com/travel/flights/search?")
+    assert "tfs=" in payload[0]["target_url"]
+    assert payload[0]["results"] == []
+
+
 def test_itinerary_inspect_uses_headless_live_cdp_by_default(
     tmp_path: Path,
     monkeypatch: Any,
@@ -340,6 +369,7 @@ def test_itinerary_select_passes_independent_leg_and_reuse_options(
             "google-flights",
             "--max-tabs",
             "3",
+            "--allow-over-budget",
             "--project-root",
             str(tmp_path),
             "--json",
@@ -353,3 +383,4 @@ def test_itinerary_select_passes_independent_leg_and_reuse_options(
     assert calls[0]["return_match_text"] == "1:00 PM"
     assert calls[0]["reuse_target"] == "google-flights"
     assert calls[0]["max_tabs"] == 3
+    assert calls[0]["allow_over_budget"] is True

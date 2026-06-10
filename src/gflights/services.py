@@ -7,12 +7,14 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from pydantic import ValidationError
 
 from gflights.app_state import AppState, PriceCache, init_app_state, price_cache_for_state
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
+from gflights.query_state import UnsupportedQueryState, build_query_state
 from gflights.ranking import normalize_objectives, rank_observed_pairs
 
 DatePairProbe = Callable[[SearchIntent], dict[str, Any]]
@@ -76,6 +78,58 @@ def load_intents(path: Path) -> list[SearchIntent]:
 
 def parse_intents(path: Path) -> list[dict[str, Any]]:
     return [{"status": "ok", **intent.model_dump(mode="json")} for intent in load_intents(path)]
+
+
+def encode_search_urls(path: Path) -> list[dict[str, Any]]:
+    return [_encode_search_url(intent) for intent in load_intents(path)]
+
+
+def _encode_search_url(intent: SearchIntent) -> dict[str, Any]:
+    try:
+        state = build_query_state(intent)
+    except UnsupportedQueryState as exc:
+        return {
+            "query_id": intent.query_id,
+            "status": "unsupported",
+            "confidence": "unknown",
+            "live_mode": False,
+            "target_url": "",
+            "query_population": {
+                "status": "unsupported",
+                "confidence": "none",
+                "params": [],
+                "source_surfaces": ["query-state:unsupported"],
+                "evidence_refs": ["docs/query-state-maintenance.md"],
+            },
+            "results": [],
+            "unsupported": [
+                {
+                    "field": exc.field,
+                    "value": exc.value,
+                    "reason": exc.reason,
+                }
+            ],
+            "warnings": [],
+        }
+    params = dict(state.params)
+    target_url = "https://www.google.com/travel/flights/search?" + urlencode(params)
+    return {
+        "query_id": intent.query_id,
+        "status": "encoded",
+        "confidence": state.confidence,
+        "live_mode": False,
+        "target_url": target_url,
+        "query_population": {
+            "status": "encoded",
+            "confidence": state.confidence,
+            "params": sorted(params),
+            "source_surfaces": state.source_surfaces,
+            "evidence_refs": state.evidence_refs,
+        },
+        "results": [],
+        "unsupported": [],
+        "warnings": state.warnings,
+    }
 
 
 def scan_dates(

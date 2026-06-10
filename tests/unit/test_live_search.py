@@ -430,6 +430,41 @@ def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Pa
     assert (tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json").is_file()
 
 
+def test_live_search_tool_error_keeps_encoded_target_url(tmp_path: Path) -> None:
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": False,
+                    "code": "connection_failed",
+                    "message": "failed to read JSON message: use of closed network connection",
+                },
+                status="tool_error",
+                exit_code=6,
+            ),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-tool-error-url",
+        )
+    )
+
+    assert exit_code == 6
+    assert payload["status"] == "tool_error"
+    assert payload["target_url"].startswith("https://www.google.com/travel/flights/search?")
+    assert "tfs=" in payload["target_url"]
+    assert "hl=en" in payload["target_url"]
+    assert "curr=EUR" in payload["target_url"]
+    assert payload["query_population"]["status"] == "encoded"
+
+
 def test_live_search_reuse_policy_records_tab_budget_and_top_k_results(
     tmp_path: Path,
 ) -> None:
