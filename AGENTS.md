@@ -7,18 +7,20 @@ Use this file as the short router for this repository.
 Read in this order:
 
 1. `README.md` for current phase and validation.
-2. `docs/detailed-cli-spec.md` for behavior requirements.
-3. `docs/schema-and-json-contracts.md` for agent-facing JSON and exit-code contracts.
-4. `docs/cache-layer-policy.md` before changing app-state cache storage,
+2. `docs/agent-instruction-map.md` for how durable agent rules map to
+   repository docs and validation commands.
+3. `docs/detailed-cli-spec.md` for behavior requirements.
+4. `docs/schema-and-json-contracts.md` for agent-facing JSON and exit-code contracts.
+5. `docs/cache-layer-policy.md` before changing app-state cache storage,
    freshness, migrations, or SQLite/ORM dependencies.
-5. `docs/flight-search-first-principles.md` for durable domain concepts.
-6. `docs/query-state-maintenance.md` before changing encoded query/protobuf behavior.
-7. `docs/cdp-usage-discipline.md` before using `cdp`, changing live browser
+6. `docs/flight-search-first-principles.md` for durable domain concepts.
+7. `docs/query-state-maintenance.md` before changing encoded query/protobuf behavior.
+8. `docs/cdp-usage-discipline.md` before using `cdp`, changing live browser
    orchestration, or running live smoke tests.
-8. `docs/browser-evidence-policy.md` before using live Google Flights.
-9. `docs/fixture-contract.md` before adding or changing fixtures.
-10. `docs/review-and-cleanup.md` before review, cleanup, or stale-evidence work.
-11. `docs/agentic-e2e.md` before writing implementation tests.
+9. `docs/browser-evidence-policy.md` before using live Google Flights.
+10. `docs/fixture-contract.md` before adding or changing fixtures.
+11. `docs/review-and-cleanup.md` before review, cleanup, or stale-evidence work.
+12. `docs/agentic-e2e.md` before writing implementation tests.
 
 ## Current Phase
 
@@ -72,3 +74,45 @@ make validate
   body stability, or network idle alone as result readiness. Live runs that use
   the settlement helper must save `settlement.json` with terminal condition,
   dwell, body-stability, and network-steadiness evidence.
+- When changing Google Flights result-row discovery, row expansion, row
+  selection, or extraction, inspect current browser evidence before coding
+  selectors. Verify command support with `cdp click --help`, `cdp eval --help`,
+  and `gflights --help`; when headed evidence is needed, start from
+  `cdp --browser-mode headed pages --json` and target the exact page id. Prefer
+  human-facing ARIA/role structure as the live contract: stage heading, nearby
+  `[role=list]`, row-local `[role=link]` whose accessible name contains
+  `Select flight`, closest row container, and row-local `Flight details` buttons
+  for expansion. Treat generated classes, absolute DOM indexes, and stale
+  snapshot text as fallback evidence only.
+- Expand the top considered result rows before extracting structured row
+  details. The default considered set is at least 5 rows and at most 10 rows
+  unless a checked-in contract says otherwise. Clicks that should move the
+  Google Flights state must verify the next stage with `--wait-text`,
+  `--wait-url-contains`, or an equivalent semantic condition; do not replace a
+  missing verification with long blind waits.
+- Build live Google Flights automation in two layers: generic async CDP helpers
+  for command invocation, timeouts, artifact capture, and polling assertions;
+  then Google Flights domain helpers for conditions such as rows rendered,
+  rows expanded, return rows reached, and booking options visible. Prefer
+  `async with helper.stage("..."):` and assertion artifacts over embedding
+  long retry loops inside browser JavaScript. A timed-out assertion should
+  return or raise with the last observed CDP evidence so the next code change is
+  evidence-based.
+- For full round-trip option crawling, remember that return choices are nested
+  under each outbound choice. Top-k means an outbound top-k multiplied by a
+  return top-k, not a single flat list. Use a practical default of outbound
+  top 5 x return top 3 for constrained family itinerary searches, and increase
+  toward 5 x 5 only when runtime and booking-option evidence stay healthy. If
+  a max budget is configured, normalize prices into the trip currency and add
+  date-adjustment costs first, then prune branches that already exceed budget
+  instead of doing unnecessary return-row fanout where no acceptable candidates
+  can remain. Treat top-k as user-constraint aware, not merely Google's row
+  order: filter/rank by requested currency, nonstop-only, min/max stops,
+  max layover duration, checked-baggage requirements, cabin facilities, and
+  other user objectives before spending crawl budget on more rows. When a
+  constraint maps to a stable Google Flights filter, such as stops, airlines,
+  bags, times, connecting airports, emissions, or duration, apply that filter
+  before row fanout and then verify the resulting rows still satisfy the
+  user-level constraint from ARIA/booking evidence. UI filters are search-space
+  reducers; row-wise extraction and booking evidence remain the source of truth
+  for final candidate inclusion.

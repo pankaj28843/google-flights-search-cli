@@ -57,6 +57,43 @@ def test_tdd_selected_itinerary_snapshot_extracts_booking_boundary_fields() -> N
     assert itinerary["boundary"]["payment_entered"] is False
 
 
+def test_tdd_selected_itinerary_extracts_flat_airline_and_ota_booking_options() -> None:
+    text = (
+        "Booking options How options are ranked Book with JetBlueAirline Hide options "
+        "Blue Basic $352 Seat selection for a fee Standard seat Last to board "
+        "No ticket changes 1 free carry-on First checked bag costs 94 US dollars "
+        "1st checked bag: $94 Continue Blue $462 Free seat selection "
+        "Extra legroom available for a fee Standard boarding Free change, possible fare difference "
+        "1 free carry-on First checked bag costs 94 US dollars 1st checked bag: $94 Continue "
+        "Fare and baggage fees apply to your entire trip. JetBlue bag policy "
+        "Book with lastminute.com $340 Continue View options "
+        "Book with Expedia $352 DKK 2,279 Continue View options "
+        "Prices include required taxes + fees for 1 adult."
+    )
+
+    itinerary = extract_selected_itinerary({"snapshot": {"items": [{"text": text}]}})
+
+    assert [option["provider"] for option in itinerary["booking_options"]] == [
+        "JetBlue",
+        "JetBlue",
+        "lastminute.com",
+        "Expedia",
+    ]
+    assert itinerary["booking_options"][0]["fare"] == "Blue Basic"
+    assert itinerary["booking_options"][0]["price"] == {
+        "amount": 352,
+        "currency": "USD",
+        "text": "$352",
+    }
+    assert itinerary["booking_options"][2]["price"]["amount"] == 340
+    assert itinerary["booking_options"][3]["secondary_price"] == {
+        "amount": 2279,
+        "currency": "DKK",
+        "text": "DKK 2,279",
+    }
+    assert itinerary["boundary"]["provider_continue_visible"] is True
+
+
 def test_tdd_route_visible_text_snapshot_extracts_ambiguous_choices() -> None:
     record = _load_fixture("route_autocomplete_visible_text_fixture.json")
     query = record["queries"][0]

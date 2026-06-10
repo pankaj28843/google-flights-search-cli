@@ -219,6 +219,75 @@ def test_route_resolve_defaults_to_live_cdp_without_tdd_replay(
     assert calls[0]["project_root"] == tmp_path
 
 
+def test_preflight_google_flights_uses_public_synthetic_smoke(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_google_flights_preflight(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 0, {
+            "status": "ok",
+            "preflight_route": "JFK-SFO",
+            "privacy": "synthetic public route",
+            "selections": [],
+        }
+
+    monkeypatch.setattr(cli, "run_google_flights_preflight", fake_run_google_flights_preflight)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "preflight",
+            "google-flights",
+            "--browser-mode",
+            "headless",
+            "--consent-choice",
+            "reject-all",
+            "--top-k",
+            "5",
+            "--selection-concurrency",
+            "4",
+            "--max-tabs",
+            "7",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["preflight_route"] == "JFK-SFO"
+    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["consent_choice"] == "reject-all"
+    assert calls[0]["top_k"] == 5
+    assert calls[0]["selection_concurrency"] == 4
+    assert calls[0]["max_tabs"] == 7
+    assert calls[0]["project_root"] == tmp_path
+
+
+def test_preflight_google_flights_rejects_unknown_consent_choice(tmp_path: Path) -> None:
+    result = runner.invoke(
+        cli.app,
+        [
+            "preflight",
+            "google-flights",
+            "--consent-choice",
+            "maybe",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 6, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "tool_error"
+    assert "--consent-choice" in payload["error"]
+
+
 def test_dates_scan_live_probe_requires_positive_max_probes(tmp_path: Path) -> None:
     result = runner.invoke(
         cli.app,

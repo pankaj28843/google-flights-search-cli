@@ -125,6 +125,110 @@ def test_extract_primary_results_from_dkk_compact_visible_rows() -> None:
     assert results[1]["carriers"] == ["Air India"]
 
 
+def test_extract_primary_results_from_compact_rows_with_passenger_markers() -> None:
+    payload = {
+        "snapshot": {
+            "items": [
+                {
+                    "text": (
+                        "Skip to main content Loading results Flight search Round trip "
+                        "Search results 25 results returned. Departing flights Sorted by price "
+                        "7:29 AM JFK 7:24 PM SFO 1 0 $267 round trip "
+                        "1 stop14 hr 55 minAmerican +66% emissions "
+                        "9:30 PM JFK 8:58 AM+1 SFO 1 0 $267 round trip "
+                        "1 stop14 hr 28 minAmericanOperated by SkyWest Airlines as "
+                        "American Eagle +72% emissions "
+                        "8:59 PM JFK 12:36 AM+1 SFO 1 0 $275 round trip "
+                        "Nonstop6 hr 37 minJetBlue +15% emissions"
+                    )
+                }
+            ]
+        }
+    }
+
+    results = extract_primary_results(
+        payload,
+        source_surface="primary-results-visible-text",
+        evidence_artifact="settlement-text-1.json",
+    )
+
+    assert len(results) == 3
+    assert results[0]["origin_airports"] == ["JFK"]
+    assert results[0]["destination_airports"] == ["SFO"]
+    assert results[0]["price"] == {"amount": 267, "currency": "USD", "text": "$267"}
+    assert results[0]["stops"] == {"count": 1, "text": "1 stop"}
+    assert results[0]["duration_minutes"] == 14 * 60 + 55
+    assert results[0]["carriers"] == ["American"]
+    assert results[1]["carriers"] == ["American"]
+    assert results[2]["stops"] == {"count": 0, "text": "Nonstop"}
+    assert results[2]["carriers"] == ["JetBlue"]
+    assert classify_primary_result_absence(payload) == "unknown"
+
+
+def test_extract_primary_results_from_accessible_rows() -> None:
+    payload = {
+        "result": {
+            "value": [
+                {
+                    "rank": 3,
+                    "stage": "outbound",
+                    "text": (
+                        "8:59 PM JFK 12:36 AM+1 SFO $275 round trip "
+                        "Nonstop6 hr 37 minJetBlue +15% emissions"
+                    ),
+                    "ariaLabel": (
+                        "Select flight, JetBlue flight with JetBlue. Departing at 8:59 PM "
+                        "from JFK. Arriving at 12:36 AM+1 at SFO. Total duration 6 hr 37 min. "
+                        "Nonstop. From 275 US dollars round trip. 1 carry-on bag included. "
+                        "0 checked bags included. Economy. Average legroom (32 in). "
+                        "Wi-Fi for a fee. In-seat USB outlet."
+                    ),
+                    "combinedText": (
+                        "8:59 PM JFK 12:36 AM+1 SFO $275 round trip "
+                        "Nonstop6 hr 37 minJetBlue +15% emissions "
+                        "Select flight, JetBlue flight with JetBlue. Departing at 8:59 PM "
+                        "from JFK. Arriving at 12:36 AM+1 at SFO. Total duration 6 hr 37 min. "
+                        "Nonstop. From 275 US dollars round trip. 1 carry-on bag included. "
+                        "0 checked bags included. Economy. Average legroom (32 in). "
+                        "Wi-Fi for a fee. In-seat USB outlet."
+                    ),
+                    "locatorStrategy": (
+                        "stage-heading > [role=list] > "
+                        "[role=link][aria-label*=Select flight] -> closest li"
+                    ),
+                }
+            ]
+        }
+    }
+
+    results = extract_primary_results(
+        payload,
+        source_surface="primary-results-accessible-rows",
+        evidence_artifact="accessible-rows.json",
+        confidence="medium",
+    )
+
+    assert len(results) == 1
+    result = results[0]
+    assert result["result_id"] == "accessible-row-result-1"
+    assert result["confidence"] == "medium"
+    assert result["origin_airports"] == ["JFK"]
+    assert result["destination_airports"] == ["SFO"]
+    assert result["departure_times"] == ["8:59 PM"]
+    assert result["arrival_times"] == ["12:36 AM+1"]
+    assert result["carriers"] == ["JetBlue"]
+    assert result["price"] == {"amount": 275, "currency": "USD", "text": "$275"}
+    assert result["stops"] == {"count": 0, "text": "Nonstop"}
+    assert result["duration_minutes"] == 397
+    assert result["baggage_summary"]["carry_on_bags_included"] == 1
+    assert result["baggage_summary"]["checked_bags_included"] == 0
+    assert result["baggage_summary"]["checked_bag_allowed"] is False
+    assert result["cabin"] == "economy"
+    assert "Wi-Fi for a fee" in result["cabin_facilities"]
+    assert "In-seat USB outlet" in result["cabin_facilities"]
+    assert result["evidence"]["artifacts"] == ["accessible-rows.json"]
+
+
 def test_classify_primary_result_absence_states() -> None:
     assert classify_primary_result_absence({"snapshot": {"items": []}}) == "empty_snapshot"
     assert (

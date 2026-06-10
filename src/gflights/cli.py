@@ -16,12 +16,14 @@ from gflights.live_itinerary import run_live_itinerary_inspection
 from gflights.live_route import run_live_route_resolution
 from gflights.live_search import run_live_search
 from gflights.live_selection import run_live_itinerary_selection
+from gflights.preflight import run_google_flights_preflight
 
 ROOT_HELP = """Agent-first Google Flights CLI for live searches and evidence-backed JSON.
 
 Workflow:
   gflights schema --model search-intent --json        Inspect the input contract
   gflights route resolve --input-text CPH --json      Resolve an airport or city
+  gflights preflight google-flights --json            Verify live browser crawl readiness
   gflights search --input-json intents.json --json    Run live Google Flights
   gflights itinerary select --search-url URL --json   Select visible rows to a booking URL
   gflights dates scan --input-json intents.json --json Rank date combinations
@@ -72,6 +74,17 @@ live searches and evidence can be task-scoped and inspectable.
 
 Examples:
   gflights project init --path ~/.gflights --json
+"""
+
+PREFLIGHT_HELP = """Run browser and Google Flights readiness ceremonies.
+
+Preflight commands use public synthetic data only. They are intended to prove
+that consent, live search, row selection, return selection, and booking-summary
+inspection work before a task-specific crawler uses real itinerary constraints.
+
+Examples:
+  gflights preflight google-flights --json
+  gflights preflight google-flights --browser-mode headless --top-k 5 --json
 """
 
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
@@ -126,6 +139,7 @@ app = typer.Typer(
 )
 intent_app = typer.Typer(help=INTENT_HELP)
 project_app = typer.Typer(help=PROJECT_HELP)
+preflight_app = typer.Typer(help=PREFLIGHT_HELP)
 route_app = typer.Typer(help=ROUTE_HELP)
 dates_app = typer.Typer(help=DATES_HELP)
 itinerary_app = typer.Typer(help=ITINERARY_HELP)
@@ -133,6 +147,7 @@ codec_app = typer.Typer(help=CODEC_HELP)
 
 app.add_typer(intent_app, name="intent")
 app.add_typer(project_app, name="project")
+app.add_typer(preflight_app, name="preflight")
 app.add_typer(route_app, name="route")
 app.add_typer(dates_app, name="dates")
 app.add_typer(itinerary_app, name="itinerary")
@@ -317,6 +332,75 @@ def project_init_command(
     """
     del json_output
     emit(services.init_project(path))
+
+
+@preflight_app.command("google-flights")
+def preflight_google_flights_command(
+    browser_mode: BrowserMode = typer.Option(
+        "headless",
+        "--browser-mode",
+        help="Browser mode for the public synthetic Google Flights smoke test.",
+    ),
+    consent_choice: str = typer.Option(
+        "reject-all",
+        "--consent-choice",
+        help="Consent action when Google asks: reject-all, accept-all, or skip.",
+    ),
+    top_k: int = typer.Option(
+        5,
+        "--top-k",
+        min=1,
+        max=5,
+        help="Number of synthetic route row ranks to select through booking-summary pages.",
+    ),
+    selection_concurrency: int = typer.Option(
+        3,
+        "--selection-concurrency",
+        min=1,
+        max=7,
+        help="Concurrent managed tabs for selecting synthetic route rows through booking.",
+    ),
+    max_tabs: int = typer.Option(
+        8,
+        "--max-tabs",
+        min=0,
+        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="State root for preflight artifacts; defaults to ~/.gflights.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+) -> None:
+    """Verify consent, search, selection, return selection, and booking evidence.
+
+    The route is synthetic and public: JFK to SFO, one adult, future dates.
+    The command stops at Google booking-summary pages and never clicks provider
+    checkout.
+    """
+    del json_output
+    if consent_choice not in {"reject-all", "accept-all", "skip"}:
+        emit(
+            {
+                "status": "tool_error",
+                "warnings": [],
+                "error": "--consent-choice must be reject-all, accept-all, or skip",
+            },
+            6,
+        )
+        return
+    exit_code, payload = asyncio.run(
+        run_google_flights_preflight(
+            project_root=project_root,
+            browser_mode=browser_mode,
+            consent_choice=consent_choice,  # type: ignore[arg-type]
+            top_k=top_k,
+            selection_concurrency=selection_concurrency,
+            max_tabs=max_tabs,
+        )
+    )
+    emit(payload, exit_code)
 
 
 @route_app.command("resolve")
