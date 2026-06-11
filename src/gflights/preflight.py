@@ -16,6 +16,13 @@ from gflights.live_selection import run_live_itinerary_selection
 
 ConsentChoice = Literal["reject-all", "accept-all", "skip"]
 
+SYNTHETIC_SMOKE_ROUTES: tuple[tuple[str, str, int], ...] = (
+    ("JFK", "SFO", 90),
+    ("LAX", "LAS", 91),
+    ("ORD", "LAX", 92),
+    ("BOS", "MIA", 93),
+)
+
 BODY_READY_JS = r"""
 (() => {
   const text = (document.body && (document.body.innerText || document.body.textContent) || "")
@@ -57,7 +64,7 @@ def consent_click_js(label: str) -> str:
 """.strip()
 
 
-def synthetic_smoke_intent(today: date | None = None) -> dict[str, Any]:
+def synthetic_smoke_intent(today: date | None = None, route_index: int = 0) -> dict[str, Any]:
     """Return a public, non-personal round-trip smoke intent.
 
     Dates are deliberately generated from the current date so the smoke test
@@ -65,12 +72,16 @@ def synthetic_smoke_intent(today: date | None = None) -> dict[str, Any]:
     """
 
     today = today or datetime.now(UTC).date()
-    depart = today + timedelta(days=90)
+    origin, destination, depart_offset_days = SYNTHETIC_SMOKE_ROUTES[
+        route_index % len(SYNTHETIC_SMOKE_ROUTES)
+    ]
+    depart = today + timedelta(days=depart_offset_days)
     return_date = depart + timedelta(days=7)
+    route_slug = f"{origin.lower()}-{destination.lower()}"
     return {
-        "query_id": f"preflight-jfk-sfo-{depart.isoformat()}-return-{return_date.isoformat()}",
-        "origin": {"text": "JFK", "kind": "airport_code"},
-        "destination": {"text": "SFO", "kind": "airport_code"},
+        "query_id": f"preflight-{route_slug}-{depart.isoformat()}-return-{return_date.isoformat()}",
+        "origin": {"text": origin, "kind": "airport_code"},
+        "destination": {"text": destination, "kind": "airport_code"},
         "trip_type": "round_trip",
         "departure_window": {"start": depart.isoformat(), "end": depart.isoformat()},
         "return_window": {"start": return_date.isoformat(), "end": return_date.isoformat()},
@@ -89,12 +100,28 @@ def synthetic_smoke_intent(today: date | None = None) -> dict[str, Any]:
     }
 
 
+def synthetic_smoke_intents(today: date | None = None) -> list[dict[str, Any]]:
+    """Return route-fallback candidates for public synthetic preflight."""
+
+    return [
+        synthetic_smoke_intent(today=today, route_index=route_index)
+        for route_index in range(len(SYNTHETIC_SMOKE_ROUTES))
+    ]
+
+
+def _intent_route_label(intent: dict[str, Any]) -> str:
+    origin = ((intent.get("origin") or {}).get("text") or "").upper()
+    destination = ((intent.get("destination") or {}).get("text") or "").upper()
+    return f"{origin}-{destination}" if origin and destination else "unknown"
+
+
 async def run_google_flights_preflight(
     *,
     project_root: Path | None = None,
     browser_mode: BrowserMode = "headless",
     consent_choice: ConsentChoice = "reject-all",
     top_k: int = 5,
+    min_complete_selections: int | None = None,
     selection_concurrency: int = 3,
     max_tabs: int | None = None,
     timeout_seconds: float = 45.0,
@@ -112,6 +139,12 @@ async def run_google_flights_preflight(
     artifacts: list[str] = []
     source_surfaces: list[str] = []
     warnings: list[str] = []
+    selection_count = max(1, min(top_k, 5))
+    minimum_complete = (
+        selection_count
+        if min_complete_selections is None
+        else max(1, min(min_complete_selections, selection_count))
+    )
 
     consent_payload = await _seed_google_consent(
         adapter=adapter,
@@ -139,114 +172,182 @@ async def run_google_flights_preflight(
             "evidence": _evidence(run_id, artifacts, source_surfaces),
         }
 
-    intent = synthetic_smoke_intent()
-    intent_path = run_root / "preflight-intent.json"
-    _write_json(intent_path, intent)
-    artifacts.append(str(intent_path))
-    source_surfaces.append("gflights:preflight:synthetic-intent")
+    route_attempts: list[dict[str, Any]] = []
+    last_blocked_payload: dict[str, Any] | None = None
+    last_exit = 4
 
-    search_exit, search_payload, search_attempts = await _run_preflight_search_with_retry(
-        input_json=intent_path,
-        project_root=state.root,
-        browser_mode=browser_mode,
-        consent_choice=consent_choice,
-        timeout_seconds=timeout_seconds,
-        max_tabs=max_tabs,
-        top_k=top_k,
-        base_run_id=f"{run_id}-search",
-        adapter=adapter,
-    )
-    search_artifact = run_root / "preflight-search.json"
-    if isinstance(search_payload, dict):
-        search_payload = dict(search_payload)
-        diagnostics = dict(search_payload.get("diagnostics") or {})
-        diagnostics["preflight_search_attempts"] = search_attempts
-        diagnostics["preflight_search_attempt_count"] = len(search_attempts)
-        search_payload["diagnostics"] = diagnostics
-    _write_json(search_artifact, search_payload)
-    artifacts.append(str(search_artifact))
-    source_surfaces.append("gflights:preflight:search")
-    if (
-        search_exit != 0
-        or not isinstance(search_payload, dict)
-        or search_payload.get("status") != "ok"
-    ):
-        _write_json(run_root / "command-log.json", executed)
-        artifacts.append(str(run_root / "command-log.json"))
-        return search_exit or 4, {
-            "status": "blocked",
-            "stop_state": (search_payload or {}).get("stop_state")
+    for route_number, intent in enumerate(synthetic_smoke_intents(), start=1):
+        route_label = _intent_route_label(intent)
+        route_slug = route_label.lower().replace("-", "_")
+        intent_path = run_root / f"preflight-intent-route-{route_number:02d}-{route_slug}.json"
+        _write_json(intent_path, intent)
+        artifacts.append(str(intent_path))
+        source_surfaces.append("gflights:preflight:synthetic-intent")
+
+        search_exit, search_payload, search_attempts = await _run_preflight_search_with_retry(
+            input_json=intent_path,
+            project_root=state.root,
+            browser_mode=browser_mode,
+            consent_choice=consent_choice,
+            timeout_seconds=timeout_seconds,
+            max_tabs=max_tabs,
+            top_k=top_k,
+            base_run_id=f"{run_id}-route-{route_number:02d}-search",
+            adapter=adapter,
+        )
+        last_exit = search_exit or 4
+        search_artifact = run_root / f"preflight-search-route-{route_number:02d}-{route_slug}.json"
+        if isinstance(search_payload, dict):
+            search_payload = dict(search_payload)
+            diagnostics = dict(search_payload.get("diagnostics") or {})
+            diagnostics["preflight_search_attempts"] = search_attempts
+            diagnostics["preflight_search_attempt_count"] = len(search_attempts)
+            search_payload["diagnostics"] = diagnostics
+        _write_json(search_artifact, search_payload)
+        artifacts.append(str(search_artifact))
+        source_surfaces.append("gflights:preflight:search")
+
+        route_attempt: dict[str, Any] = {
+            "route": route_label,
+            "query_id": intent.get("query_id"),
+            "search_exit_code": search_exit,
+            "search_status": search_payload.get("status")
+            if isinstance(search_payload, dict)
+            else "unknown",
+            "search_stop_state": search_payload.get("stop_state")
             if isinstance(search_payload, dict)
             else "search_failed",
-            "browser_mode": browser_mode,
-            "preflight_route": "JFK-SFO",
-            "consent": consent_payload,
-            "search": search_payload,
-            "selections": [],
-            "warnings": [*warnings, "preflight search did not return visible fare rows"],
-            "evidence": _evidence(run_id, artifacts, source_surfaces),
+            "search_attempt_count": len(search_attempts),
         }
 
-    search_url = str(search_payload.get("target_url") or "")
-    selection_count = max(1, min(top_k, 5))
-    bounded_selection_concurrency = max(1, min(selection_concurrency, selection_count, 7))
-    selection_started = perf_counter()
-    selection_semaphore = asyncio.Semaphore(bounded_selection_concurrency)
+        if (
+            search_exit != 0
+            or not isinstance(search_payload, dict)
+            or search_payload.get("status") != "ok"
+        ):
+            route_attempt["status"] = "search_blocked"
+            route_attempts.append(route_attempt)
+            last_blocked_payload = {
+                "status": "blocked",
+                "stop_state": search_payload.get("stop_state")
+                if isinstance(search_payload, dict)
+                else "search_failed",
+                "browser_mode": browser_mode,
+                "preflight_route": route_label,
+                "consent": consent_payload,
+                "search": search_payload,
+                "selections": [],
+                "warnings": [*warnings, "preflight search did not return visible fare rows"],
+                "diagnostics": {"route_attempts": route_attempts},
+                "evidence": _evidence(run_id, artifacts, source_surfaces),
+            }
+            if not _preflight_route_fallback_allowed(search_exit, search_payload):
+                break
+            continue
 
-    async def select_rank(rank: int) -> dict[str, Any]:
-        async with selection_semaphore:
-            return await _select_preflight_rank(
-                search_url=search_url,
-                state_root=state.root,
-                browser_mode=browser_mode,
-                timeout_seconds=timeout_seconds,
-                run_id=f"{run_id}-selection-rank-{rank}",
-                rank=rank,
-                max_tabs=max_tabs,
+        search_url = str(search_payload.get("target_url") or "")
+        bounded_selection_concurrency = max(1, min(selection_concurrency, selection_count, 7))
+        selection_started = perf_counter()
+        selection_semaphore = asyncio.Semaphore(bounded_selection_concurrency)
+
+        async def select_rank(rank: int) -> dict[str, Any]:
+            async with selection_semaphore:
+                return await _select_preflight_rank(
+                    search_url=search_url,
+                    state_root=state.root,
+                    browser_mode=browser_mode,
+                    timeout_seconds=timeout_seconds,
+                    run_id=f"{run_id}-route-{route_number:02d}-selection-rank-{rank}",
+                    rank=rank,
+                    max_tabs=max_tabs,
+                )
+
+        selections = await asyncio.gather(
+            *(select_rank(rank) for rank in range(1, selection_count + 1))
+        )
+        selection_elapsed_seconds = round(perf_counter() - selection_started, 3)
+        for item in selections:
+            rank = int(item["rank"])
+            selection_payload = item.pop("payload")
+            selection_artifact = (
+                run_root
+                / f"preflight-route-{route_number:02d}-{route_slug}-selection-rank-{rank}.json"
+            )
+            _write_json(selection_artifact, selection_payload)
+            artifacts.append(str(selection_artifact))
+            source_surfaces.append("gflights:preflight:selection")
+
+        complete_count = sum(
+            1 for item in selections if _has_complete_booking_selection(item)
+        )
+        passed = complete_count >= minimum_complete
+        route_attempt.update(
+            {
+                "status": "ok" if passed else "selection_blocked",
+                "selection_count": selection_count,
+                "minimum_complete_selection_count": minimum_complete,
+                "complete_selection_count": complete_count,
+            }
+        )
+        route_attempts.append(route_attempt)
+
+        route_warnings = list(warnings)
+        if route_number > 1:
+            route_warnings.append(
+                f"preflight used fallback synthetic route {route_label} after {route_number - 1} earlier route(s)"
+            )
+        if complete_count < selection_count:
+            route_warnings.append(
+                f"preflight selected {complete_count}/{selection_count} requested rows through to bookable options; "
+                f"minimum required is {minimum_complete}"
             )
 
-    selections = await asyncio.gather(
-        *(select_rank(rank) for rank in range(1, selection_count + 1))
-    )
-    selection_elapsed_seconds = round(perf_counter() - selection_started, 3)
-    for item in selections:
-        rank = int(item["rank"])
-        selection_payload = item.pop("payload")
-        selection_artifact = run_root / f"preflight-selection-rank-{rank}.json"
-        _write_json(selection_artifact, selection_payload)
-        artifacts.append(str(selection_artifact))
-        source_surfaces.append("gflights:preflight:selection")
+        payload = {
+            "status": "ok" if passed else "blocked",
+            "browser_mode": browser_mode,
+            "preflight_route": route_label,
+            "privacy": "synthetic public route; one adult; no personal itinerary or checkout data",
+            "consent": consent_payload,
+            "search": {
+                "status": search_payload.get("status"),
+                "target_url": search_url,
+                "result_count": len(search_payload.get("results") or []),
+                "top_ranked": search_payload.get("rankings") or {},
+                "attempts": search_attempts,
+            },
+            "selection_count": selection_count,
+            "minimum_complete_selection_count": minimum_complete,
+            "selection_concurrency": bounded_selection_concurrency,
+            "selection_elapsed_seconds": selection_elapsed_seconds,
+            "complete_selection_count": complete_count,
+            "selections": selections,
+            "warnings": route_warnings,
+            "diagnostics": {"route_attempts": route_attempts},
+            "evidence": _evidence(run_id, artifacts, source_surfaces),
+        }
+        if passed:
+            _write_json(run_root / "command-log.json", executed)
+            artifacts.append(str(run_root / "command-log.json"))
+            payload["evidence"] = _evidence(run_id, artifacts, source_surfaces)
+            return 0, payload
+        last_blocked_payload = payload
 
     _write_json(run_root / "command-log.json", executed)
     artifacts.append(str(run_root / "command-log.json"))
-    complete_count = sum(1 for item in selections if _has_complete_booking_selection(item))
-    passed = complete_count == selection_count
-    if not passed:
-        warnings.append(
-            f"preflight selected {complete_count}/{selection_count} requested rows through to bookable options"
-        )
-    payload = {
-        "status": "ok" if passed else "blocked",
-        "browser_mode": browser_mode,
-        "preflight_route": "JFK-SFO",
-        "privacy": "synthetic public route; one adult; no personal itinerary or checkout data",
-        "consent": consent_payload,
-        "search": {
-            "status": search_payload.get("status"),
-            "target_url": search_url,
-            "result_count": len(search_payload.get("results") or []),
-            "top_ranked": search_payload.get("rankings") or {},
-            "attempts": search_attempts,
-        },
-        "selection_count": selection_count,
-        "selection_concurrency": bounded_selection_concurrency,
-        "selection_elapsed_seconds": selection_elapsed_seconds,
-        "complete_selection_count": complete_count,
-        "selections": selections,
-        "warnings": warnings,
-        "evidence": _evidence(run_id, artifacts, source_surfaces),
-    }
-    return (0 if passed else 4), payload
+    if last_blocked_payload is None:
+        last_blocked_payload = {
+            "status": "blocked",
+            "stop_state": "preflight_route_candidates_exhausted",
+            "browser_mode": browser_mode,
+            "preflight_route": "",
+            "consent": consent_payload,
+            "search": None,
+            "selections": [],
+            "warnings": [*warnings, "preflight found no usable synthetic route"],
+            "diagnostics": {"route_attempts": route_attempts},
+        }
+    last_blocked_payload["evidence"] = _evidence(run_id, artifacts, source_surfaces)
+    return last_exit or 4, last_blocked_payload
 
 
 async def run_headless_heal(
@@ -541,6 +642,23 @@ def _preflight_search_retryable(
         if value
     ).casefold()
     return "oops, something went wrong" in text or "google_page_error" in text
+
+
+def _preflight_route_fallback_allowed(
+    search_exit: int,
+    search_payload: dict[str, Any] | list[dict[str, Any]],
+) -> bool:
+    if search_exit == 0:
+        return False
+    if not isinstance(search_payload, dict):
+        return True
+    stop_state = str(search_payload.get("stop_state") or "")
+    status = str(search_payload.get("status") or "")
+    if stop_state in {"blocked", "login_required"}:
+        return False
+    if status in {"blocked", "login_required"}:
+        return False
+    return True
 
 
 def _has_complete_booking_selection(item: dict[str, Any]) -> bool:

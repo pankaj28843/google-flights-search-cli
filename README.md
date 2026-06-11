@@ -72,6 +72,7 @@ Google Flights smoke:
 
 ```bash
 gflights preflight headless-heal --consent-choice accept-all --json
+gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
 make live-google-flights
 ```
 
@@ -83,6 +84,12 @@ explicitly says there are no flights, or exits `4` with a structured stop state
 and headed fallback recommendation. `gflights route resolve` also opens live
 cdp evidence and returns either parsed visible autocomplete choices, explicit
 live extraction deferral, or a structured browser stop state.
+Long crawls should request top 5 rows for coverage but may set
+`--min-complete-selections 3` so a valid top-3 booking smoke test does not
+block on flaky lower-ranked synthetic rows.
+The preflight can rotate across public synthetic route candidates after
+transient search failures; inspect `diagnostics.route_attempts` to see whether
+fallback was used.
 
 Date-window scans are cache-first. They rank fresh SQLite price observations by
 default and open Google Flights for missing date pairs only when explicitly

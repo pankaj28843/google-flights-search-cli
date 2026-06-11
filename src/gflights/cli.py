@@ -23,7 +23,8 @@ ROOT_HELP = """Agent-first Google Flights CLI for live searches and evidence-bac
 Workflow:
   gflights schema --model search-intent --json        Inspect the input contract
   gflights route resolve --input-text CPH --json      Resolve an airport or city
-  gflights preflight google-flights --json            Verify live browser crawl readiness
+  gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
+                                                       Verify live browser crawl readiness
   gflights search --input-json intents.json --json    Run live Google Flights
   gflights search --input-json intents.json --url-only --json
   gflights itinerary select --search-url URL --json   Select visible rows to a booking URL
@@ -42,9 +43,13 @@ Environment:
 Agent contract:
   Data commands emit JSON. Unsupported, ambiguous, blocked, and stale behavior is explicit instead of guessed.
   Runtime evidence is task-scoped under the configured state root.
+  For long crawls, run headless-heal first, then request top-5 synthetic Google Flights selection with
+  --min-complete-selections 3. This proves booking selection works without blocking on flaky lower-ranked rows.
 
 Examples:
   gflights doctor --json
+  gflights preflight headless-heal --consent-choice accept-all --json
+  gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
   gflights search --input-json intents.json --concurrency 3 --rank balanced --top-k 10 --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
 
@@ -82,11 +87,16 @@ PREFLIGHT_HELP = """Run browser and Google Flights readiness ceremonies.
 Preflight commands use public synthetic data only. They are intended to prove
 that consent, live search, row selection, return selection, and booking-summary
 inspection work before a task-specific crawler uses real itinerary constraints.
+For agent crawlers, prefer top-5 coverage with a top-3 pass gate:
+`--top-k 5 --min-complete-selections 3`. This still records lower-ranked row
+failures as warnings and evidence.
+Google Flights preflight may rotate across public synthetic routes when a route
+hits transient search failures; inspect `diagnostics.route_attempts`.
 
 Examples:
   gflights preflight headless-heal --json
   gflights preflight google-flights --json
-  gflights preflight google-flights --browser-mode headless --top-k 5 --json
+  gflights preflight google-flights --browser-mode headless --top-k 5 --min-complete-selections 3 --json
 """
 
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
@@ -367,7 +377,14 @@ def preflight_google_flights_command(
         "--top-k",
         min=1,
         max=5,
-        help="Number of synthetic route row ranks to select through booking-summary pages.",
+        help="Synthetic route row ranks to attempt through booking-summary pages; use 5 for crawler readiness.",
+    ),
+    min_complete_selections: int | None = typer.Option(
+        None,
+        "--min-complete-selections",
+        min=1,
+        max=5,
+        help="Minimum selected ranks that must reach bookable options; defaults to --top-k, use 3 with --top-k 5 for agent crawls.",
     ),
     selection_concurrency: int = typer.Option(
         3,
@@ -406,12 +423,23 @@ def preflight_google_flights_command(
             6,
         )
         return
+    if min_complete_selections is not None and min_complete_selections > top_k:
+        emit(
+            {
+                "status": "tool_error",
+                "warnings": [],
+                "error": "--min-complete-selections cannot exceed --top-k",
+            },
+            6,
+        )
+        return
     exit_code, payload = asyncio.run(
         run_google_flights_preflight(
             project_root=project_root,
             browser_mode=browser_mode,
             consent_choice=consent_choice,  # type: ignore[arg-type]
             top_k=top_k,
+            min_complete_selections=min_complete_selections,
             selection_concurrency=selection_concurrency,
             max_tabs=max_tabs,
         )

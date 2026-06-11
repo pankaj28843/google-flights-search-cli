@@ -29,7 +29,7 @@ hand-running isolated cleanup commands:
 
 ```bash
 gflights preflight headless-heal --consent-choice accept-all --json
-gflights preflight google-flights --consent-choice accept-all --json
+gflights preflight google-flights --consent-choice accept-all --top-k 5 --min-complete-selections 3 --json
 ```
 
 `headless-heal` explicitly closes stale Google Flights page targets, runs

@@ -308,6 +308,24 @@ Google Flights booking-summary URLs are evidence-only and must be reported as
 `not captured` unless `gflights itinerary select` actually reached
 `/travel/flights/booking`.
 
+## Google Flights Synthetic Preflight
+
+Before long booking crawls, agents can ask for broad top-5 smoke evidence while
+requiring only the first three rows to complete:
+
+```bash
+gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
+```
+
+The command returns `selection_count`, `minimum_complete_selection_count`,
+`complete_selection_count`, `selection_concurrency`, `selections`, `search`,
+`consent`, `warnings`, `diagnostics.route_attempts`, and `evidence`. It exits
+`0` when at least `minimum_complete_selection_count` selected rows reach Google
+booking-summary pages with booking options; it still reports a warning when
+fewer than `selection_count` rows completed. If a public synthetic route hits
+transient Google Flights search errors, the command can rotate to another
+public route and records each search/selection attempt in route diagnostics.
+
 ## Headless Heal Preflight
 
 Before long live crawls, agents may run:
