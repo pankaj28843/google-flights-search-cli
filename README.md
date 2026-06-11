@@ -71,6 +71,7 @@ Current expected result: 2 `live_cdp` tests pass against local `cdp doctor` and
 Google Flights smoke:
 
 ```bash
+gflights preflight headless-heal --consent-choice accept-all --json
 make live-google-flights
 ```
 

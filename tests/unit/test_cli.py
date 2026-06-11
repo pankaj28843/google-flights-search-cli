@@ -321,6 +321,67 @@ def test_preflight_google_flights_rejects_unknown_consent_choice(tmp_path: Path)
     assert "--consent-choice" in payload["error"]
 
 
+def test_preflight_headless_heal_uses_accept_all_recovery(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_headless_heal(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 0, {
+            "status": "ok",
+            "browser_mode": "headless",
+            "consent": {"status": "ok", "choice": "accept-all"},
+        }
+
+    monkeypatch.setattr(cli, "run_headless_heal", fake_run_headless_heal)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "preflight",
+            "headless-heal",
+            "--project-root",
+            str(tmp_path),
+            "--max-tabs",
+            "9",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "ok"
+    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["consent_choice"] == "accept-all"
+    assert calls[0]["close_google_flights_tabs"] is True
+    assert calls[0]["repair"] is True
+    assert calls[0]["restart_daemon"] is False
+    assert calls[0]["max_tabs"] == 9
+    assert calls[0]["project_root"] == tmp_path
+
+
+def test_preflight_headless_heal_rejects_unknown_consent_choice(tmp_path: Path) -> None:
+    result = runner.invoke(
+        cli.app,
+        [
+            "preflight",
+            "headless-heal",
+            "--consent-choice",
+            "maybe",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 6, result.output
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "tool_error"
+    assert "--consent-choice" in payload["error"]
+
+
 def test_dates_scan_live_probe_requires_positive_max_probes(tmp_path: Path) -> None:
     result = runner.invoke(
         cli.app,

@@ -24,6 +24,28 @@ cdp --browser-mode headless daemon health --json
 cdp --browser-mode headless pages --json
 ```
 
+For long Google Flights crawls, use the maintained recovery ceremony instead of
+hand-running isolated cleanup commands:
+
+```bash
+gflights preflight headless-heal --consent-choice accept-all --json
+gflights preflight google-flights --consent-choice accept-all --json
+```
+
+`headless-heal` explicitly closes stale Google Flights page targets, runs
+`cdp daemon health-check --repair`, opens Google Flights to settle consent, and
+records Google consent-cookie plus daemon-health evidence. It is safe to run
+before a large crawl and again after a burst of transient `google_page_error`
+rows. If the command reports `blocked`, pause the crawl and inspect its
+artifact paths before continuing.
+
+If headless health stays green but Google Flights keeps returning
+`google_page_error`, use the heavier runtime reset before the next preflight:
+
+```bash
+gflights preflight headless-heal --restart-daemon --consent-choice accept-all --json
+```
+
 If `tabs_over_budget` is true, do not use `--allow-over-budget` for routine
 testing. First dry-run cleanup for stale Google Flights pages:
 

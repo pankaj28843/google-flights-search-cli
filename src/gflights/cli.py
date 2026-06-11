@@ -16,7 +16,7 @@ from gflights.live_itinerary import run_live_itinerary_inspection
 from gflights.live_route import run_live_route_resolution
 from gflights.live_search import run_live_search
 from gflights.live_selection import run_live_itinerary_selection
-from gflights.preflight import run_google_flights_preflight
+from gflights.preflight import run_google_flights_preflight, run_headless_heal
 
 ROOT_HELP = """Agent-first Google Flights CLI for live searches and evidence-backed JSON.
 
@@ -84,6 +84,7 @@ that consent, live search, row selection, return selection, and booking-summary
 inspection work before a task-specific crawler uses real itinerary constraints.
 
 Examples:
+  gflights preflight headless-heal --json
   gflights preflight google-flights --json
   gflights preflight google-flights --browser-mode headless --top-k 5 --json
 """
@@ -412,6 +413,68 @@ def preflight_google_flights_command(
             consent_choice=consent_choice,  # type: ignore[arg-type]
             top_k=top_k,
             selection_concurrency=selection_concurrency,
+            max_tabs=max_tabs,
+        )
+    )
+    emit(payload, exit_code)
+
+
+@preflight_app.command("headless-heal")
+def preflight_headless_heal_command(
+    consent_choice: str = typer.Option(
+        "accept-all",
+        "--consent-choice",
+        help="Consent action when Google asks: accept-all, reject-all, or skip.",
+    ),
+    close_google_flights_tabs: bool = typer.Option(
+        True,
+        "--close-google-flights-tabs/--keep-google-flights-tabs",
+        help="Close stale Google Flights tabs before daemon repair and consent seeding.",
+    ),
+    repair: bool = typer.Option(
+        True,
+        "--repair/--no-repair",
+        help="Run cdp daemon health-check --repair before consent seeding.",
+    ),
+    restart_daemon: bool = typer.Option(
+        False,
+        "--restart-daemon/--no-restart-daemon",
+        help="Restart the headless cdp daemon before cleanup when health is green but Google remains erroring.",
+    ),
+    max_tabs: int = typer.Option(
+        8,
+        "--max-tabs",
+        min=0,
+        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+    ),
+    project_root: Path | None = typer.Option(
+        None,
+        "--project-root",
+        help="State root for preflight artifacts; defaults to ~/.gflights.",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output."),
+) -> None:
+    """Repair headless CDP, settle Google consent, and record health evidence."""
+
+    del json_output
+    if consent_choice not in {"reject-all", "accept-all", "skip"}:
+        emit(
+            {
+                "status": "tool_error",
+                "warnings": [],
+                "error": "--consent-choice must be reject-all, accept-all, or skip",
+            },
+            6,
+        )
+        return
+    exit_code, payload = asyncio.run(
+        run_headless_heal(
+            project_root=project_root,
+            browser_mode="headless",
+            consent_choice=consent_choice,  # type: ignore[arg-type]
+            close_google_flights_tabs=close_google_flights_tabs,
+            repair=repair,
+            restart_daemon=restart_daemon,
             max_tabs=max_tabs,
         )
     )

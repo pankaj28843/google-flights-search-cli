@@ -149,10 +149,12 @@ async def run_google_flights_preflight(
         input_json=intent_path,
         project_root=state.root,
         browser_mode=browser_mode,
+        consent_choice=consent_choice,
         timeout_seconds=timeout_seconds,
         max_tabs=max_tabs,
         top_k=top_k,
         base_run_id=f"{run_id}-search",
+        adapter=adapter,
     )
     search_artifact = run_root / "preflight-search.json"
     if isinstance(search_payload, dict):
@@ -234,6 +236,7 @@ async def run_google_flights_preflight(
             "target_url": search_url,
             "result_count": len(search_payload.get("results") or []),
             "top_ranked": search_payload.get("rankings") or {},
+            "attempts": search_attempts,
         },
         "selection_count": selection_count,
         "selection_concurrency": bounded_selection_concurrency,
@@ -246,15 +249,216 @@ async def run_google_flights_preflight(
     return (0 if passed else 4), payload
 
 
+async def run_headless_heal(
+    *,
+    project_root: Path | None = None,
+    browser_mode: BrowserMode = "headless",
+    consent_choice: ConsentChoice = "accept-all",
+    close_google_flights_tabs: bool = True,
+    repair: bool = True,
+    restart_daemon: bool = False,
+    max_tabs: int | None = None,
+    timeout_seconds: float = 45.0,
+    adapter: CdpAdapter | None = None,
+) -> tuple[int, dict[str, Any]]:
+    """Repair the managed browser runtime and settle Google consent.
+
+    This is a lightweight ceremony intended for long crawlers before starting a
+    large fanout, or after a burst of transient Google page errors.
+    """
+
+    state = init_app_state(project_root)
+    run_id = _new_run_id().replace("gf-preflight-", "gf-headless-heal-")
+    run_root = state.run_root / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+    adapter = adapter or CdpAdapter(max_tabs=max_tabs, allow_over_budget=True)
+
+    executed: list[dict[str, Any]] = []
+    artifacts: list[str] = []
+    source_surfaces: list[str] = []
+    warnings: list[str] = []
+    closed_targets: list[dict[str, str]] = []
+    restart_payload: dict[str, Any] | None = None
+
+    health_before = await _run_step(
+        adapter=adapter,
+        args=["daemon", "health"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 30.0),
+        run_root=run_root,
+        artifact_name="headless-heal-health-before.json",
+        source_surface="cdp:daemon-health:headless-heal-before",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+
+    if restart_daemon:
+        restart_result = await _run_step(
+            adapter=adapter,
+            args=["daemon", "restart", "--reconnect", "30s"],
+            browser_mode=browser_mode,
+            timeout_seconds=max(timeout_seconds, 60.0),
+            run_root=run_root,
+            artifact_name="headless-heal-daemon-restart.json",
+            source_surface="cdp:daemon-restart:headless-heal",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        restart_payload = {
+            "status": restart_result.status,
+            "state": _health_state(restart_result.json_payload or {}),
+        }
+
+    pages_result = await _run_step(
+        adapter=adapter,
+        args=["pages"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 30.0),
+        run_root=run_root,
+        artifact_name="headless-heal-pages-before.json",
+        source_surface="cdp:pages:headless-heal-before",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    targets_to_close = (
+        _google_flights_page_targets(pages_result.json_payload or {})
+        if close_google_flights_tabs
+        else []
+    )
+    for target in targets_to_close:
+        target_id = str(target.get("id") or "")
+        if not target_id:
+            continue
+        close_result = await _run_step(
+            adapter=adapter,
+            args=["page", "close", "--target", target_id],
+            browser_mode=browser_mode,
+            timeout_seconds=min(timeout_seconds, 10.0),
+            run_root=run_root,
+            artifact_name=f"headless-heal-close-{target_id}.json",
+            source_surface="cdp:page-close:headless-heal-google-flights",
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+        )
+        closed_targets.append(
+            {
+                "id": target_id,
+                "url": str(target.get("url") or ""),
+                "status": close_result.status,
+            }
+        )
+
+    health_check_args = ["daemon", "health-check"]
+    if repair:
+        health_check_args.append("--repair")
+    health_check_args.extend(["--out-dir", str(run_root / "cdp-health-check")])
+    health_check = await _run_step(
+        adapter=adapter,
+        args=health_check_args,
+        browser_mode=browser_mode,
+        timeout_seconds=max(timeout_seconds, 60.0),
+        run_root=run_root,
+        artifact_name="headless-heal-health-check.json",
+        source_surface="cdp:daemon-health-check:headless-heal",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+
+    consent_payload = await _seed_google_consent(
+        adapter=adapter,
+        browser_mode=browser_mode,
+        run_root=run_root,
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+        consent_choice=consent_choice,
+        timeout_seconds=timeout_seconds,
+        max_tabs=max_tabs,
+    )
+    if consent_payload["status"] not in {"ok", "skipped"}:
+        warnings.append("headless heal could not settle Google consent")
+
+    cookies_result = await _run_step(
+        adapter=adapter,
+        args=["storage", "cookies", "list", "--url", "https://www.google.com"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 20.0),
+        run_root=run_root,
+        artifact_name="headless-heal-google-cookies.json",
+        source_surface="cdp:storage-cookies:list-google",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+    google_cookie_names = _cookie_names(cookies_result.json_payload or {})
+    if consent_choice != "skip" and not {"SOCS", "CONSENT"}.intersection(google_cookie_names):
+        warnings.append("Google consent cookie was not visible after consent seeding")
+
+    health_after = await _run_step(
+        adapter=adapter,
+        args=["daemon", "health"],
+        browser_mode=browser_mode,
+        timeout_seconds=min(timeout_seconds, 30.0),
+        run_root=run_root,
+        artifact_name="headless-heal-health-after.json",
+        source_surface="cdp:daemon-health:headless-heal-after",
+        executed=executed,
+        artifacts=artifacts,
+        source_surfaces=source_surfaces,
+    )
+
+    _write_json(run_root / "command-log.json", executed)
+    artifacts.append(str(run_root / "command-log.json"))
+    health_after_state = _health_state(health_after.json_payload or {})
+    passed = (
+        health_check.status == "ok"
+        and consent_payload["status"] in {"ok", "skipped"}
+        and health_after_state in {"healthy", "ok", "running", ""}
+    )
+    payload = {
+        "status": "ok" if passed else "blocked",
+        "browser_mode": browser_mode,
+        "repair_requested": repair,
+        "restart_daemon_requested": restart_daemon,
+        "restart_daemon": restart_payload,
+        "closed_google_flights_tabs": closed_targets,
+        "closed_google_flights_tab_count": len(closed_targets),
+        "consent": consent_payload,
+        "google_cookie_names": sorted(google_cookie_names),
+        "health_before": {
+            "status": health_before.status,
+            "state": _health_state(health_before.json_payload or {}),
+        },
+        "health_check": {
+            "status": health_check.status,
+            "state": _health_state(health_check.json_payload or {}),
+        },
+        "health_after": {
+            "status": health_after.status,
+            "state": health_after_state,
+        },
+        "warnings": warnings,
+        "evidence": _evidence(run_id, artifacts, source_surfaces),
+    }
+    return (0 if passed else 4), payload
+
+
 async def _run_preflight_search_with_retry(
     *,
     input_json: Path,
     project_root: Path,
     browser_mode: BrowserMode,
+    consent_choice: ConsentChoice,
     timeout_seconds: float,
     max_tabs: int | None,
     top_k: int,
     base_run_id: str,
+    adapter: CdpAdapter,
     retry_limit: int = 2,
 ) -> tuple[int, dict[str, Any] | list[dict[str, Any]], list[dict[str, Any]]]:
     attempts: list[dict[str, Any]] = []
@@ -296,6 +500,24 @@ async def _run_preflight_search_with_retry(
         )
         if search_exit == 0 or not retryable or attempt > retry_limit:
             return last_exit, last_payload, attempts
+        heal_exit, heal_payload = await run_headless_heal(
+            project_root=project_root,
+            browser_mode=browser_mode,
+            consent_choice=consent_choice,
+            close_google_flights_tabs=True,
+            repair=True,
+            max_tabs=max_tabs,
+            timeout_seconds=timeout_seconds,
+            adapter=adapter,
+        )
+        attempts[-1]["heal_before_next_attempt"] = {
+            "exit_code": heal_exit,
+            "status": heal_payload.get("status") if isinstance(heal_payload, dict) else "unknown",
+            "closed_google_flights_tab_count": heal_payload.get("closed_google_flights_tab_count")
+            if isinstance(heal_payload, dict)
+            else None,
+            "evidence": heal_payload.get("evidence") if isinstance(heal_payload, dict) else None,
+        }
         await asyncio.sleep(min(3.0, 0.75 * attempt))
     return last_exit, last_payload, attempts
 
@@ -617,6 +839,55 @@ def _result_value(payload: dict[str, Any]) -> Any:
     if "value" in payload:
         return payload["value"]
     return None
+
+
+def _google_flights_page_targets(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    pages = payload.get("pages")
+    if not isinstance(pages, list):
+        return []
+    targets: list[dict[str, Any]] = []
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        url = str(page.get("url") or "")
+        if "google.com/travel/flights" not in url:
+            continue
+        target_id = page.get("id") or page.get("targetId")
+        if not isinstance(target_id, str) or not target_id:
+            continue
+        targets.append({"id": target_id, "url": url, "title": str(page.get("title") or "")})
+    return targets
+
+
+def _cookie_names(payload: dict[str, Any]) -> set[str]:
+    cookies = payload.get("cookies")
+    if isinstance(cookies, dict):
+        cookies = cookies.get("cookies")
+    if not isinstance(cookies, list):
+        return set()
+    return {
+        str(cookie.get("name"))
+        for cookie in cookies
+        if isinstance(cookie, dict) and isinstance(cookie.get("name"), str)
+    }
+
+
+def _health_state(payload: dict[str, Any]) -> str:
+    health = payload.get("health")
+    if isinstance(health, dict) and isinstance(health.get("state"), str):
+        return health["state"]
+    daemon = payload.get("daemon")
+    if isinstance(daemon, dict):
+        daemon_health = daemon.get("health")
+        if isinstance(daemon_health, dict) and isinstance(daemon_health.get("state"), str):
+            return daemon_health["state"]
+        if isinstance(daemon.get("state"), str):
+            return daemon["state"]
+    if isinstance(payload.get("state"), str):
+        return payload["state"]
+    if payload.get("ok") is True:
+        return "ok"
+    return ""
 
 
 def _page_id(payload: dict[str, Any] | None) -> str:

@@ -6,6 +6,116 @@ from typing import Any
 from gflights import preflight
 
 
+class FakeCdpAdapter:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    async def run_json(
+        self,
+        args: list[str],
+        *,
+        browser_mode: preflight.BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> preflight.CdpResult:
+        del timeout_seconds
+        self.calls.append(list(args))
+        payload: dict[str, Any] = {"ok": True}
+        if args == ["daemon", "health"]:
+            payload = {"ok": True, "health": {"state": "healthy"}}
+        elif args == ["pages"]:
+            payload = {
+                "ok": True,
+                "pages": [
+                    {
+                        "id": "google-tab-1",
+                        "title": "Copenhagen to New Delhi | Google Flights",
+                        "url": "https://www.google.com/travel/flights/search?bad=1",
+                    },
+                    {
+                        "id": "other-tab",
+                        "title": "Example",
+                        "url": "https://example.com",
+                    },
+                ],
+            }
+        elif args[:2] == ["page", "close"]:
+            payload = {"ok": True, "status": "ok"}
+        elif args[:2] == ["daemon", "health-check"]:
+            payload = {"ok": True, "health": {"state": "healthy"}}
+        elif args[0] == "open":
+            payload = {"ok": True, "page": {"id": "consent-page", "url": args[1]}}
+        elif args[:2] == ["wait", "load-state"]:
+            payload = {"ok": True, "status": "ok"}
+        elif args[:2] == ["wait", "eval"]:
+            payload = {"ok": True, "result": {"value": "body_ready"}}
+        elif args[:2] == ["text", "body"]:
+            text_calls = [call for call in self.calls if call[:2] == ["text", "body"]]
+            text = (
+                "Before you continue to Google Accept all"
+                if len(text_calls) == 1
+                else "Google Flights"
+            )
+            payload = {"ok": True, "items": [{"text": text}]}
+        elif args[:2] == ["click", "Accept all"]:
+            payload = {"ok": True, "status": "ok", "clicked": True}
+        elif args[:3] == ["storage", "cookies", "list"]:
+            payload = {"ok": True, "cookies": [{"name": "SOCS"}, {"name": "NID"}]}
+        return preflight.CdpResult(
+            argv=["cdp", *args],
+            browser_mode=browser_mode,
+            returncode=0,
+            stdout="{}",
+            stderr="",
+            status=str(payload.get("status") or "ok"),
+            exit_code=0,
+            json_payload=payload,
+        )
+
+
+def test_headless_heal_repairs_accepts_consent_and_closes_google_tabs(tmp_path: Any) -> None:
+    adapter = FakeCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        preflight.run_headless_heal(
+            project_root=tmp_path,
+            consent_choice="accept-all",
+            adapter=adapter,  # type: ignore[arg-type]
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["closed_google_flights_tab_count"] == 1
+    assert payload["closed_google_flights_tabs"][0]["id"] == "google-tab-1"
+    assert payload["consent"]["status"] == "ok"
+    assert payload["consent"]["needed"] is True
+    assert payload["consent"]["clicked"] is True
+    assert payload["consent"]["locator"]["label"] == "Accept all"
+    assert "SOCS" in payload["google_cookie_names"]
+    assert ["daemon", "health-check", "--repair", "--out-dir", str(tmp_path / "runs" / payload["evidence"]["run_id"] / "cdp-health-check")] in adapter.calls
+    assert ["page", "close", "--target", "google-tab-1"] in adapter.calls
+    assert ["page", "close", "--target", "other-tab"] not in adapter.calls
+
+
+def test_headless_heal_can_restart_daemon_before_cleanup(tmp_path: Any) -> None:
+    adapter = FakeCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        preflight.run_headless_heal(
+            project_root=tmp_path,
+            consent_choice="skip",
+            restart_daemon=True,
+            adapter=adapter,  # type: ignore[arg-type]
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["restart_daemon_requested"] is True
+    assert payload["restart_daemon"]["status"] == "ok"
+    assert ["daemon", "restart", "--reconnect", "30s"] in adapter.calls
+    assert adapter.calls.index(["daemon", "restart", "--reconnect", "30s"]) < adapter.calls.index(["pages"])
+
+
 def test_google_flights_preflight_selects_ranks_concurrently(
     tmp_path: Any,
     monkeypatch: Any,
@@ -147,6 +257,7 @@ def test_google_flights_preflight_retries_transient_search_page_error(
 ) -> None:
     search_run_ids: list[str] = []
     selected_ranks: list[int] = []
+    heal_calls: list[dict[str, Any]] = []
 
     async def fake_sleep(_seconds: float) -> None:
         return None
@@ -189,6 +300,17 @@ def test_google_flights_preflight_retries_transient_search_page_error(
             },
         )
 
+    async def fake_run_headless_heal(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        heal_calls.append(kwargs)
+        return (
+            0,
+            {
+                "status": "ok",
+                "closed_google_flights_tab_count": 1,
+                "evidence": {"run_id": f"heal-{len(heal_calls)}", "artifacts": []},
+            },
+        )
+
     monkeypatch.setattr(preflight.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(preflight, "run_live_search", fake_run_live_search)
     monkeypatch.setattr(
@@ -196,6 +318,7 @@ def test_google_flights_preflight_retries_transient_search_page_error(
         "run_live_itinerary_selection",
         fake_run_live_itinerary_selection,
     )
+    monkeypatch.setattr(preflight, "run_headless_heal", fake_run_headless_heal)
 
     exit_code, payload = asyncio.run(
         preflight.run_google_flights_preflight(
@@ -213,3 +336,7 @@ def test_google_flights_preflight_retries_transient_search_page_error(
     assert search_run_ids[0].endswith("-search")
     assert search_run_ids[1].endswith("-search-attempt-02")
     assert len(search_run_ids) == 2
+    assert len(heal_calls) == 1
+    assert heal_calls[0]["consent_choice"] == "skip"
+    attempts = payload["search"]["attempts"]
+    assert attempts[0]["heal_before_next_attempt"]["status"] == "ok"

@@ -308,6 +308,24 @@ Google Flights booking-summary URLs are evidence-only and must be reported as
 `not captured` unless `gflights itinerary select` actually reached
 `/travel/flights/booking`.
 
+## Headless Heal Preflight
+
+Before long live crawls, agents may run:
+
+```bash
+gflights preflight headless-heal --consent-choice accept-all --json
+```
+
+The command returns `status`, `browser_mode`, `repair_requested`,
+`restart_daemon_requested`, `restart_daemon`, `closed_google_flights_tabs`,
+`closed_google_flights_tab_count`, `consent`, `google_cookie_names`,
+`health_before`, `health_check`, `health_after`, `warnings`, and `evidence`. A
+successful run means stale Google Flights tabs were explicitly closed where
+present, optional `cdp daemon restart` ran when requested, `cdp daemon
+health-check --repair` completed, Google consent was settled or already
+unnecessary, and daemon health was captured after repair. It does not search a
+personal itinerary or enter checkout.
+
 ## Live Itinerary Select And Inspect
 
 Selection from a search URL:
