@@ -84,6 +84,17 @@ make validate
   `Select flight`, closest row container, and row-local `Flight details` buttons
   for expansion. Treat generated classes, absolute DOM indexes, and stale
   snapshot text as fallback evidence only.
+- For live row lookup, flight-detail expansion, return-row transition, or
+  booking-options failures, use the headed slow-cook debugging loop in
+  `docs/cdp-usage-discipline.md`: check headed daemon/pages health, inspect
+  ARIA/role evidence on one exact target with `cdp a11y tree` and small
+  target-scoped `cdp eval` probes, manually watch rows render/expand/transition,
+  then codify only minimal ARIA contracts and async wait-until assertions.
+  Clean up the headed target with
+  `cdp --browser-mode headed page close --target <page-id> --timeout 60s --json`
+  and re-check pages. After code changes to this path, run focused preflight
+  tests before a headed `gflights itinerary select` smoke; do not replace
+  missing semantic waits with blind sleeps.
 - Expand the top considered result rows before extracting structured row
   details. The default considered set is at least 5 rows and at most 10 rows
   unless a checked-in contract says otherwise. Clicks that should move the

@@ -290,7 +290,7 @@ def _stage_state_is_terminal(value: Any, _result: CdpResult) -> bool:
 def _stage_state_is_ready_for(state: dict[str, Any], stage: str) -> bool:
     terminal_condition = _terminal_condition(state)
     if stage == "booking":
-        return terminal_condition in {"booking_summary", "booking_url"}
+        return terminal_condition == "booking_summary"
     return terminal_condition == "fare_rows" and int(state.get("rowCount") or 0) > 0
 
 

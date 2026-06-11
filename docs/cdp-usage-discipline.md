@@ -68,6 +68,84 @@ cdp --browser-mode headless page cleanup \
   --json
 ```
 
+## Headed Slow-Cook Debugging
+
+Use headed debugging when live Google Flights row lookup, row detail expansion,
+return-row transition, booking-summary settlement, or booking-option extraction
+is failing and headless artifacts do not explain the current browser behavior.
+The point is to watch the real UI slowly enough to learn the accessibility
+contract, then codify the smallest resilient automation rule.
+
+First verify the selected browser mode and command surface:
+
+```bash
+cdp --browser-mode headed daemon health --json
+cdp --browser-mode headed pages --json
+cdp a11y tree --help
+cdp eval --help
+cdp click --help
+cdp wait --help
+cdp text --help
+```
+
+Open or navigate one Google Flights target and keep its page id for all
+inspection. Do not spread one debugging question across multiple tabs.
+
+```bash
+cdp --browser-mode headed open '<google-flights-url>' --json --timeout 30s
+cdp --browser-mode headed pages --json
+```
+
+Inspect human-facing structure before selectors. Prefer the accessibility tree
+and small target-scoped DOM probes over generated classes, absolute DOM indexes,
+or body-text guesses:
+
+```bash
+cdp --browser-mode headed a11y tree --target <page-id> --depth 6 --limit 200 --json
+cdp --browser-mode headed eval '<small ARIA/role inspection expression>' --target <page-id> --json --timeout 10s
+```
+
+For Google Flights row selection, the current live contract is the stage
+heading, its nearby visible `[role=list]`, row-local `[role=link]` whose
+accessible name contains `Select flight`, the closest `li`/`[role=listitem]`,
+and row-local `Flight details` buttons. Watch one outbound row expansion, one
+return row expansion, and the booking-summary transition before changing code.
+
+Codify the observation in two layers:
+
+- generic async CDP helpers for command invocation, bounded retries,
+  target-scoped artifact capture, polling cadence, and timeout evidence
+- Google Flights domain assertions for rows rendered, top considered rows
+  expanded with `aria-expanded=true`, return rows reached, and booking options
+  visible
+
+A failure in those assertions should report the last observed terminal
+condition, row count, URL, title, and relevant ARIA snippets. Do not replace a
+missing condition with a long blind sleep or a single opaque browser JavaScript
+block. Be quick between polls, but give Google Flights enough total time for
+real rendering: rows, expanded details, and booking options can appear after
+URL or load-state signals.
+
+Close the headed target you opened, then confirm headed tab state. In busy
+sessions target close can take up to 60 seconds:
+
+```bash
+cdp --browser-mode headed page close --target <page-id> --timeout 60s --json
+cdp --browser-mode headed pages --json
+```
+
+After code changes to this path, run focused preflight tests before live smoke:
+
+```bash
+uv run pytest tests/unit/test_live_search.py tests/unit/test_live_selection.py tests/unit/test_preflight.py -q
+gflights itinerary select --browser-mode headed --search-url '<public test search URL>' --timeout-seconds 75 --max-tabs 15 --project-root /tmp/gflights-headed-select --json
+cdp --browser-mode headed pages --json
+```
+
+The smoke is useful only if it proves semantic readiness: rows were rendered,
+the selected rows expanded, the return stage transitioned, booking options were
+visible, and the CLI-managed headed target was cleaned up afterward.
+
 ## Reuse Policy
 
 One live workflow should reuse its own opened page target for all follow-up

@@ -430,6 +430,19 @@ root UUID v4 task id, each attempt gets a child task id, and each opened
 managed tab gets a leaf task id. Cleanup may close only the target id mapped to
 the current managed-tab leaf task.
 
+Current live row selection uses human-facing accessibility structure as the
+contract: the stage heading (`Departing flights` or `Returning flights`), the
+following visible `[role=list]`, row-local `[role=link]` with an accessible name
+ending in `Select flight`, the closest `li`/`[role=listitem]`, and row-local
+`button` elements whose accessible names start with `Flight details`. Flight
+details expansion must wait until the considered rows report
+`aria-expanded=true`. Return-row selection is complete only after booking
+options render: `/travel/flights/booking` URL alone is evidence of navigation,
+but not a ready booking summary. Ready booking evidence is visible text such as
+`Booking options`/`Book with` or visible provider buttons with accessible names
+like `Continue to book with <provider> ...`; those buttons are reported as
+booking options and must not be clicked.
+
 ## Status Values
 
 Allowed command status values:

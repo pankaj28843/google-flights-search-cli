@@ -303,6 +303,47 @@ class SearchUrlAfterSelectionCdpAdapter(FakeSelectionCdpAdapter):
         )
 
 
+class BookingUrlBeforeOptionsSelectionCdpAdapter(FakeSelectionCdpAdapter):
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if call_args[0] == "eval" and 'const requestedStage = "booking"' in call_args[1]:
+            self.stage_state_calls["booking"] = self.stage_state_calls.get("booking", 0) + 1
+            terminal_condition = (
+                "booking_url" if self.stage_state_calls["booking"] == 1 else "booking_summary"
+            )
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "booking",
+                            "terminalCondition": terminal_condition,
+                            "rowCount": 0,
+                            "rows": [],
+                            "currentUrl": "https://www.google.com/travel/flights/booking?tfs=encoded",
+                            "currentTitle": "Round trip | Google Flights",
+                            "hasBookingOptions": terminal_condition == "booking_summary",
+                            "bodySample": "Booking options Book with Finnair Continue"
+                            if terminal_condition == "booking_summary"
+                            else "Loading results",
+                        }
+                    },
+                },
+            )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
 class ContextRaceSelectionCdpAdapter(FakeSelectionCdpAdapter):
     def __init__(self) -> None:
         super().__init__()
@@ -818,6 +859,28 @@ def test_live_itinerary_selection_does_not_report_search_url_as_booking_url(
     assert payload["current_url"].endswith("search?tfs=still-search")
     assert payload["selected_outbound"]["parsed"] is True
     assert payload["selected_return"]["parsed"] is True
+
+
+def test_live_itinerary_selection_waits_for_booking_options_after_booking_url(
+    tmp_path: Path,
+) -> None:
+    adapter = BookingUrlBeforeOptionsSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-booking-url-before-options",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["booking_url"].startswith("https://www.google.com/travel/flights/booking?")
+    assert adapter.stage_state_calls["booking"] >= 2
+    return_selection = payload["selection"]["return"]
+    assert return_selection["transitionCondition"] == "booking_summary"
 
 
 def test_live_itinerary_selection_uses_coordinate_protocol_click(tmp_path: Path) -> None:
