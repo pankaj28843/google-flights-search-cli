@@ -199,6 +199,7 @@ def write_lucknow_oneway_intent(path: Path) -> Path:
                 "cabin": "economy",
                 "currency": "EUR",
                 "language": "en",
+                "location": "US",
                 "sort": "price",
             }
         )
@@ -208,8 +209,6 @@ def write_lucknow_oneway_intent(path: Path) -> Path:
 
 def successful_capture_results(
     snapshot_payload: dict[str, object] | None = None,
-    *,
-    query_settle: bool = False,
 ) -> list[CdpResult]:
     results = [
         cdp_result(
@@ -224,8 +223,6 @@ def successful_capture_results(
         ),
         cdp_result(["wait"], {"ok": True}),
     ]
-    if query_settle:
-        results.append(cdp_result(["network-idle"], {"ok": True}))
     results.extend(
         [
             cdp_result(
@@ -391,7 +388,6 @@ def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Pa
                 },
             ),
             cdp_result(["wait"], {"ok": True}),
-            cdp_result(["wait"], {"ok": True}),
             cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
             cdp_result(["network"], {"ok": True, "requests": []}),
         ]
@@ -415,19 +411,22 @@ def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Pa
     assert "tfu=EgYIAhAAGAA" in opened_url
     assert "hl=en" in opened_url
     assert "curr=EUR" in opened_url
+    assert "gl=US" in opened_url
     assert payload["query_population"]["status"] == "encoded"
     assert payload["query_population"]["confidence"] == "strong"
     assert "query-state:tfs" in payload["evidence"]["source_surfaces"]
     assert "query-state:tfu" in payload["evidence"]["source_surfaces"]
-    assert "cdp:wait:query-network-idle" in payload["evidence"]["source_surfaces"]
-    assert adapter.calls[2] == (
-        ["wait", "network-idle", "--target", "page-1", "--idle", "1s"],
-        "headless",
-        5.0,
+    assert "cdp:wait:query-network-idle" not in payload["evidence"]["source_surfaces"]
+    assert adapter.calls[2][0][:2] == ["wait", "eval"]
+    assert any(
+        "ranking objectives are still applied after row extraction" in warning
+        for warning in payload["warnings"]
     )
     assert payload["unsupported"][0]["field"] == "live_result_extraction"
     assert (tmp_path / "runs" / "gf-test-query-state" / "query-state.json").is_file()
-    assert (tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json").is_file()
+    assert not (
+        tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json"
+    ).exists()
 
 
 def test_live_search_tool_error_keeps_encoded_target_url(tmp_path: Path) -> None:
@@ -1387,7 +1386,7 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
     adapter = FakeCdpAdapter(
         [
             *successful_capture_results(),
-            *successful_capture_results(query_settle=True),
+            *successful_capture_results(),
         ]
     )
 
@@ -1406,7 +1405,7 @@ def test_live_search_preserves_json_array_input_order(tmp_path: Path) -> None:
         "del-cph-window-oct-nov",
         "cph-lko-oneway-jun",
     ]
-    assert len(adapter.calls) == 17
+    assert len(adapter.calls) == 16
 
 
 def test_live_search_real_adapter_batch_uses_bounded_concurrency(tmp_path: Path) -> None:
@@ -1459,7 +1458,7 @@ def test_live_search_reports_query_population_boundary_per_batch_item(tmp_path: 
     adapter = FakeCdpAdapter(
         [
             *successful_capture_results(),
-            *successful_capture_results(query_settle=True),
+            *successful_capture_results(),
         ]
     )
 

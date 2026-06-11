@@ -60,8 +60,8 @@ Deferred or unsupported until focused probes prove them:
 - no-results live scenario behavior
 - blocked or unusual-traffic live scenario behavior
 - user-controlled Google Flights location mutation
-- top-flight `tfu` reload equivalence across absent `tfu`, `tfu.2.1 = 0`, and
-  `tfu.2.1 = 1`
+- broader sort `tfu` reload safety, including top-flight equivalence across
+  absent `tfu`, `tfu.2.1 = 0`, and `tfu.2.1 = 1`
 
 Rejected from current evidence:
 
@@ -375,9 +375,10 @@ Supported sort values:
 - `duration`
 - `emissions`
 
-Short `tfu.2.1` sort hypotheses are strong for observed values, but top flights
-has multiple observed representations. The CLI may request top flights, but
-must not assert strict reload equivalence among absent `tfu`, `0`, and `1`.
+Short `tfu.2.1` sort hypotheses are strong for observed non-default sort
+values. Treat sort `tfu` as volatile Google Flights state: it may seed the
+Google row ordering, but requested ranking objectives are still applied after
+row extraction.
 
 ## Output Model
 
@@ -557,6 +558,7 @@ Implementation scope admitted from the strong evidence set:
   observed economy/business cabin values.
 - The live search shell may construct short sort `tfu` for observed non-default
   sort values: price, departure time, arrival time, duration, and emissions.
+  This is a volatile Google ordering hint, not the final ranking contract.
 - Top-flights direct live URLs should omit `tfu` until absent `tfu`,
   `tfu.2.1 = 0`, and `tfu.2.1 = 1` reload equivalence is proven.
 - Unsupported encoded query-state inputs must stay explicit in JSON through

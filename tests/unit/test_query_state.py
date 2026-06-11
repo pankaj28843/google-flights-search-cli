@@ -109,6 +109,7 @@ def test_build_query_state_reproduces_observed_cph_lucknow_one_way_price_sort() 
     assert state.params["tfs"] == ONE_WAY_TFS
     assert state.params["tfu"] == "EgYIAhAAGAA"
     assert state.source_surfaces == ["query-state:tfs", "query-state:tfu"]
+    assert any("ranking objectives are still applied after row extraction" in warning for warning in state.warnings)
 
 
 def test_build_query_state_rejects_unexpanded_date_windows() -> None:

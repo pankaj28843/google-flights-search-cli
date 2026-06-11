@@ -72,14 +72,19 @@ def build_query_state(intent: SearchIntent) -> EncodedQueryState:
         source_surfaces.append("query-state:tfu")
     params["hl"] = intent.language
     params["curr"] = intent.currency
+    warnings = [
+        "encoded Google Flights URL state is a strong evidence-backed hypothesis, not a proven public API"
+    ]
+    if intent.sort != "top_flights":
+        warnings.append(
+            "short sort tfu is volatile Google Flights state; requested ranking objectives are still applied after row extraction"
+        )
     return EncodedQueryState(
         params=params,
         confidence="strong",
         source_surfaces=source_surfaces,
         evidence_refs=_EVIDENCE_REFS,
-        warnings=[
-            "encoded Google Flights URL state is a strong evidence-backed hypothesis, not a proven public API"
-        ],
+        warnings=warnings,
     )
 
 

@@ -125,3 +125,7 @@ make validate
   and snapshot evidence before returning `tool_error` with
   `stop_state: google_page_error`; in row selection, the same signal should feed
   operation-level retry diagnostics.
+- Treat short sort `tfu` as volatile Google Flights state. It may be emitted
+  for observed non-default sort values such as price, but final user-facing
+  alternatives must still be filtered and ranked from extracted row/booking
+  evidence instead of trusting Google's URL sort alone.

@@ -112,6 +112,10 @@ def _encode_search_url(intent: SearchIntent) -> dict[str, Any]:
             "warnings": [],
         }
     params = dict(state.params)
+    params.setdefault("hl", intent.language)
+    params.setdefault("curr", intent.currency)
+    if intent.location:
+        params.setdefault("gl", intent.location)
     target_url = "https://www.google.com/travel/flights/search?" + urlencode(params)
     return {
         "query_id": intent.query_id,

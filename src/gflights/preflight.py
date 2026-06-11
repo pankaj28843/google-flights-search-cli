@@ -221,7 +221,7 @@ async def run_google_flights_preflight(
     passed = complete_count == selection_count
     if not passed:
         warnings.append(
-            f"preflight selected {complete_count}/{selection_count} requested rows through to booking"
+            f"preflight selected {complete_count}/{selection_count} requested rows through to bookable options"
         )
     payload = {
         "status": "ok" if passed else "blocked",
@@ -323,10 +323,13 @@ def _preflight_search_retryable(
 
 def _has_complete_booking_selection(item: dict[str, Any]) -> bool:
     booking_url = item.get("booking_url")
+    booking_options = item.get("booking_options")
     return (
         item.get("status") == "ok"
         and isinstance(booking_url, str)
         and "/travel/flights/booking" in booking_url
+        and isinstance(booking_options, list)
+        and len(booking_options) > 0
     )
 
 
@@ -351,6 +354,14 @@ async def _select_preflight_rank(
         return_row_rank=rank,
         max_tabs=max_tabs,
     )
+    booking_options = selection_payload.get("booking_options") or []
+    booking_options_status = (
+        "available"
+        if booking_options
+        else "missing"
+        if selection_payload.get("status") == "ok"
+        else "not_reached"
+    )
     return {
         "rank": rank,
         "exit_code": selection_exit,
@@ -358,7 +369,8 @@ async def _select_preflight_rank(
         "booking_url": selection_payload.get("booking_url"),
         "selected_outbound": selection_payload.get("selected_outbound"),
         "selected_return": selection_payload.get("selected_return"),
-        "booking_options": selection_payload.get("booking_options") or [],
+        "booking_options_status": booking_options_status,
+        "booking_options": booking_options,
         "warnings": selection_payload.get("warnings") or [],
         "evidence": selection_payload.get("evidence"),
         "payload": selection_payload,

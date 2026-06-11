@@ -27,6 +27,7 @@ def write_intent(path: Path) -> Path:
                 "cabin": "economy",
                 "currency": "EUR",
                 "language": "en",
+                "location": "DK",
                 "sort": "top_flights",
             }
         )
@@ -163,6 +164,9 @@ def test_search_url_only_encodes_target_urls_without_cdp(
     assert payload[0]["live_mode"] is False
     assert payload[0]["target_url"].startswith("https://www.google.com/travel/flights/search?")
     assert "tfs=" in payload[0]["target_url"]
+    assert "hl=en" in payload[0]["target_url"]
+    assert "curr=EUR" in payload[0]["target_url"]
+    assert "gl=DK" in payload[0]["target_url"]
     assert payload[0]["results"] == []
 
 

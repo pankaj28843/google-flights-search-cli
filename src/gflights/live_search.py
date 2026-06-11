@@ -182,6 +182,7 @@ async def _run_one_live_search(
     target_url = _google_flights_url(
         intent.language,
         intent.currency,
+        location=intent.location,
         params=query_population["params"],
         result_surface=query_population["payload"]["status"] == "encoded",
     )
@@ -415,47 +416,6 @@ async def _run_one_live_search(
                 query_population,
             ),
         )
-
-    if query_population["params"].get("tfu") is not None:
-        settle_result = await _run_step(
-            adapter=adapter,
-            args=["wait", "network-idle", "--target", page_id, "--idle", "1s"],
-            browser_mode=browser_mode,
-            timeout_seconds=min(timeout_seconds, 5.0),
-            run_root=run_root,
-            artifact_name="wait-query-network-idle.json",
-            source_surface="cdp:wait:query-network-idle",
-            executed=executed,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-        )
-        if _is_stop_result(settle_result):
-            return await _finish_live_search(
-                adapter=adapter,
-                page_id=page_id,
-                browser_mode=browser_mode,
-                timeout_seconds=timeout_seconds,
-                run_root=run_root,
-                executed=executed,
-                artifacts=artifacts,
-                source_surfaces=source_surfaces,
-                tab_context=tab_context,
-                exit_code=settle_result.exit_code or 4,
-                payload=_stop_payload(
-                    intent_query_id=intent.query_id,
-                    run_id=run_id,
-                    browser_mode=browser_mode,
-                    result=settle_result,
-                    artifacts=artifacts,
-                    source_surfaces=source_surfaces,
-                    target_url=target_url,
-                    query_population=query_population,
-                ),
-            )
-        if settle_result.status == "tool_error":
-            query_population["warnings"].append(
-                "encoded query-state network-idle wait failed; continuing to snapshot evidence"
-            )
 
     if interact_with_form:
         for step in plan_live_form_interaction(intent, page_id=page_id).steps:
@@ -1789,12 +1749,15 @@ def _google_flights_url(
     language: str,
     currency: str,
     *,
+    location: str | None = None,
     params: dict[str, str] | None = None,
     result_surface: bool = False,
 ) -> str:
     query_params = dict(params or {})
     query_params.setdefault("hl", language)
     query_params.setdefault("curr", currency)
+    if location:
+        query_params.setdefault("gl", location)
     base_url = GOOGLE_FLIGHTS_SEARCH_URL if result_surface else GOOGLE_FLIGHTS_URL
     return f"{base_url}?{urlencode(query_params)}"
 

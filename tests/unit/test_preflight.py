@@ -42,7 +42,7 @@ def test_google_flights_preflight_selects_ranks_concurrently(
                 "booking_url": f"https://www.google.com/travel/flights/booking?rank={rank}",
                 "selected_outbound": {"row_rank": rank},
                 "selected_return": {"row_rank": rank},
-                "booking_options": [],
+                "booking_options": [{"provider": "Synthetic", "price": {"amount": rank}}],
                 "warnings": [],
                 "evidence": {"run_id": f"selection-{rank}", "artifacts": []},
             },
@@ -76,6 +76,7 @@ def test_google_flights_preflight_selects_ranks_concurrently(
     ]
     assert max_active == 3
     assert all("payload" not in item for item in payload["selections"])
+    assert all(item["booking_options_status"] == "available" for item in payload["selections"])
 
 
 def test_google_flights_preflight_blocks_partial_rank_completion(
@@ -107,7 +108,9 @@ def test_google_flights_preflight_blocks_partial_rank_completion(
                 "booking_url": booking_url,
                 "selected_outbound": {"row_rank": rank},
                 "selected_return": {"row_rank": rank},
-                "booking_options": [],
+                "booking_options": [{"provider": "Synthetic", "price": {"amount": rank}}]
+                if rank < 3
+                else [],
                 "warnings": [],
                 "evidence": {"run_id": f"selection-{rank}", "artifacts": []},
             },
@@ -134,6 +137,7 @@ def test_google_flights_preflight_blocks_partial_rank_completion(
     assert payload["status"] == "blocked"
     assert payload["selection_count"] == 3
     assert payload["complete_selection_count"] == 2
+    assert payload["selections"][2]["booking_options_status"] == "missing"
     assert any("selected 2/3 requested rows" in warning for warning in payload["warnings"])
 
 
@@ -179,7 +183,7 @@ def test_google_flights_preflight_retries_transient_search_page_error(
                 "booking_url": f"https://www.google.com/travel/flights/booking?rank={rank}",
                 "selected_outbound": {"row_rank": rank},
                 "selected_return": {"row_rank": rank},
-                "booking_options": [],
+                "booking_options": [{"provider": "Synthetic", "price": {"amount": rank}}],
                 "warnings": [],
                 "evidence": {"run_id": f"selection-{rank}", "artifacts": []},
             },

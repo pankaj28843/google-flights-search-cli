@@ -123,8 +123,10 @@ navigated for the supplied command URL and is not closed by the CLI.
 `search` uses live cdp by default.
 For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
 search first opens the Google Flights results surface
-`/travel/flights/search` with evidence-backed `tfs` and, when needed, short sort
-`tfu` query state. The output includes
+`/travel/flights/search` with evidence-backed `tfs` query state and short
+sort `tfu` for observed non-default sort values. Sort `tfu` is volatile Google
+Flights state; requested ranking objectives are still applied locally after row
+extraction. The output includes
 `query_population.status = "encoded"`, confidence, populated parameter names,
 source surfaces, and evidence references. City/city-like route inputs need a
 `selected` route choice before this encoded path is allowed. Inputs outside the

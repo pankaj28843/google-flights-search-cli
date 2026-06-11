@@ -48,14 +48,14 @@ Strong but not proven:
 - repeated top-level `tfs.8` values distinguish observed passenger categories
 - top-level `tfs.9` distinguishes observed economy/business cabin state
 - top-level `tfs.19` plus leg count distinguishes observed round-trip/one-way state
-- nested `tfu.2.1` distinguishes observed sort choices
+- nested `tfu.2.1` distinguishes observed sort choices in captured URLs
 
 Deferred:
 
 - premium economy and first values
 - multi-city encoding
 - filter encoding
-- top-flight reload equivalence
+- broader sort `tfu` reload safety and top-flight reload equivalence
 - nested RPC parser fields
 
 Implemented encoded subset:
@@ -66,7 +66,9 @@ Implemented encoded subset:
   city/autocomplete map
 - observed passenger category repeated values
 - economy and business cabin values
-- non-default sort values with observed short `tfu`
+- non-default sort values with observed short `tfu`; treat this as volatile
+  Google Flights state and keep user ranking objectives as local post-row
+  extraction logic
 
 Every live output reports this through `query_population`: `encoded` means the
 URL was populated from this subset and opened on `/travel/flights/search`;
