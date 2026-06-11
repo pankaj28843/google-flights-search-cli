@@ -102,6 +102,8 @@ agents must rely on JSON schemas and stable JSON output, not terminal prose.
 | `gflights search` | Run one concrete search intent and return primary result rows plus evidence paths. | service + shell adapter | observed result evidence |
 | `gflights itinerary select` | Select explicit visible Google Flights outbound/return rows from a search URL and return a Google booking-summary URL. | service + shell adapter | selected-itinerary evidence |
 | `gflights itinerary inspect` | Inspect one selected itinerary and return booking/detail fields when visible. | service + shell adapter | selected-itinerary evidence |
+| `gflights preflight google-flights` | Run synthetic public live smoke across route fallbacks, outbound x return row selection combinations, booking-summary evidence, and optional multiple future date ranges. | shell workflow + service adapters | live preflight evidence |
+| `gflights preflight headless-heal` | Repair/check headless CDP, close stale Google Flights and CDP diagnostic tabs, settle consent, and record health evidence. | shell workflow | browser harness evidence |
 | `gflights codec decode` | Decode captured `tfs`/`tfu` values and report raw wire paths plus confidence. | functional core | strong hypothesis evidence |
 | `gflights doctor` | Report toolchain, browser, project, and codec health. | imperative shell | implementation policy |
 
@@ -357,7 +359,9 @@ numeric score, and `google_flights_filters_applied: false`.
 may emit `top_cheapest`, `top_fastest`, `top_least_layover`, and `top_balanced`
 arrays while preserving the raw `results` array. `--allow-transit` and
 `--deny-transit` are local post-result ranking hints over visible layover
-airport codes only; they do not apply Google Flights filters.
+airport codes only; they do not apply Google Flights filters. Explicit large
+`--top-k` searches may expand and extract up to 50 visible rows for high-volume
+routes; default live extraction remains smaller for routine searches.
 
 Optional tabular analysis may use pandas through an adapter outside the pure
 domain core. The core date-scan JSON remains the stable contract; pandas-backed
@@ -620,9 +624,16 @@ Implementation policy:
   evidence, or explicitly requested.
 - Record browser mode, target page id, URL, command, run id, and artifacts for
   every live capture.
+- Record UUID v4 task trace evidence for live browser work. Batch/fanout
+  commands use one root task id, one child task id per search or selection
+  attempt, and one managed-tab leaf task id for each owned Chrome target.
 - Close CLI-managed page targets after evidence capture and record
-  `managed-tab-close.json`; cleanup failures are warnings/artifacts, not
-  replacements for valid domain results.
+  `managed-tab-close.json` only when the target id maps to the current
+  managed-tab task; cleanup failures are warnings/artifacts, not replacements
+  for valid domain results.
+- Preflight may close stale `data-cdp-health` diagnostic tabs by exact diagnostic
+  URL/title match and records those closes separately from Google Flights domain
+  cleanup.
 - `cdp --browser-mode headed pages --json` is an accepted tab-discovery surface
   for headed exploration.
 - When an explicit reuse option navigates an existing target, record tab-budget

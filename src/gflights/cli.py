@@ -23,7 +23,7 @@ ROOT_HELP = """Agent-first Google Flights CLI for live searches and evidence-bac
 Workflow:
   gflights schema --model search-intent --json        Inspect the input contract
   gflights route resolve --input-text CPH --json      Resolve an airport or city
-  gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
+  gflights preflight google-flights --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
                                                        Verify live browser crawl readiness
   gflights search --input-json intents.json --json    Run live Google Flights
   gflights search --input-json intents.json --url-only --json
@@ -43,13 +43,14 @@ Environment:
 Agent contract:
   Data commands emit JSON. Unsupported, ambiguous, blocked, and stale behavior is explicit instead of guessed.
   Runtime evidence is task-scoped under the configured state root.
-  For long crawls, run headless-heal first, then request top-5 synthetic Google Flights selection with
-  --min-complete-selections 3. This proves booking selection works without blocking on flaky lower-ranked rows.
+  For long crawls, run headless-heal first, then request outbound top-5 x return top-3 synthetic
+  Google Flights selection with --min-complete-selections 3. This proves booking combination
+  selection works without blocking on flaky lower-ranked rows.
 
 Examples:
   gflights doctor --json
   gflights preflight headless-heal --consent-choice accept-all --json
-  gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
+  gflights preflight google-flights --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
   gflights search --input-json intents.json --concurrency 3 --rank balanced --top-k 10 --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
 
@@ -87,9 +88,9 @@ PREFLIGHT_HELP = """Run browser and Google Flights readiness ceremonies.
 Preflight commands use public synthetic data only. They are intended to prove
 that consent, live search, row selection, return selection, and booking-summary
 inspection work before a task-specific crawler uses real itinerary constraints.
-For agent crawlers, prefer top-5 coverage with a top-3 pass gate:
-`--top-k 5 --min-complete-selections 3`. This still records lower-ranked row
-failures as warnings and evidence.
+For agent crawlers, prefer outbound top-5 x return top-3 coverage with a top-3
+pass gate: `--top-k 5 --return-top-k 3 --min-complete-selections 3`. This
+still records lower-ranked combination failures as warnings and evidence.
 Synthetic route search has its own deadline and reports `preflight_search_timeout`
 instead of relying on a caller to kill the whole command.
 Google Flights preflight may rotate across public synthetic routes when a route
@@ -98,7 +99,7 @@ hits transient search failures; inspect `diagnostics.route_attempts`.
 Examples:
   gflights preflight headless-heal --json
   gflights preflight google-flights --json
-  gflights preflight google-flights --browser-mode headless --top-k 5 --min-complete-selections 3 --json
+  gflights preflight google-flights --browser-mode headless --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 """
 
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
@@ -379,14 +380,21 @@ def preflight_google_flights_command(
         "--top-k",
         min=1,
         max=5,
-        help="Synthetic route row ranks to attempt through booking-summary pages; use 5 for crawler readiness.",
+        help="Outbound synthetic route row ranks to fan out through booking-summary pages; use 5 for crawler readiness.",
+    ),
+    return_top_k: int = typer.Option(
+        3,
+        "--return-top-k",
+        min=1,
+        max=5,
+        help="Return row ranks to try under each outbound row rank; use 3 for bounded crawler readiness.",
     ),
     min_complete_selections: int | None = typer.Option(
         None,
         "--min-complete-selections",
         min=1,
-        max=5,
-        help="Minimum selected ranks that must reach bookable options; defaults to --top-k, use 3 with --top-k 5 for agent crawls.",
+        max=25,
+        help="Minimum outbound/return combinations that must reach bookable options; defaults to --top-k * --return-top-k.",
     ),
     selection_concurrency: int = typer.Option(
         3,
@@ -395,6 +403,13 @@ def preflight_google_flights_command(
         max=7,
         help="Concurrent managed tabs for selecting synthetic route rows through booking.",
     ),
+    date_range_count: int = typer.Option(
+        1,
+        "--date-range-count",
+        min=1,
+        max=6,
+        help="Synthetic future date ranges to smoke across each public route candidate.",
+    ),
     search_deadline_seconds: float | None = typer.Option(
         None,
         "--search-deadline-seconds",
@@ -402,10 +417,10 @@ def preflight_google_flights_command(
         help="Total seconds allowed for each synthetic route search before returning preflight_search_timeout.",
     ),
     max_tabs: int = typer.Option(
-        8,
+        25,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero; default matches headless cdp.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -431,12 +446,13 @@ def preflight_google_flights_command(
             6,
         )
         return
-    if min_complete_selections is not None and min_complete_selections > top_k:
+    selection_count = top_k * return_top_k
+    if min_complete_selections is not None and min_complete_selections > selection_count:
         emit(
             {
                 "status": "tool_error",
                 "warnings": [],
-                "error": "--min-complete-selections cannot exceed --top-k",
+                "error": "--min-complete-selections cannot exceed --top-k * --return-top-k",
             },
             6,
         )
@@ -447,8 +463,10 @@ def preflight_google_flights_command(
             browser_mode=browser_mode,
             consent_choice=consent_choice,  # type: ignore[arg-type]
             top_k=top_k,
+            return_top_k=return_top_k,
             min_complete_selections=min_complete_selections,
             selection_concurrency=selection_concurrency,
+            date_range_count=date_range_count,
             max_tabs=max_tabs,
             search_deadline_seconds=search_deadline_seconds,
         )
@@ -479,10 +497,10 @@ def preflight_headless_heal_command(
         help="Restart the headless cdp daemon before cleanup when health is green but Google remains erroring.",
     ),
     max_tabs: int = typer.Option(
-        8,
+        25,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero; default matches headless cdp.",
     ),
     project_root: Path | None = typer.Option(
         None,

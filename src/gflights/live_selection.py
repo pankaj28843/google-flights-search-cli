@@ -28,6 +28,12 @@ from gflights.live_tabs import (
     tab_budget_enabled,
     tab_budget_summary,
 )
+from gflights.live_trace import (
+    TaskTrace,
+    new_task_trace,
+    open_result_page_id,
+    recoverable_open_page_warning,
+)
 from gflights.result_extraction import extract_primary_results
 
 OUTBOUND_TERMINAL_JS = r"""
@@ -129,6 +135,7 @@ async def run_live_itinerary_selection(
     max_tabs: int | None = None,
     allow_over_budget: bool = False,
     operation_retries: int = 2,
+    task_trace: TaskTrace | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Select visible Google Flights rows and retry transient whole-operation failures."""
 
@@ -150,10 +157,16 @@ async def run_live_itinerary_selection(
             reuse_target=reuse_target,
             max_tabs=max_tabs,
             allow_over_budget=allow_over_budget,
+            task_trace=task_trace,
         )
 
     adapter = adapter or CdpAdapter(max_tabs=max_tabs, allow_over_budget=allow_over_budget)
     base_run_id = run_id or _new_run_id()
+    root_trace = task_trace or new_task_trace(
+        command="gflights.itinerary.select",
+        name="selection-operation",
+        run_id=base_run_id,
+    )
     max_attempts = operation_retries + 1
     attempt_summaries: list[dict[str, Any]] = []
     last_result: tuple[int, dict[str, Any]] | None = None
@@ -177,6 +190,10 @@ async def run_live_itinerary_selection(
             reuse_target=reuse_target,
             max_tabs=max_tabs,
             allow_over_budget=allow_over_budget,
+            task_trace=root_trace.child(
+                f"selection-attempt-{attempt:02d}",
+                run_id=attempt_run_id,
+            ),
         )
         last_result = (exit_code, payload)
         transient = _is_transient_operation_failure(payload)
@@ -230,12 +247,19 @@ async def _run_live_itinerary_selection_once(
     reuse_target: str = "",
     max_tabs: int | None = None,
     allow_over_budget: bool = False,
+    task_trace: TaskTrace | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Select visible Google Flights outbound/return rows and return booking URL."""
 
     adapter = adapter or CdpAdapter(max_tabs=max_tabs, allow_over_budget=allow_over_budget)
     state = init_app_state(project_root)
     run_id = run_id or _new_run_id()
+    task_trace = task_trace or new_task_trace(
+        command="gflights.itinerary.select",
+        name="selection-attempt",
+        run_id=run_id,
+    )
+    managed_tab_trace = task_trace.child("managed-tab", run_id=run_id)
     run_root = state.run_root / run_id
     run_root.mkdir(parents=True, exist_ok=True)
 
@@ -281,6 +305,8 @@ async def _run_live_itinerary_selection_once(
         "reuse_target": reuse_target,
         "managed_tab_created": True,
         "cleanup_status": "not_run",
+        "task_trace": task_trace,
+        "managed_tab_trace": managed_tab_trace,
     }
     if tab_context["enabled"]:
         tab_context["before"] = await capture_tab_budget(
@@ -308,7 +334,12 @@ async def _run_live_itinerary_selection_once(
             artifact_name="open.json",
             source_surface="cdp:open:itinerary-selection",
         )
-    page_id = _page_id(open_result.json_payload)
+    page_id = open_result_page_id(open_result)
+    if page_id and managed_tab_created:
+        managed_tab_trace.record_target(page_id)
+    recovered_open_warning = recoverable_open_page_warning(open_result, page_id)
+    if recovered_open_warning:
+        warnings.append(recovered_open_warning)
     if _is_stop_result(open_result):
         return await _finish_selection(
             adapter=adapter,
@@ -330,7 +361,7 @@ async def _run_live_itinerary_selection_once(
                 warnings=warnings,
             ),
         )
-    if open_result.status == "tool_error":
+    if open_result.status == "tool_error" and not page_id:
         return await _finish_selection(
             adapter=adapter,
             page_id=page_id,
@@ -1367,6 +1398,8 @@ async def _run_step(
             "artifact": str(artifact_path),
             "status": result.status,
             "exit_code": result.exit_code,
+            "attempt_count": result.attempt_count,
+            "max_attempts": result.max_attempts,
         }
     )
     return result
@@ -1386,7 +1419,11 @@ async def _finish_selection(
     result: tuple[int, dict[str, Any]],
 ) -> tuple[int, dict[str, Any]]:
     cleanup_status = "not_run"
+    managed_tab_trace = tab_context.get("managed_tab_trace") if tab_context is not None else None
+    task_trace = tab_context.get("task_trace") if tab_context is not None else None
     should_close = tab_context is None or bool(tab_context.get("managed_tab_created", True))
+    if should_close and isinstance(managed_tab_trace, TaskTrace) and page_id:
+        should_close = managed_tab_trace.owns_target(page_id)
     if should_close:
         close_result = await close_managed_page(
             adapter=adapter,
@@ -1398,8 +1435,11 @@ async def _finish_selection(
             artifacts=artifacts,
             source_surfaces=source_surfaces,
             warnings=_payload_warnings(result[1]),
+            task_trace=managed_tab_trace if isinstance(managed_tab_trace, TaskTrace) else None,
         )
         cleanup_status = close_result.status if close_result is not None else "not_run_no_page_id"
+    elif tab_context is not None and bool(tab_context.get("managed_tab_created", True)) and page_id:
+        cleanup_status = "skipped_unowned_tab"
     elif tab_context is not None:
         cleanup_status = "skipped_reused_tab"
 
@@ -1427,6 +1467,21 @@ async def _finish_selection(
                 managed_tab_created=bool(tab_context.get("managed_tab_created", True)),
                 cleanup_status=cleanup_status,
             )
+        if isinstance(task_trace, TaskTrace):
+            _write_task_trace(
+                run_root=run_root,
+                artifacts=artifacts,
+                task_trace=task_trace,
+                managed_tab_trace=managed_tab_trace
+                if isinstance(managed_tab_trace, TaskTrace)
+                else None,
+                page_id=page_id,
+                managed_tab_created=bool(tab_context.get("managed_tab_created", True)),
+                cleanup_status=cleanup_status,
+            )
+            evidence = result[1].get("evidence")
+            if isinstance(evidence, dict):
+                evidence["task_trace"] = task_trace.as_dict()
     _write_command_log(run_root, executed, artifacts)
     return result
 
@@ -1514,7 +1569,9 @@ def _selection_tool_error_payload(
     stage: str,
     selection: dict[str, Any],
 ) -> tuple[int, dict[str, Any]]:
-    error = str(selection.get("error") or selection.get("reason") or f"{stage} row selection failed")
+    error = str(
+        selection.get("error") or selection.get("reason") or f"{stage} row selection failed"
+    )
     return 6, {
         "status": "tool_error",
         "confidence": "unknown",
@@ -1546,6 +1603,10 @@ def _is_transient_operation_failure(payload: dict[str, Any]) -> bool:
         and settlement.get("terminal_status") == "assertion_timeout"
     ):
         return True
+    if payload.get("status") == "unsupported" and _payload_has_row_click_transition_timeout(
+        payload
+    ):
+        return True
     if payload.get("status") != "tool_error":
         return False
     text = " ".join(
@@ -1572,10 +1633,22 @@ def _is_transient_operation_failure(payload: dict[str, Any]) -> bool:
             "browser commands require a running",
             "keepalive repair is locked",
             "starting_daemon",
+            "target_not_found",
+            "no target",
             "google_page_error",
             "google flights page reported a transient error",
         ]
     )
+
+
+def _payload_has_row_click_transition_timeout(payload: dict[str, Any]) -> bool:
+    selection = payload.get("selection")
+    if not isinstance(selection, dict):
+        return False
+    for value in selection.values():
+        if isinstance(value, dict) and _row_click_transition_timed_out(value):
+            return True
+    return False
 
 
 def _payload_failed_stage(payload: dict[str, Any]) -> str:
@@ -1609,6 +1682,19 @@ def _selection_unavailable_payload(
     stage: str,
     selection: dict[str, Any],
 ) -> tuple[int, dict[str, Any]]:
+    reason = _selection_unavailable_reason(stage, selection)
+    diagnostics: dict[str, Any] = {
+        "failed_stage": stage,
+        "row_found": bool(selection.get("found")),
+        "row_clicked": bool(selection.get("clicked")),
+    }
+    transition_condition = selection.get("transitionCondition")
+    if transition_condition:
+        diagnostics["transition_condition"] = transition_condition
+        diagnostics["transition_matched"] = bool(selection.get("transitionMatched"))
+        diagnostics["transition_elapsed_ms"] = selection.get("transitionElapsedMs")
+    if _row_click_transition_timed_out(selection):
+        diagnostics["transient_retryable"] = True
     return 3, {
         "status": "unsupported",
         "confidence": "weak",
@@ -1621,9 +1707,10 @@ def _selection_unavailable_payload(
             {
                 "field": f"google_flights_row_selection.{stage}",
                 "status": "deferred",
-                "reason": "no visible Google Flights row matched the requested selection criteria",
+                "reason": reason,
             }
         ],
+        "diagnostics": diagnostics,
         "warnings": warnings,
         "evidence": {
             "run_id": run_id,
@@ -1631,6 +1718,30 @@ def _selection_unavailable_payload(
             "source_surfaces": source_surfaces,
         },
     }
+
+
+def _selection_unavailable_reason(stage: str, selection: dict[str, Any]) -> str:
+    if _row_click_transition_timed_out(selection):
+        expected_stage = "booking" if stage == "return" else "return"
+        return (
+            "Google Flights accepted the row click but did not reach the expected "
+            f"{expected_stage} stage before the bounded semantic wait timed out"
+        )
+    reason = selection.get("reason")
+    if isinstance(reason, str) and reason:
+        return reason
+    if selection.get("found") is False:
+        return "no visible Google Flights row matched the requested selection criteria"
+    return "Google Flights row selection did not produce a supported next-stage transition"
+
+
+def _row_click_transition_timed_out(selection: dict[str, Any]) -> bool:
+    return (
+        bool(selection.get("found"))
+        and bool(selection.get("clicked"))
+        and selection.get("transitionMatched") is False
+        and selection.get("transitionCondition") == "assertion_timeout"
+    )
 
 
 def _stage_not_ready_payload(
@@ -1837,20 +1948,6 @@ def _should_force_retry_click(result: CdpResult) -> bool:
     return "actionability" in haystack and ("stable" in haystack or "receives_events" in haystack)
 
 
-def _page_id(payload: dict[str, Any] | None) -> str:
-    if not payload:
-        return ""
-    page = payload.get("page")
-    if isinstance(page, dict) and isinstance(page.get("id"), str):
-        return page["id"]
-    target = payload.get("target")
-    if isinstance(target, dict) and isinstance(target.get("id"), str):
-        return target["id"]
-    if isinstance(payload.get("id"), str):
-        return payload["id"]
-    return ""
-
-
 def _should_enforce_live_dwell(adapter: CdpAdapter) -> bool:
     return type(adapter) is CdpAdapter and getattr(adapter, "_runner", None) is run_subprocess
 
@@ -1876,6 +1973,9 @@ def _result_artifact(result: CdpResult) -> dict[str, Any]:
         "fallback": result.fallback,
         "error": result.error,
         "timeout": result.timeout,
+        "attempt_count": result.attempt_count,
+        "max_attempts": result.max_attempts,
+        "attempts": result.attempts or [],
     }
 
 
@@ -1888,6 +1988,30 @@ def _write_command_log(
     _write_json(path, executed)
     if str(path) not in artifacts:
         artifacts.append(str(path))
+
+
+def _write_task_trace(
+    *,
+    run_root: Path,
+    artifacts: list[str],
+    task_trace: TaskTrace,
+    managed_tab_trace: TaskTrace | None,
+    page_id: str,
+    managed_tab_created: bool,
+    cleanup_status: str,
+) -> None:
+    artifact_path = run_root / "task-trace.json"
+    payload: dict[str, Any] = {
+        "task": task_trace.as_dict(),
+        "managed_tab_task": managed_tab_trace.as_dict() if managed_tab_trace is not None else None,
+        "managed_tab_id": page_id or None,
+        "managed_tab_created": managed_tab_created,
+        "cleanup_status": cleanup_status,
+        "target_task_ids": task_trace.ownership_map(),
+    }
+    _write_json(artifact_path, payload)
+    if str(artifact_path) not in artifacts:
+        artifacts.append(str(artifact_path))
 
 
 def _write_json(path: Path, payload: Any) -> None:

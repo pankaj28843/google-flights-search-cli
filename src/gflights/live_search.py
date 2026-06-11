@@ -34,6 +34,13 @@ from gflights.live_tabs import (
     tab_budget_enabled,
     tab_budget_summary,
 )
+from gflights.live_tasks import AsyncCrawlTaskManager
+from gflights.live_trace import (
+    TaskTrace,
+    new_task_trace,
+    open_result_page_id,
+    recoverable_open_page_warning,
+)
 from gflights.query_state import UnsupportedQueryState, build_query_state
 from gflights.ranking import rank_observed_results
 from gflights.result_extraction import classify_primary_result_absence, extract_primary_results
@@ -80,6 +87,7 @@ async def run_live_search(
     top_k: int = 0,
     allow_transit: list[str] | None = None,
     deny_transit: list[str] | None = None,
+    task_trace: TaskTrace | None = None,
 ) -> tuple[int, dict[str, Any] | list[dict[str, Any]]]:
     adapter = adapter or CdpAdapter(max_tabs=max_tabs)
     intents = load_intents(input_json)
@@ -99,35 +107,45 @@ async def run_live_search(
             top_k=top_k,
             allow_transit=allow_transit,
             deny_transit=deny_transit,
+            task_trace=task_trace,
         )
 
     concurrency = max(1, min(batch_concurrency, 5))
+    batch_trace = task_trace or new_task_trace(
+        command="gflights.search", name="search-batch", run_id=run_id or "auto"
+    )
     if type(adapter) is CdpAdapter and concurrency > 1:
-        semaphore = asyncio.Semaphore(concurrency)
+        manager = AsyncCrawlTaskManager(root_trace=batch_trace, concurrency=concurrency)
 
-        async def run_indexed(index: int, intent: SearchIntent) -> tuple[int, dict[str, Any]]:
-            async with semaphore:
-                return await _run_one_live_search(
-                    intent=intent,
-                    state=state,
-                    adapter=adapter,
-                    browser_mode=browser_mode,
-                    run_id=_batch_run_id(run_id, intent.query_id, index),
-                    timeout_seconds=timeout_seconds,
-                    interact_with_form=interact_with_form,
-                    managed_tab_policy=managed_tab_policy,
-                    max_tabs=max_tabs,
-                    rank_objectives=rank_objectives,
-                    top_k=top_k,
-                    allow_transit=allow_transit,
-                    deny_transit=deny_transit,
-                )
+        async def run_indexed(
+            index: int, intent: SearchIntent, child_trace: TaskTrace
+        ) -> tuple[int, dict[str, Any]]:
+            item_run_id = _batch_run_id(run_id, intent.query_id, index)
+            return await _run_one_live_search(
+                intent=intent,
+                state=state,
+                adapter=adapter,
+                browser_mode=browser_mode,
+                run_id=item_run_id,
+                timeout_seconds=timeout_seconds,
+                interact_with_form=interact_with_form,
+                managed_tab_policy=managed_tab_policy,
+                max_tabs=max_tabs,
+                rank_objectives=rank_objectives,
+                top_k=top_k,
+                allow_transit=allow_transit,
+                deny_transit=deny_transit,
+                task_trace=child_trace,
+            )
 
-        indexed_results = await asyncio.gather(
-            *(run_indexed(index, intent) for index, intent in enumerate(intents, start=1))
+        indexed_results = await manager.map_ordered(
+            intents,
+            task_name="search-intent",
+            run_id_for_item=lambda index, intent: _batch_run_id(run_id, intent.query_id, index),
+            worker=run_indexed,
         )
-        exit_codes = [exit_code for exit_code, _payload in indexed_results]
-        outputs = [payload for _exit_code, payload in indexed_results]
+        exit_codes = [exit_code for exit_code, _payload in (item.value for item in indexed_results)]
+        outputs = [payload for _exit_code, payload in (item.value for item in indexed_results)]
         return _aggregate_exit_code(exit_codes), outputs
 
     outputs: list[dict[str, Any]] = []
@@ -148,6 +166,7 @@ async def run_live_search(
             top_k=top_k,
             allow_transit=allow_transit,
             deny_transit=deny_transit,
+            task_trace=batch_trace.child(f"search-intent-{index:02d}", run_id=item_run_id),
         )
         exit_codes.append(exit_code)
         outputs.append(payload)
@@ -169,8 +188,15 @@ async def _run_one_live_search(
     top_k: int,
     allow_transit: list[str] | None,
     deny_transit: list[str] | None,
+    task_trace: TaskTrace | None = None,
 ) -> tuple[int, dict[str, Any]]:
     run_id = run_id or _new_run_id(intent.query_id)
+    task_trace = task_trace or new_task_trace(
+        command="gflights.search",
+        name="search-intent",
+        run_id=run_id,
+    )
+    managed_tab_trace = task_trace.child("managed-tab", run_id=run_id)
     run_root = state.run_root / run_id
     run_root.mkdir(parents=True, exist_ok=True)
     _write_json(run_root / "intent.json", intent.model_dump(mode="json"))
@@ -212,6 +238,8 @@ async def _run_one_live_search(
         "reuse_target": "",
         "managed_tab_created": True,
         "cleanup_status": "not_run",
+        "task_trace": task_trace,
+        "managed_tab_trace": managed_tab_trace,
     }
     if tab_context["enabled"]:
         tab_context["before"] = await capture_tab_budget(
@@ -242,7 +270,14 @@ async def _run_one_live_search(
         artifacts=artifacts,
         source_surfaces=source_surfaces,
     )
-    page_id = _page_id(open_result.json_payload)
+    page_id = open_result_page_id(open_result)
+    if page_id and managed_tab_created:
+        managed_tab_trace.record_target(page_id)
+    recovered_open_warning = recoverable_open_page_warning(open_result, page_id)
+    if recovered_open_warning:
+        nonfatal_open_warnings = [recovered_open_warning]
+    else:
+        nonfatal_open_warnings = []
     if _is_stop_result(open_result):
         return await _finish_live_search(
             adapter=adapter,
@@ -266,7 +301,7 @@ async def _run_one_live_search(
                 query_population=query_population,
             ),
         )
-    if open_result.status == "tool_error":
+    if open_result.status == "tool_error" and not page_id:
         return await _finish_live_search(
             adapter=adapter,
             page_id=page_id,
@@ -478,7 +513,7 @@ async def _run_one_live_search(
                     ),
                 )
 
-    nonfatal_warnings: list[str] = []
+    nonfatal_warnings: list[str] = [*nonfatal_open_warnings]
     settlement = await _settle_google_flights_page(
         adapter=adapter,
         page_id=page_id,
@@ -600,16 +635,22 @@ async def _run_one_live_search(
         browser_mode=browser_mode,
         timeout_seconds=timeout_seconds,
         run_root=run_root,
-        considered_limit=_considered_row_expand_limit(top_k),
+        considered_limit=_considered_row_limit(top_k),
         executed=executed,
         artifacts=artifacts,
         source_surfaces=source_surfaces,
         warnings=nonfatal_warnings,
     )
+    considered_row_limit = _considered_row_limit(top_k)
     accessible_rows_evidence_artifact = str(run_root / "accessible-rows.json")
     accessible_rows_result = await _run_step(
         adapter=adapter,
-        args=["eval", accessible_rows_js(stage="auto", limit=20), "--target", page_id],
+        args=[
+            "eval",
+            accessible_rows_js(stage="auto", limit=max(20, considered_row_limit)),
+            "--target",
+            page_id,
+        ],
         browser_mode=browser_mode,
         timeout_seconds=min(timeout_seconds, 10.0),
         run_root=run_root,
@@ -952,13 +993,11 @@ async def _expand_considered_accessible_rows(
         source_surfaces=source_surfaces,
     )
     if expand_result.status == "tool_error":
-        warnings.append(
-            "accessible row expansion failed; continuing with row evidence"
-        )
+        warnings.append("accessible row expansion failed; continuing with row evidence")
 
 
-def _considered_row_expand_limit(top_k: int) -> int:
-    return min(max(top_k if top_k > 0 else 5, 5), 10)
+def _considered_row_limit(top_k: int) -> int:
+    return min(max(top_k if top_k > 0 else 5, 5), 50)
 
 
 def _eval_value(payload: dict[str, Any]) -> Any:
@@ -1005,6 +1044,8 @@ async def _run_step(
             "artifact": str(artifact_path),
             "status": result.status,
             "exit_code": result.exit_code,
+            "attempt_count": result.attempt_count,
+            "max_attempts": result.max_attempts,
         }
     )
     return result
@@ -1332,7 +1373,11 @@ async def _finish_live_search(
     payload: dict[str, Any],
 ) -> tuple[int, dict[str, Any]]:
     cleanup_status = "not_run"
+    managed_tab_trace = tab_context.get("managed_tab_trace") if tab_context is not None else None
+    task_trace = tab_context.get("task_trace") if tab_context is not None else None
     should_close = tab_context is None or bool(tab_context.get("managed_tab_created", True))
+    if should_close and isinstance(managed_tab_trace, TaskTrace) and page_id:
+        should_close = managed_tab_trace.owns_target(page_id)
     if should_close:
         close_result = await close_managed_page(
             adapter=adapter,
@@ -1344,8 +1389,11 @@ async def _finish_live_search(
             artifacts=artifacts,
             source_surfaces=source_surfaces,
             warnings=_payload_warnings(payload),
+            task_trace=managed_tab_trace if isinstance(managed_tab_trace, TaskTrace) else None,
         )
         cleanup_status = close_result.status if close_result is not None else "not_run_no_page_id"
+    elif tab_context is not None and bool(tab_context.get("managed_tab_created", True)) and page_id:
+        cleanup_status = "skipped_unowned_tab"
     elif tab_context is not None:
         cleanup_status = "skipped_reused_tab"
 
@@ -1374,6 +1422,21 @@ async def _finish_live_search(
                 managed_tab_created=bool(tab_context.get("managed_tab_created", True)),
                 cleanup_status=cleanup_status,
             )
+        if isinstance(task_trace, TaskTrace):
+            _write_task_trace(
+                run_root=run_root,
+                artifacts=artifacts,
+                task_trace=task_trace,
+                managed_tab_trace=managed_tab_trace
+                if isinstance(managed_tab_trace, TaskTrace)
+                else None,
+                page_id=page_id,
+                managed_tab_created=bool(tab_context.get("managed_tab_created", True)),
+                cleanup_status=cleanup_status,
+            )
+            evidence = payload.get("evidence")
+            if isinstance(evidence, dict):
+                evidence["task_trace"] = task_trace.as_dict()
     _write_command_log(run_root, executed, artifacts)
     return exit_code, payload
 
@@ -1433,6 +1496,30 @@ def _write_command_log(
         artifacts.append(str(command_log))
 
 
+def _write_task_trace(
+    *,
+    run_root: Path,
+    artifacts: list[str],
+    task_trace: TaskTrace,
+    managed_tab_trace: TaskTrace | None,
+    page_id: str,
+    managed_tab_created: bool,
+    cleanup_status: str,
+) -> None:
+    artifact_path = run_root / "task-trace.json"
+    payload: dict[str, Any] = {
+        "task": task_trace.as_dict(),
+        "managed_tab_task": managed_tab_trace.as_dict() if managed_tab_trace is not None else None,
+        "managed_tab_id": page_id or None,
+        "managed_tab_created": managed_tab_created,
+        "cleanup_status": cleanup_status,
+        "target_task_ids": task_trace.ownership_map(),
+    }
+    _write_json(artifact_path, payload)
+    if str(artifact_path) not in artifacts:
+        artifacts.append(str(artifact_path))
+
+
 def _result_artifact(result: CdpResult) -> dict[str, Any]:
     return {
         "argv": result.argv,
@@ -1447,6 +1534,9 @@ def _result_artifact(result: CdpResult) -> dict[str, Any]:
         "fallback": result.fallback,
         "error": result.error,
         "timeout": result.timeout,
+        "attempt_count": result.attempt_count,
+        "max_attempts": result.max_attempts,
+        "attempts": result.attempts or [],
     }
 
 
@@ -1760,20 +1850,6 @@ def _google_flights_url(
         query_params.setdefault("gl", location)
     base_url = GOOGLE_FLIGHTS_SEARCH_URL if result_surface else GOOGLE_FLIGHTS_URL
     return f"{base_url}?{urlencode(query_params)}"
-
-
-def _page_id(payload: dict[str, Any] | None) -> str:
-    if not payload:
-        return ""
-    page = payload.get("page")
-    if isinstance(page, dict) and isinstance(page.get("id"), str):
-        return page["id"]
-    target = payload.get("target")
-    if isinstance(target, dict) and isinstance(target.get("id"), str):
-        return target["id"]
-    if isinstance(payload.get("id"), str):
-        return payload["id"]
-    return ""
 
 
 def _new_run_id(query_id: str) -> str:

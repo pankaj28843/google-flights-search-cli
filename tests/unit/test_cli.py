@@ -280,10 +280,14 @@ def test_preflight_google_flights_uses_public_synthetic_smoke(
             "reject-all",
             "--top-k",
             "5",
+            "--return-top-k",
+            "3",
             "--min-complete-selections",
             "3",
             "--selection-concurrency",
             "4",
+            "--date-range-count",
+            "2",
             "--search-deadline-seconds",
             "90",
             "--max-tabs",
@@ -300,8 +304,10 @@ def test_preflight_google_flights_uses_public_synthetic_smoke(
     assert calls[0]["browser_mode"] == "headless"
     assert calls[0]["consent_choice"] == "reject-all"
     assert calls[0]["top_k"] == 5
+    assert calls[0]["return_top_k"] == 3
     assert calls[0]["min_complete_selections"] == 3
     assert calls[0]["selection_concurrency"] == 4
+    assert calls[0]["date_range_count"] == 2
     assert calls[0]["search_deadline_seconds"] == 90.0
     assert calls[0]["max_tabs"] == 7
     assert calls[0]["project_root"] == tmp_path
@@ -315,6 +321,8 @@ def test_preflight_google_flights_rejects_min_complete_above_top_k(tmp_path: Pat
             "google-flights",
             "--top-k",
             "3",
+            "--return-top-k",
+            "1",
             "--min-complete-selections",
             "4",
             "--project-root",
@@ -324,7 +332,7 @@ def test_preflight_google_flights_rejects_min_complete_above_top_k(tmp_path: Pat
     )
 
     assert result.exit_code == 6, result.output
-    assert "--min-complete-selections cannot exceed --top-k" in result.output
+    assert "--min-complete-selections cannot exceed --top-k * --return-top-k" in result.output
 
 
 def test_preflight_google_flights_rejects_unknown_consent_choice(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ import json
 import sqlite3
 from collections.abc import Sequence
 from pathlib import Path
+from uuid import UUID
 
 from gflights.app_state import PriceCache
 from gflights.browser import BrowserMode, CdpAdapter, CdpResult, ProcessResult
@@ -130,6 +131,12 @@ def cdp_result(
         else None,
         fallback=fallback,
     )
+
+
+def assert_uuid4(value: str) -> None:
+    parsed = UUID(value)
+    assert parsed.version == 4
+    assert str(parsed) == value
 
 
 def write_intent(path: Path) -> Path:
@@ -325,7 +332,7 @@ def test_live_search_orchestration_opens_google_flights_and_records_artifacts(
         (adapter.calls[4][0], "headless", 10.0),
         (adapter.calls[5][0], "headless", 10.0),
         (["network", "--target", "page-1", "--limit", "50", "--wait", "1s"], "headless", 30.0),
-        (["page", "close", "--target", "page-1"], "headless", 5.0),
+        (["page", "close", "--target", "page-1"], "headless", 60.0),
     ]
 
 
@@ -370,8 +377,21 @@ def test_live_search_warns_when_managed_tab_close_fails(tmp_path: Path) -> None:
     assert any(
         "managed cdp page cleanup returned tool_error" in warning for warning in payload["warnings"]
     )
+    close_calls = [
+        call for call in adapter.calls if call[0] == ["page", "close", "--target", "page-1"]
+    ]
+    assert len(close_calls) == 3
+    assert {call[2] for call in close_calls} == {60.0}
     artifact = tmp_path / "runs" / "gf-test-close-warning" / "managed-tab-close.json"
-    assert json.loads(artifact.read_text())["status"] == "tool_error"
+    close_artifact = json.loads(artifact.read_text())
+    assert close_artifact["status"] == "tool_error"
+    assert close_artifact["attempt_count"] == 3
+    assert close_artifact["max_attempts"] == 3
+    assert [attempt["status"] for attempt in close_artifact["attempts"]] == [
+        "tool_error",
+        "tool_error",
+        "tool_error",
+    ]
 
 
 def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Path) -> None:
@@ -424,9 +444,7 @@ def test_live_search_opens_populated_query_state_url_when_supported(tmp_path: Pa
     )
     assert payload["unsupported"][0]["field"] == "live_result_extraction"
     assert (tmp_path / "runs" / "gf-test-query-state" / "query-state.json").is_file()
-    assert not (
-        tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json"
-    ).exists()
+    assert not (tmp_path / "runs" / "gf-test-query-state" / "wait-query-network-idle.json").exists()
 
 
 def test_live_search_tool_error_keeps_encoded_target_url(tmp_path: Path) -> None:
@@ -462,6 +480,57 @@ def test_live_search_tool_error_keeps_encoded_target_url(tmp_path: Path) -> None
     assert "hl=en" in payload["target_url"]
     assert "curr=EUR" in payload["target_url"]
     assert payload["query_population"]["status"] == "encoded"
+
+
+def test_live_search_recovers_workflow_created_target_with_uuid_trace(
+    tmp_path: Path,
+) -> None:
+    page_id = "9A29955C057DBDACA7E81371E4DCB2C4"
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": False,
+                    "message": (f"failed to record workflow-created page {page_id} after open"),
+                },
+                status="tool_error",
+                exit_code=6,
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(["snapshot"], {"ok": True, "items": [{"text": "Flights"}]}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ]
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-recovered-open",
+            max_tabs=8,
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "experimental"
+    assert payload["managed_tab_id"] == page_id
+    assert any("workflow-created-page recording error" in item for item in payload["warnings"])
+    assert any(call[0] == ["page", "close", "--target", page_id] for call in adapter.calls)
+
+    run_root = tmp_path / "runs" / "gf-test-recovered-open"
+    task_trace = json.loads((run_root / "task-trace.json").read_text())
+    assert task_trace["managed_tab_id"] == page_id
+    assert_uuid4(task_trace["task"]["task_id"])
+    assert_uuid4(task_trace["task"]["root_task_id"])
+    assert_uuid4(task_trace["managed_tab_task"]["task_id"])
+    assert task_trace["managed_tab_task"]["parent_task_id"] == task_trace["task"]["task_id"]
+    assert task_trace["target_task_ids"] == {page_id: task_trace["managed_tab_task"]["task_id"]}
+
+    close_trace = json.loads((run_root / "managed-tab-close.json").read_text())
+    assert close_trace["target_task_ids"] == task_trace["target_task_ids"]
 
 
 def test_live_search_reuse_policy_records_tab_budget_and_top_k_results(
@@ -1452,6 +1521,16 @@ def test_live_search_real_adapter_batch_uses_bounded_concurrency(tmp_path: Path)
         "cph-lko-oneway-jun",
     ]
     assert max_active > 1
+    task_traces = [item["evidence"]["task_trace"] for item in payload]
+    root_task_ids = {trace["root_task_id"] for trace in task_traces}
+    task_ids = {trace["task_id"] for trace in task_traces}
+    assert len(root_task_ids) == 1
+    assert len(task_ids) == 2
+    root_task_id = next(iter(root_task_ids))
+    assert_uuid4(root_task_id)
+    for trace in task_traces:
+        assert_uuid4(trace["task_id"])
+        assert trace["parent_task_id"] == root_task_id
 
 
 def test_live_search_reports_query_population_boundary_per_batch_item(tmp_path: Path) -> None:

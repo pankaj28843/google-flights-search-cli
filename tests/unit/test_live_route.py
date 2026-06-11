@@ -220,7 +220,7 @@ def test_live_route_successful_snapshot_returns_explicit_deferred_payload(
             30.0,
         ),
         (["snapshot", "--target", "page-1", "--limit", "120"], "headless", 30.0),
-        (["page", "close", "--target", "page-1"], "headless", 5.0),
+        (["page", "close", "--target", "page-1"], "headless", 60.0),
     ]
     assert (tmp_path / "runs" / "gf-route-snapshot" / "input.json").is_file()
     assert (tmp_path / "runs" / "gf-route-snapshot" / "snapshot.json").is_file()

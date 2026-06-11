@@ -75,6 +75,12 @@ def test_cdp_adapter_retries_transient_connection_failure() -> None:
     assert len(runner.calls) == 2
     assert result.status == "ok"
     assert result.json_payload == {"status": "ok", "page_id": "page-1"}
+    assert result.attempt_count == 2
+    assert result.max_attempts == 3
+    assert [attempt["status"] for attempt in result.attempts or []] == [
+        "tool_error",
+        "ok",
+    ]
 
 
 def test_cdp_adapter_retries_headless_daemon_start_lock() -> None:
@@ -85,7 +91,7 @@ def test_cdp_adapter_retries_headless_daemon_start_lock() -> None:
                 stdout=(
                     '{"ok":false,"code":"connection_failed","err_class":"connection",'
                     '"message":"browser commands require a running headless cdp daemon; '
-                    'automatic headless daemon repair failed: headless keepalive repair '
+                    "automatic headless daemon repair failed: headless keepalive repair "
                     'is locked by pid 82788 in phase starting_daemon"}'
                 ),
                 stderr="",
@@ -109,6 +115,30 @@ def test_cdp_adapter_retries_headless_daemon_start_lock() -> None:
     assert len(runner.calls) == 3
     assert result.status == "ok"
     assert result.json_payload == {"status": "ok", "page_id": "page-2"}
+    assert result.attempt_count == 3
+    assert result.max_attempts == 3
+
+
+def test_cdp_adapter_retries_transient_target_lookup_failure() -> None:
+    runner = SequenceRunner(
+        [
+            ProcessResult(
+                returncode=6,
+                stdout='{"ok":false,"message":"target_not_found: no target page-1 matched"}',
+                stderr="",
+            ),
+            ProcessResult(returncode=0, stdout='{"status":"ok","items":[]}', stderr=""),
+        ]
+    )
+    adapter = CdpAdapter(runner=runner)
+
+    result = asyncio.run(adapter.run_json(["text", "body", "--target", "page-1"]))
+
+    assert len(runner.calls) == 2
+    assert result.status == "ok"
+    assert result.attempt_count == 2
+    assert result.max_attempts == 3
+    assert (result.attempts or [])[0]["error"] == "target_not_found: no target page-1 matched"
 
 
 def test_cdp_adapter_allows_explicit_headed_mode() -> None:

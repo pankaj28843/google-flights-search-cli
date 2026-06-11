@@ -94,7 +94,8 @@ intent. Real CDP JSON-array live search may open up to `--concurrency` parallel
 managed tabs, clamped to 1-5 and defaulting to 3. The command opens Google
 Flights with language and currency context,
 writes a state-local `runs/<run-id>/` evidence bundle, records
-`managed-tab-close.json` when it owns a page target, and returns one of:
+`task-trace.json`, records `managed-tab-close.json` when it owns a page target,
+and returns one of:
 
 - `ok` with weak confidence and primary result rows when visible text contains
   parseable primary search rows plus a `cache.price_observations_written`
@@ -113,12 +114,27 @@ When ranking flags are supplied, `ok` outputs preserve raw `results` and add a
 `ranking` object plus one array per requested objective, for example
 `top_cheapest`, `top_fastest`, `top_least_layover`, and `top_balanced`. Ranking
 is local post-result ordering over visible fields and always reports
-`google_flights_filters_applied: false`.
+`google_flights_filters_applied: false`. Explicit large `--top-k` runs may
+expand and extract up to 50 visible rows; the default considered set remains 5.
 
 When tab-budget flags are supplied, output includes `managed_tab_id` and a
 `tab_budget` object with before/after budget snapshots, policy, max-tabs,
 whether the tab was created by the CLI, and cleanup status. A reused target is
 navigated for the supplied command URL and is not closed by the CLI.
+
+Live browser outputs include `evidence.task_trace` with UUID v4 `task_id`,
+`root_task_id`, optional `parent_task_id`, command, trace name, and run id.
+Batch search outputs share one `root_task_id` and use one child task id per
+input item. Managed-tab ownership is recorded in `task-trace.json` as
+`target_task_ids`; target-specific cleanup is allowed only for page ids mapped
+to that command's managed-tab leaf task. Preflight workflows use the same trace
+shape for consent, route-search attempts, heal attempts, and selection fanout.
+Child task evidence reports only targets owned by that child task subtree; the
+root preflight task trace reports the full workflow ownership map.
+CDP command artifacts include adapter-level `attempt_count`, `max_attempts`,
+and `attempts` for the bounded transient retry envelope. These attempts are
+inside the command timeout and are separate from domain-level Google
+page-error/search retries.
 
 `search` uses live cdp by default.
 For concrete, evidence-backed route/date/trip/cabin/passenger/sort inputs, live
@@ -310,25 +326,42 @@ Google Flights booking-summary URLs are evidence-only and must be reported as
 
 ## Google Flights Synthetic Preflight
 
-Before long booking crawls, agents can ask for broad top-5 smoke evidence while
-requiring only the first three rows to complete:
+Before long booking crawls, agents can ask for broad outbound top-5 x return
+top-3 smoke evidence while requiring only three combinations to complete:
 
 ```bash
-gflights preflight google-flights --top-k 5 --min-complete-selections 3 --json
+gflights preflight google-flights --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 ```
 
-The command returns `selection_count`, `minimum_complete_selection_count`,
-`complete_selection_count`, `selection_concurrency`, `selections`, `search`,
-`consent`, `warnings`, `diagnostics.route_attempts`, and `evidence`. It exits
-`0` when at least `minimum_complete_selection_count` selected rows reach Google
-booking-summary pages with booking options; it still reports a warning when
-fewer than `selection_count` rows completed. If a public synthetic route hits
-transient Google Flights search errors, the command can rotate to another
-public route and records each search/selection attempt in route diagnostics.
+The command returns `outbound_selection_count`, `return_selection_count`,
+`selection_count`, `minimum_complete_selection_count`,
+`complete_selection_count`, `date_range_count`, `complete_date_range_count`,
+`date_range_results`, `selection_concurrency`, `selections`, `search`,
+`consent`, `final_closed_google_flights_tabs`,
+`final_closed_google_flights_tab_count`, `warnings`,
+`diagnostics.route_attempts`, and `evidence`.
+`selection_count` is the outbound top-k multiplied by the return top-k. Each
+entry in `selections` reports `combination_index`, `outbound_rank`, and
+`return_rank`. With `--date-range-count N`, preflight requires one public route
+smoke to pass for each requested synthetic future date range; route fallback
+happens inside each date range. It exits `0` when every requested date range has
+at least `minimum_complete_selection_count` outbound/return combinations reach
+Google booking-summary pages with booking options; it still reports a warning
+when fewer than `selection_count` combinations completed. If a public synthetic
+route hits transient Google Flights search errors, the command can rotate to
+another public route and records each search/selection attempt in route
+diagnostics.
 If synthetic search exceeds its route-search deadline, the command reports
 `stop_state=preflight_search_timeout` and includes
 `search_deadline_seconds` plus `search_retryable=false` under
 `diagnostics.route_attempts`.
+Before returning, preflight must sweep and close remaining
+`google.com/travel/flights` page targets in the selected browser mode; these
+targets are considered gflights-owned in the managed headless profile.
+Headless cleanup must keep at least one neutral page target open, normally
+`chrome://newtab/`, so the managed browser does not close completely. Inert
+detached `about:blank` pages may be closed as stale diagnostic tabs only when a
+keepalive page remains or is opened first.
 
 ## Headless Heal Preflight
 
@@ -340,12 +373,15 @@ gflights preflight headless-heal --consent-choice accept-all --json
 
 The command returns `status`, `browser_mode`, `repair_requested`,
 `restart_daemon_requested`, `restart_daemon`, `closed_google_flights_tabs`,
-`closed_google_flights_tab_count`, `consent`, `google_cookie_names`,
+`closed_google_flights_tab_count`, `closed_diagnostic_tabs`,
+`closed_diagnostic_tab_count`, `consent`, `google_cookie_names`,
 `health_before`, `health_check`, `health_after`, `warnings`, and `evidence`. A
-successful run means stale Google Flights tabs were explicitly closed where
-present, optional `cdp daemon restart` ran when requested, `cdp daemon
-health-check --repair` completed, Google consent was settled or already
-unnecessary, and daemon health was captured after repair. It does not search a
+successful run means stale Google Flights tabs and stale `data-cdp-health`
+diagnostic tabs, including stale headless detached `about:blank` diagnostic
+targets, were explicitly closed where present while preserving one neutral
+headless keepalive tab. Optional
+`cdp daemon restart` ran when requested, Google consent was settled or already
+unnecessary, and daemon health was healthy after repair. It does not search a
 personal itinerary or enter checkout.
 
 ## Live Itinerary Select And Inspect
@@ -389,7 +425,10 @@ The command must not click provider `Continue` controls, enter provider
 checkout, enter payment or personal data, or attempt account login. Default
 validation covers this with fake cdp adapters; live runs remain explicit and
 task-scoped. When the command owns a page target, its run bundle includes
-`managed-tab-close.json`.
+`task-trace.json` and `managed-tab-close.json`. Operation retries share one
+root UUID v4 task id, each attempt gets a child task id, and each opened
+managed tab gets a leaf task id. Cleanup may close only the target id mapped to
+the current managed-tab leaf task.
 
 ## Status Values
 

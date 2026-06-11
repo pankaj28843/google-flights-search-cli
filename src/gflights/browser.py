@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from time import perf_counter
 from typing import Any, Literal
 
 BrowserMode = Literal["headless", "headed"]
@@ -44,6 +45,9 @@ class CdpResult:
     fallback: dict[str, str] | None = None
     error: str = ""
     timeout: bool = False
+    attempt_count: int = 1
+    max_attempts: int = 1
+    attempts: list[dict[str, Any]] | None = None
 
 
 class CdpAdapter:
@@ -66,6 +70,79 @@ class CdpAdapter:
         browser_mode: BrowserMode = "headless",
         timeout_seconds: float = 30.0,
     ) -> CdpResult:
+        max_attempts = 3
+        total_timeout = max(0.001, float(timeout_seconds))
+        started = perf_counter()
+        attempt_summaries: list[dict[str, Any]] = []
+        last_result: CdpResult | None = None
+
+        for attempt in range(1, max_attempts + 1):
+            remaining_timeout = (
+                total_timeout if attempt == 1 else total_timeout - (perf_counter() - started)
+            )
+            if remaining_timeout <= 0:
+                return _retry_deadline_exhausted_result(
+                    argv=last_result.argv
+                    if last_result is not None
+                    else self._argv(args, browser_mode, total_timeout),
+                    browser_mode=browser_mode,
+                    total_timeout=total_timeout,
+                    max_attempts=max_attempts,
+                    attempts=attempt_summaries,
+                )
+            argv = self._argv(args, browser_mode, remaining_timeout)
+            try:
+                process = await self._runner(argv, remaining_timeout)
+            except asyncio.TimeoutError:
+                result = CdpResult(
+                    argv=argv,
+                    browser_mode=browser_mode,
+                    returncode=-1,
+                    stdout="",
+                    stderr="",
+                    status="tool_error",
+                    exit_code=6,
+                    error=f"cdp command timed out after {_format_timeout(remaining_timeout)}",
+                    timeout=True,
+                )
+                attempt_summaries.append(_attempt_summary(attempt, remaining_timeout, result))
+                return _with_attempts(result, max_attempts=max_attempts, attempts=attempt_summaries)
+            result = _cdp_result_from_process(argv=argv, browser_mode=browser_mode, process=process)
+            attempt_summaries.append(_attempt_summary(attempt, remaining_timeout, result))
+            last_result = result
+            if attempt >= max_attempts or not _is_transient_command_failure(result):
+                return _with_attempts(result, max_attempts=max_attempts, attempts=attempt_summaries)
+            sleep_seconds = min(2.0, 0.4 * attempt)
+            remaining_after_attempt = total_timeout - (perf_counter() - started)
+            if remaining_after_attempt <= 0:
+                return _retry_deadline_exhausted_result(
+                    argv=argv,
+                    browser_mode=browser_mode,
+                    total_timeout=total_timeout,
+                    max_attempts=max_attempts,
+                    attempts=attempt_summaries,
+                )
+            await asyncio.sleep(min(sleep_seconds, remaining_after_attempt))
+        if last_result is not None:
+            return _with_attempts(
+                last_result,
+                max_attempts=max_attempts,
+                attempts=attempt_summaries,
+            )
+        return _retry_deadline_exhausted_result(
+            argv=self._argv(args, browser_mode, total_timeout),
+            browser_mode=browser_mode,
+            total_timeout=total_timeout,
+            max_attempts=max_attempts,
+            attempts=attempt_summaries,
+        )
+
+    def _argv(
+        self,
+        args: Sequence[str],
+        browser_mode: BrowserMode,
+        timeout_seconds: float,
+    ) -> list[str]:
         argv = [
             self._executable,
             "--browser-mode",
@@ -79,28 +156,7 @@ class CdpAdapter:
         if self._max_tabs is not None:
             argv.extend(["--max-tabs", str(self._max_tabs)])
         argv.extend(args)
-        attempts = 5
-        for attempt in range(1, attempts + 1):
-            try:
-                process = await self._runner(argv, timeout_seconds)
-            except asyncio.TimeoutError:
-                return CdpResult(
-                    argv=argv,
-                    browser_mode=browser_mode,
-                    returncode=-1,
-                    stdout="",
-                    stderr="",
-                    status="tool_error",
-                    exit_code=6,
-                    error=f"cdp command timed out after {_format_timeout(timeout_seconds)}",
-                    timeout=True,
-                )
-            result = _cdp_result_from_process(argv=argv, browser_mode=browser_mode, process=process)
-            if attempt < attempts and _is_transient_connection_failure(result):
-                await asyncio.sleep(min(2.0, 0.4 * attempt))
-                continue
-            return result
-        return result
+        return argv
 
 
 async def run_subprocess(argv: Sequence[str], timeout_seconds: float) -> ProcessResult:
@@ -213,20 +269,94 @@ def _cdp_result_from_process(
     )
 
 
+def _with_attempts(
+    result: CdpResult,
+    *,
+    max_attempts: int,
+    attempts: list[dict[str, Any]],
+) -> CdpResult:
+    return replace(
+        result,
+        attempt_count=len(attempts),
+        max_attempts=max_attempts,
+        attempts=list(attempts),
+    )
+
+
+def _retry_deadline_exhausted_result(
+    *,
+    argv: list[str],
+    browser_mode: BrowserMode,
+    total_timeout: float,
+    max_attempts: int,
+    attempts: list[dict[str, Any]],
+) -> CdpResult:
+    return CdpResult(
+        argv=argv,
+        browser_mode=browser_mode,
+        returncode=-1,
+        stdout="",
+        stderr="",
+        status="tool_error",
+        exit_code=6,
+        error=(
+            "cdp command retry deadline exhausted after "
+            f"{len(attempts)} attempt(s) and {_format_timeout(total_timeout)}"
+        ),
+        timeout=True,
+        attempt_count=len(attempts),
+        max_attempts=max_attempts,
+        attempts=list(attempts),
+    )
+
+
+def _attempt_summary(
+    attempt: int,
+    timeout_seconds: float,
+    result: CdpResult,
+) -> dict[str, Any]:
+    return {
+        "attempt": attempt,
+        "timeout_seconds": timeout_seconds,
+        "returncode": result.returncode,
+        "status": result.status,
+        "exit_code": result.exit_code,
+        "stop_state": result.stop_state,
+        "error": result.error,
+        "timeout": result.timeout,
+    }
+
+
+def _is_transient_command_failure(result: CdpResult) -> bool:
+    if result.status != "tool_error" or result.timeout:
+        return False
+    if _is_transient_connection_failure(result):
+        return True
+    text = _result_error_text(result)
+    return any(
+        marker in text
+        for marker in [
+            "target_not_found",
+            "target not found",
+            "no target",
+            "could not find target",
+            "cannot find context with specified id",
+            "execution context was destroyed",
+            "target closed",
+            "session closed",
+            "context canceled",
+            "websocket: close",
+            "i/o timeout",
+            "daemon rpc",
+        ]
+    )
+
+
 def _is_transient_connection_failure(result: CdpResult) -> bool:
     payload = result.json_payload or {}
     if payload.get("code") != "connection_failed" and payload.get("err_class") != "connection":
         return False
-    text = " ".join(
-        str(value)
-        for value in [
-            result.error,
-            result.stderr,
-            payload.get("message"),
-            payload.get("error"),
-        ]
-        if value
-    ).lower()
+    text = _result_error_text(result)
     return any(
         marker in text
         for marker in [
@@ -238,8 +368,25 @@ def _is_transient_connection_failure(result: CdpResult) -> bool:
             "browser commands require a running",
             "keepalive repair is locked",
             "starting_daemon",
+            "daemon rpc",
         ]
     )
+
+
+def _result_error_text(result: CdpResult) -> str:
+    payload = result.json_payload or {}
+    return " ".join(
+        str(value)
+        for value in [
+            result.error,
+            result.stderr,
+            payload.get("message"),
+            payload.get("error"),
+            payload.get("code"),
+            payload.get("err_class"),
+        ]
+        if value
+    ).lower()
 
 
 def _is_resource_budget_payload(payload: dict[str, Any] | None) -> bool:

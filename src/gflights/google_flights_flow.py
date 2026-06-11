@@ -277,7 +277,10 @@ def _stage_state_is_terminal(value: Any, _result: CdpResult) -> bool:
         return False
     terminal_condition = _terminal_condition(value)
     requested_stage = str(value.get("requestedStage") or "")
-    if terminal_condition in BLOCKED_STOP_STATES or terminal_condition in TRANSIENT_STAGE_CONDITIONS:
+    if (
+        terminal_condition in BLOCKED_STOP_STATES
+        or terminal_condition in TRANSIENT_STAGE_CONDITIONS
+    ):
         return True
     if terminal_condition == "no_results":
         return True

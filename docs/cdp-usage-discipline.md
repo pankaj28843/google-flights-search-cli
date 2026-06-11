@@ -29,15 +29,15 @@ hand-running isolated cleanup commands:
 
 ```bash
 gflights preflight headless-heal --consent-choice accept-all --json
-gflights preflight google-flights --consent-choice accept-all --top-k 5 --min-complete-selections 3 --json
+gflights preflight google-flights --consent-choice accept-all --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 ```
 
-`headless-heal` explicitly closes stale Google Flights page targets, runs
-`cdp daemon health-check --repair`, opens Google Flights to settle consent, and
-records Google consent-cookie plus daemon-health evidence. It is safe to run
-before a large crawl and again after a burst of transient `google_page_error`
-rows. If the command reports `blocked`, pause the crawl and inspect its
-artifact paths before continuing.
+`headless-heal` explicitly closes stale Google Flights page targets and stale
+`data-cdp-health` diagnostic targets, runs `cdp daemon health-check --repair`,
+opens Google Flights to settle consent, and records Google consent-cookie plus
+daemon-health evidence. It is safe to run before a large crawl and again after a
+burst of transient `google_page_error` rows. If the command reports `blocked`,
+pause the crawl and inspect its artifact paths before continuing.
 
 If headless health stays green but Google Flights keeps returning
 `google_page_error`, use the heavier runtime reset before the next preflight:
@@ -120,20 +120,37 @@ a stop state prevents cleanup. The command must record managed-tab evidence in
 task-local artifacts under the app-state `runs/<run-id>/` directory:
 
 - run id
+- UUID v4 task trace ids: a root operation id, parent id for fanout children
+  when applicable, and a leaf managed-tab task id
 - command name
 - browser mode
 - target URL
 - opened page target id when available
+- a target-id-to-task-id ownership map for Chrome page targets created or
+  recovered by this command
 - close attempt status when cleanup is attempted
 - any cleanup warning
 
 Target ids and raw browser artifacts are local evidence. Do not publish them as
 checked-in TDD assets.
 
+For batch/fanout workflows, every child search or selection attempt must share
+the root task id and get its own UUID v4 child task id. Managed tabs are leaf
+tasks. Cleanup may close only the target mapped to that leaf task, including
+targets recovered from a partially failed `cdp open` result. Reused targets are
+not entered in the ownership map and must not be closed by the command.
+
+Every CDP command goes through the repo-local adapter retry envelope before
+domain logic sees the result. Retry only transient daemon/connection/target
+lookup races, use at most three attempts inside the caller-supplied total
+timeout, and record `attempt_count`, `max_attempts`, and per-attempt summaries
+in command artifacts. Domain-level retries such as Google page-error search
+retries remain separate and must also be bounded.
+
 ## Close Policy
 
 Live commands should close CLI-managed tabs after evidence capture on all paths
-where a page id is known:
+where a page id is known and mapped to the current managed-tab task:
 
 - success
 - experimental evidence capture
@@ -150,6 +167,25 @@ Use target-specific cleanup when possible:
 ```bash
 cdp --browser-mode headless page close --target <page-id> --json
 ```
+
+Managed target close is not a one-shot operation. The CLI should retry page
+close a few times and allow up to 60 seconds per attempt because overloaded
+headless sessions can take that long to close tabs. A timeout must be recorded
+as cleanup evidence and followed by a retry or a final Google Flights tab sweep
+before the workflow returns.
+
+Preflight cleanup may also close stale `data-cdp-health` diagnostic tabs left by
+CDP health probes. These targets are identified by their `data-cdp-health`
+URL/title and are recorded as diagnostic cleanup, not as Google Flights domain
+behavior.
+
+Headless Chrome must keep at least one neutral page target open so the managed
+browser does not close completely. Before a headless cleanup sweep would remove
+every page, open or preserve `chrome://newtab/`; if the only page is an inert
+detached `about:blank`/new-tab target, preserve it as the keepalive page instead
+of closing it. Detached `about:blank` pages may be treated as stale diagnostic
+cleanup candidates only in headless mode and only when this keepalive invariant
+is preserved.
 
 Use broader `page cleanup` only for stale task leftovers, live-smoke setup, or
 manual recovery from resource-budget pressure.
@@ -170,7 +206,11 @@ profiling it, capture:
 
 If live smoke fails because of browser resource budget, fix the browser harness
 state and rerun once. Do not infer Google Flights behavior from an over-budget
-browser.
+browser. The preferred first repair is:
+
+```bash
+gflights preflight headless-heal --consent-choice accept-all --max-tabs 25 --json
+```
 
 ## Boundaries
 

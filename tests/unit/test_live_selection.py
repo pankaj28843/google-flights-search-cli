@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from uuid import UUID
 
 from gflights.browser import BrowserMode, CdpResult
 from gflights.live_selection import _is_transient_operation_failure, run_live_itinerary_selection
@@ -500,6 +501,12 @@ def cdp_result(
     )
 
 
+def assert_uuid4(value: str) -> None:
+    parsed = UUID(value)
+    assert parsed.version == 4
+    assert str(parsed) == value
+
+
 def test_live_itinerary_selection_returns_booking_url_and_closes_tab(tmp_path: Path) -> None:
     adapter = FakeSelectionCdpAdapter()
 
@@ -532,6 +539,67 @@ def test_live_itinerary_selection_returns_booking_url_and_closes_tab(tmp_path: P
     assert (run_root / "booking-snapshot.json").is_file()
     assert (run_root / "managed-tab-close.json").is_file()
     assert adapter.calls[-1][0] == ["page", "close", "--target", "page-1"]
+
+
+def test_live_itinerary_selection_recovers_workflow_created_target_with_uuid_trace(
+    tmp_path: Path,
+) -> None:
+    page_id = "9A29955C057DBDACA7E81371E4DCB2C4"
+
+    class RecoveredOpenSelectionCdpAdapter(FakeSelectionCdpAdapter):
+        async def run_json(
+            self,
+            args: Sequence[str],
+            *,
+            browser_mode: BrowserMode = "headless",
+            timeout_seconds: float = 30.0,
+        ) -> CdpResult:
+            call_args = list(args)
+            if call_args[0] == "open":
+                self.calls.append((call_args, browser_mode, timeout_seconds))
+                return cdp_result(
+                    call_args,
+                    {
+                        "ok": False,
+                        "message": (f"failed to record workflow-created page {page_id} after open"),
+                    },
+                    status="tool_error",
+                    exit_code=6,
+                    error="workflow-created page artifact write failed",
+                )
+            return await super().run_json(
+                args,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+            )
+
+    adapter = RecoveredOpenSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-recovered-open",
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert any("workflow-created-page recording error" in item for item in payload["warnings"])
+    assert adapter.calls[-1][0] == ["page", "close", "--target", page_id]
+
+    run_root = tmp_path / "runs" / "gf-test-selection-recovered-open"
+    task_trace = json.loads((run_root / "task-trace.json").read_text())
+    assert task_trace["managed_tab_id"] == page_id
+    assert_uuid4(task_trace["task"]["task_id"])
+    assert_uuid4(task_trace["task"]["root_task_id"])
+    assert_uuid4(task_trace["managed_tab_task"]["task_id"])
+    assert task_trace["managed_tab_task"]["parent_task_id"] == task_trace["task"]["task_id"]
+    assert task_trace["target_task_ids"] == {page_id: task_trace["managed_tab_task"]["task_id"]}
+
+    close_trace = json.loads((run_root / "managed-tab-close.json").read_text())
+    assert close_trace["target_task_ids"] == task_trace["target_task_ids"]
 
 
 def test_live_itinerary_selection_retries_animation_click_with_force(tmp_path: Path) -> None:
@@ -625,7 +693,9 @@ def test_live_itinerary_selection_recovers_google_page_error_with_reload(
     run_root = tmp_path / "runs" / "gf-test-selection-google-page-error-reload"
     assert (run_root / "outbound-google-page-error-reload-01.json").is_file()
     assert (run_root / "outbound-post-reload-01-stage-state-01.json").is_file()
-    assert not (tmp_path / "runs" / "gf-test-selection-google-page-error-reload-attempt-02").exists()
+    assert not (
+        tmp_path / "runs" / "gf-test-selection-google-page-error-reload-attempt-02"
+    ).exists()
     settlement = json.loads((run_root / "outbound-settlement.json").read_text())
     assert settlement["terminal_condition"] == "fare_rows"
     reload_attempts = settlement["body_stability"]["google_page_error_reload_attempts"]
@@ -685,6 +755,45 @@ def test_live_itinerary_selection_treats_stage_not_ready_timeout_as_retryable() 
                 "terminal_condition": "no_results",
                 "terminal_status": "ok",
             },
+        }
+    )
+
+
+def test_live_itinerary_selection_treats_row_click_transition_timeout_as_retryable() -> None:
+    assert _is_transient_operation_failure(
+        {
+            "status": "unsupported",
+            "selection": {
+                "return": {
+                    "found": True,
+                    "clicked": True,
+                    "transitionMatched": False,
+                    "transitionCondition": "assertion_timeout",
+                }
+            },
+        }
+    )
+    assert not _is_transient_operation_failure(
+        {
+            "status": "unsupported",
+            "selection": {
+                "return": {
+                    "found": False,
+                    "clicked": False,
+                    "transitionMatched": False,
+                    "transitionCondition": "assertion_timeout",
+                }
+            },
+        }
+    )
+
+
+def test_live_itinerary_selection_treats_target_not_found_as_retryable() -> None:
+    assert _is_transient_operation_failure(
+        {
+            "status": "tool_error",
+            "error": 'no target "6BA5EF5BC1C639BC5998476ACF70913C" matched',
+            "diagnostics": {"failed_stage": "outbound"},
         }
     )
 
