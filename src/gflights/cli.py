@@ -665,6 +665,12 @@ def itinerary_select_command(
         min=0,
         help="Retry the whole outbound/return/booking selection after transient CDP disconnects.",
     ),
+    timeout_seconds: float = typer.Option(
+        45.0,
+        "--timeout-seconds",
+        min=1.0,
+        help="Semantic wait timeout per selection stage before retry/unsupported classification.",
+    ),
     browser_mode: BrowserMode = typer.Option(
         "headless",
         "--browser-mode",
@@ -707,6 +713,7 @@ def itinerary_select_command(
             max_tabs=max_tabs,
             allow_over_budget=allow_over_budget,
             operation_retries=operation_retries,
+            timeout_seconds=timeout_seconds,
         )
     )
     emit(payload, exit_code)

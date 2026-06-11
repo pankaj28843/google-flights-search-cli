@@ -33,6 +33,8 @@ async def wait_until_google_flights_stage_ready(
     stage: str,
     timeout_seconds: float,
     interval_seconds: float = 1.0,
+    artifact_prefix: str | None = None,
+    source_surface: str | None = None,
 ) -> dict[str, Any]:
     """Wait for semantic Google Flights state instead of a blind load/network wait."""
 
@@ -41,8 +43,8 @@ async def wait_until_google_flights_stage_ready(
             google_flights_stage_state_js(stage=stage, limit=20),
             page_id=page_id,
             assertion_name=f"google-flights-{stage}-stage-ready",
-            artifact_prefix=f"{stage}-stage-state",
-            source_surface=f"cdp:assert:{stage}:stage-state",
+            artifact_prefix=artifact_prefix or f"{stage}-stage-state",
+            source_surface=source_surface or f"cdp:assert:{stage}:stage-state",
             ready=_stage_state_is_terminal,
             timeout_seconds=timeout_seconds,
             interval_seconds=interval_seconds,

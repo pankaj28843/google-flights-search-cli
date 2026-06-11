@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from gflights.browser import BrowserMode, CdpResult
-from gflights.live_selection import run_live_itinerary_selection
+from gflights.live_selection import _is_transient_operation_failure, run_live_itinerary_selection
 
 
 class FakeSelectionCdpAdapter:
@@ -338,6 +338,69 @@ class ContextRaceSelectionCdpAdapter(FakeSelectionCdpAdapter):
         )
 
 
+class GooglePageErrorRecoverySelectionCdpAdapter(FakeSelectionCdpAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reloaded = False
+        self.reload_calls = 0
+
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if call_args[0] == "eval" and "gflights-google-page-error-recovery" in call_args[1]:
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            self.reloaded = True
+            self.reload_calls += 1
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "action": "click_reload",
+                            "label": "Reload",
+                            "marker": "gflights-google-page-error-recovery",
+                        }
+                    },
+                },
+            )
+        if (
+            call_args[0] == "eval"
+            and 'const requestedStage = "outbound"' in call_args[1]
+            and not self.reloaded
+        ):
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            self.stage_state_calls["outbound"] = self.stage_state_calls.get("outbound", 0) + 1
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "outbound",
+                            "terminalCondition": "google_page_error",
+                            "rowCount": 0,
+                            "rows": [],
+                            "currentUrl": "https://www.google.com/travel/flights/search?tfs=encoded",
+                            "currentTitle": "Google Flights",
+                            "hasBookingOptions": False,
+                            "bodySample": "Oops, something went wrong Reload",
+                        }
+                    },
+                },
+            )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
 class ReturnSelectionTransientDisconnectAdapter(FakeSelectionCdpAdapter):
     def __init__(self) -> None:
         super().__init__()
@@ -541,6 +604,36 @@ def test_live_itinerary_selection_retries_terminal_eval_after_context_race(
     ).is_file()
 
 
+def test_live_itinerary_selection_recovers_google_page_error_with_reload(
+    tmp_path: Path,
+) -> None:
+    adapter = GooglePageErrorRecoverySelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-google-page-error-reload",
+            operation_retries=0,
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert adapter.reload_calls == 1
+    run_root = tmp_path / "runs" / "gf-test-selection-google-page-error-reload"
+    assert (run_root / "outbound-google-page-error-reload-01.json").is_file()
+    assert (run_root / "outbound-post-reload-01-stage-state-01.json").is_file()
+    assert not (tmp_path / "runs" / "gf-test-selection-google-page-error-reload-attempt-02").exists()
+    settlement = json.loads((run_root / "outbound-settlement.json").read_text())
+    assert settlement["terminal_condition"] == "fare_rows"
+    reload_attempts = settlement["body_stability"]["google_page_error_reload_attempts"]
+    assert reload_attempts[0]["action"] == "click_reload"
+    assert reload_attempts[0]["post_reload_condition"] == "fare_rows"
+    assert any("recovered after 1 reload attempt" in warning for warning in settlement["warnings"])
+
+
 def test_live_itinerary_selection_retries_whole_operation_after_transient_return_error(
     tmp_path: Path,
 ) -> None:
@@ -569,6 +662,31 @@ def test_live_itinerary_selection_retries_whole_operation_after_transient_return
     assert diagnostics["operation_attempts"][1]["status"] == "ok"
     assert (tmp_path / "runs" / "gf-test-selection-operation-retry").is_dir()
     assert (tmp_path / "runs" / "gf-test-selection-operation-retry-attempt-02").is_dir()
+
+
+def test_live_itinerary_selection_treats_stage_not_ready_timeout_as_retryable() -> None:
+    assert _is_transient_operation_failure(
+        {
+            "status": "unsupported",
+            "settlement": {
+                "stage": "outbound",
+                "ready": False,
+                "terminal_condition": "not_ready",
+                "terminal_status": "assertion_timeout",
+            },
+        }
+    )
+    assert not _is_transient_operation_failure(
+        {
+            "status": "unsupported",
+            "settlement": {
+                "stage": "outbound",
+                "ready": False,
+                "terminal_condition": "no_results",
+                "terminal_status": "ok",
+            },
+        }
+    )
 
 
 def test_live_itinerary_selection_does_not_report_search_url_as_booking_url(

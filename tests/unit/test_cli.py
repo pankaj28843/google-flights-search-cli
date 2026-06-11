@@ -376,6 +376,8 @@ def test_itinerary_select_passes_independent_leg_and_reuse_options(
             "--allow-over-budget",
             "--operation-retries",
             "4",
+            "--timeout-seconds",
+            "23",
             "--project-root",
             str(tmp_path),
             "--json",
@@ -391,3 +393,4 @@ def test_itinerary_select_passes_independent_leg_and_reuse_options(
     assert calls[0]["max_tabs"] == 3
     assert calls[0]["allow_over_budget"] is True
     assert calls[0]["operation_retries"] == 4
+    assert calls[0]["timeout_seconds"] == 23

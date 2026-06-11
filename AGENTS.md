@@ -125,6 +125,11 @@ make validate
   and snapshot evidence before returning `tool_error` with
   `stop_state: google_page_error`; in row selection, the same signal should feed
   operation-level retry diagnostics.
+- In row selection, a stage settlement that remains `not_ready` with
+  `assertion_timeout` after visible text still says `Loading results` is also a
+  transient operation failure. Keep it retryable, expose bounded semantic waits
+  through `gflights itinerary select --timeout-seconds`, and validate changes
+  with `uv run pytest tests/unit/test_live_selection.py -q`.
 - Treat short sort `tfu` as volatile Google Flights state. It may be emitted
   for observed non-default sort values such as price, but final user-facing
   alternatives must still be filtered and ranked from extracted row/booking

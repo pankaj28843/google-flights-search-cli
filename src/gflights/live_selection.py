@@ -82,6 +82,32 @@ BOOKING_TERMINAL_JS = r"""
 """.strip()
 
 READY_TERMINAL_CONDITIONS = {"fare_rows", "booking_summary", "booking_url"}
+GOOGLE_PAGE_ERROR_RELOAD_ATTEMPTS = 2
+GOOGLE_PAGE_ERROR_RELOAD_JS = r"""
+(() => {
+  const marker = "gflights-google-page-error-recovery";
+  const textOf = (el) => [
+    el.getAttribute && el.getAttribute("aria-label"),
+    el.innerText,
+    el.textContent,
+  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const candidates = Array.from(document.querySelectorAll('button,[role="button"],a'));
+  const target = candidates.find((el) => {
+    const disabled = el.disabled || el.getAttribute("aria-disabled") === "true";
+    const text = textOf(el).toLowerCase();
+    return !disabled && /\b(reload|try again)\b/.test(text);
+  });
+  if (target) {
+    const label = textOf(target);
+    target.setAttribute("data-gflights-recovery", marker);
+    target.scrollIntoView({block: "center", inline: "center"});
+    setTimeout(() => target.click(), 0);
+    return {action: "click_reload", label, marker};
+  }
+  setTimeout(() => window.location.reload(), 0);
+  return {action: "location_reload", marker};
+})()
+""".strip()
 
 
 async def run_live_itinerary_selection(
@@ -784,6 +810,30 @@ async def _settle(
     terminal_condition = str(stage_ready.get("terminal_condition") or "unknown")
     terminal_status = str(stage_ready.get("terminal_status") or "unknown")
     terminal_result = stage_ready.get("stop_result")
+    google_page_error_reload_attempts: list[dict[str, Any]] = []
+    if terminal_condition == "google_page_error":
+        recovery = await _recover_google_page_error(
+            helper=helper,
+            page_id=page_id,
+            stage=stage,
+            timeout_seconds=timeout_seconds,
+            original_stage_ready=stage_ready,
+        )
+        stage_ready = recovery["stage_ready"]
+        google_page_error_reload_attempts = recovery["attempts"]
+        terminal_condition = str(stage_ready.get("terminal_condition") or "unknown")
+        terminal_status = str(stage_ready.get("terminal_status") or "unknown")
+        terminal_result = stage_ready.get("stop_result")
+        if terminal_condition == "google_page_error":
+            warnings.append(
+                f"{stage} Google Flights page error persisted after "
+                f"{len(google_page_error_reload_attempts)} reload attempt(s)"
+            )
+        elif google_page_error_reload_attempts:
+            warnings.append(
+                f"{stage} Google Flights page error recovered after "
+                f"{len(google_page_error_reload_attempts)} reload attempt(s)"
+            )
     if terminal_condition in TRANSIENT_STAGE_CONDITIONS:
         _write_settlement_json(
             run_root=run_root,
@@ -795,7 +845,12 @@ async def _settle(
             dwell_seconds=perf_counter() - started,
             dwell_enforced=False,
             network_status="not_run",
-            body_stability={"status": "not_run"},
+            body_stability={
+                "status": "google_page_error_reload_exhausted"
+                if google_page_error_reload_attempts
+                else "not_run",
+                "google_page_error_reload_attempts": google_page_error_reload_attempts,
+            },
             warnings=warnings,
         )
         return {
@@ -857,6 +912,7 @@ async def _settle(
             "status": "stage_assertion",
             "assertion": stage_ready.get("assertion", {}),
             "expansion": expansion,
+            "google_page_error_reload_attempts": google_page_error_reload_attempts,
         },
         warnings=warnings,
     )
@@ -867,6 +923,60 @@ async def _settle(
         "terminal_status": terminal_status,
         "assertion": stage_ready.get("assertion", {}),
         "expansion": expansion,
+    }
+
+
+async def _recover_google_page_error(
+    *,
+    helper: CdpEvidenceHelper,
+    page_id: str,
+    stage: str,
+    timeout_seconds: float,
+    original_stage_ready: dict[str, Any],
+) -> dict[str, Any]:
+    stage_ready = original_stage_ready
+    attempts: list[dict[str, Any]] = []
+    for attempt in range(1, GOOGLE_PAGE_ERROR_RELOAD_ATTEMPTS + 1):
+        reload_result = await helper.eval(
+            GOOGLE_PAGE_ERROR_RELOAD_JS,
+            page_id=page_id,
+            artifact_name=f"{stage}-google-page-error-reload-{attempt:02d}.json",
+            source_surface=f"cdp:eval:{stage}:google-page-error-reload",
+            timeout_seconds=min(max(timeout_seconds, 1.0), 5.0),
+        )
+        reload_payload = _dict_value(reload_result.json_payload or {})
+        attempt_summary = {
+            "attempt": attempt,
+            "status": reload_result.status,
+            "exit_code": reload_result.exit_code,
+            "action": reload_payload.get("action", ""),
+            "label": reload_payload.get("label", ""),
+            "post_reload_condition": "not_checked",
+            "post_reload_status": "not_checked",
+        }
+        attempts.append(attempt_summary)
+        if reload_result.status == "tool_error":
+            attempt_summary["error"] = reload_result.error
+            break
+
+        await asyncio.sleep(1.0)
+        stage_ready = await wait_until_google_flights_stage_ready(
+            helper=helper,
+            page_id=page_id,
+            stage=stage,
+            timeout_seconds=min(max(timeout_seconds, MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS), 20.0),
+            interval_seconds=1.0,
+            artifact_prefix=f"{stage}-post-reload-{attempt:02d}-stage-state",
+            source_surface=f"cdp:assert:{stage}:post-reload-stage-state",
+        )
+        terminal_condition = str(stage_ready.get("terminal_condition") or "unknown")
+        attempt_summary["post_reload_condition"] = terminal_condition
+        attempt_summary["post_reload_status"] = str(stage_ready.get("terminal_status") or "unknown")
+        if terminal_condition not in TRANSIENT_STAGE_CONDITIONS:
+            break
+    return {
+        "stage_ready": stage_ready,
+        "attempts": attempts,
     }
 
 
@@ -1428,6 +1538,14 @@ def _selection_tool_error_payload(
 
 
 def _is_transient_operation_failure(payload: dict[str, Any]) -> bool:
+    settlement = payload.get("settlement")
+    if (
+        payload.get("status") in {"tool_error", "unsupported"}
+        and isinstance(settlement, dict)
+        and settlement.get("terminal_condition") == "not_ready"
+        and settlement.get("terminal_status") == "assertion_timeout"
+    ):
+        return True
     if payload.get("status") != "tool_error":
         return False
     text = " ".join(
