@@ -79,7 +79,7 @@ class CdpAdapter:
         if self._max_tabs is not None:
             argv.extend(["--max-tabs", str(self._max_tabs)])
         argv.extend(args)
-        attempts = 3
+        attempts = 5
         for attempt in range(1, attempts + 1):
             try:
                 process = await self._runner(argv, timeout_seconds)
@@ -97,7 +97,7 @@ class CdpAdapter:
                 )
             result = _cdp_result_from_process(argv=argv, browser_mode=browser_mode, process=process)
             if attempt < attempts and _is_transient_connection_failure(result):
-                await asyncio.sleep(0.25 * attempt)
+                await asyncio.sleep(min(2.0, 0.4 * attempt))
                 continue
             return result
         return result
@@ -224,6 +224,9 @@ def _is_transient_connection_failure(result: CdpResult) -> bool:
             "use of closed network connection",
             "connection refused",
             "browser_dial_failed",
+            "browser commands require a running",
+            "keepalive repair is locked",
+            "starting_daemon",
         ]
     )
 

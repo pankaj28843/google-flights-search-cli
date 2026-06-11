@@ -74,6 +74,40 @@ def test_cdp_adapter_retries_transient_connection_failure() -> None:
     assert result.json_payload == {"status": "ok", "page_id": "page-1"}
 
 
+def test_cdp_adapter_retries_headless_daemon_start_lock() -> None:
+    runner = SequenceRunner(
+        [
+            ProcessResult(
+                returncode=6,
+                stdout=(
+                    '{"ok":false,"code":"connection_failed","err_class":"connection",'
+                    '"message":"browser commands require a running headless cdp daemon; '
+                    'automatic headless daemon repair failed: headless keepalive repair '
+                    'is locked by pid 82788 in phase starting_daemon"}'
+                ),
+                stderr="",
+            ),
+            ProcessResult(
+                returncode=3,
+                stdout=(
+                    '{"ok":false,"code":"connection_failed","err_class":"connection",'
+                    '"message":"check browser resource budget: failed to read JSON message: '
+                    'failed to get reader: use of closed network connection"}'
+                ),
+                stderr="",
+            ),
+            ProcessResult(returncode=0, stdout='{"status":"ok","page_id":"page-2"}', stderr=""),
+        ]
+    )
+    adapter = CdpAdapter(runner=runner)
+
+    result = asyncio.run(adapter.run_json(["open", "https://www.google.com/travel/flights"]))
+
+    assert len(runner.calls) == 3
+    assert result.status == "ok"
+    assert result.json_payload == {"status": "ok", "page_id": "page-2"}
+
+
 def test_cdp_adapter_allows_explicit_headed_mode() -> None:
     runner = FakeRunner()
     adapter = CdpAdapter(runner=runner)
