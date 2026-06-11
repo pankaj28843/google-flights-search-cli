@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
+import pytest
+
+from gflights import browser
 from gflights.browser import CdpAdapter, ProcessResult
 
 
@@ -224,6 +227,39 @@ def test_cdp_adapter_reports_timeout() -> None:
     assert result.timeout is True
     assert result.exit_code == 6
     assert "timed out" in result.error
+
+
+def test_run_subprocess_kills_and_reaps_timeout(monkeypatch: object) -> None:
+    class HangingProcess:
+        returncode: int | None = None
+        killed = False
+        waited = False
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await asyncio.sleep(60)
+            return b"", b""
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        async def wait(self) -> int:
+            self.waited = True
+            return self.returncode or -9
+
+    process = HangingProcess()
+
+    async def fake_create_subprocess_exec(*args: object, **kwargs: object) -> HangingProcess:
+        del args, kwargs
+        return process
+
+    monkeypatch.setattr(browser.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    with pytest.raises(asyncio.TimeoutError):
+        asyncio.run(browser.run_subprocess(["cdp", "pages"], timeout_seconds=0.01))
+
+    assert process.killed is True
+    assert process.waited is True
 
 
 def test_headless_blocked_payload_recommends_headed_fallback() -> None:

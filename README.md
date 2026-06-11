@@ -90,6 +90,9 @@ block on flaky lower-ranked synthetic rows.
 The preflight can rotate across public synthetic route candidates after
 transient search failures; inspect `diagnostics.route_attempts` to see whether
 fallback was used.
+Synthetic search has a preflight-level deadline and reports
+`preflight_search_timeout` in route diagnostics instead of relying on the caller
+to kill a hung command.
 
 Date-window scans are cache-first. They rank fresh SQLite price observations by
 default and open Google Flights for missing date pairs only when explicitly

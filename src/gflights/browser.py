@@ -109,7 +109,18 @@ async def run_subprocess(argv: Sequence[str], timeout_seconds: float) -> Process
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2.0)
+        except (asyncio.TimeoutError, ProcessLookupError):
+            pass
+        raise
     return ProcessResult(
         returncode=process.returncode or 0,
         stdout=stdout.decode(),

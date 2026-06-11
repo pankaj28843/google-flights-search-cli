@@ -475,3 +475,33 @@ def test_google_flights_preflight_retries_transient_search_page_error(
     assert heal_calls[0]["consent_choice"] == "skip"
     attempts = payload["search"]["attempts"]
     assert attempts[0]["heal_before_next_attempt"]["status"] == "ok"
+
+
+def test_google_flights_preflight_bounds_synthetic_search_timeout(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    async def fake_run_live_search(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        await asyncio.sleep(1)
+        return 0, {"status": "ok"}
+
+    monkeypatch.setattr(preflight, "run_live_search", fake_run_live_search)
+
+    exit_code, payload = asyncio.run(
+        preflight.run_google_flights_preflight(
+            project_root=tmp_path,
+            consent_choice="skip",
+            top_k=3,
+            min_complete_selections=3,
+            search_deadline_seconds=0.01,
+        )
+    )
+
+    assert exit_code == 6
+    assert payload["status"] == "blocked"
+    assert payload["stop_state"] == "preflight_search_timeout"
+    route_attempts = payload["diagnostics"]["route_attempts"]
+    assert len(route_attempts) == 1
+    assert route_attempts[0]["status"] == "search_blocked"
+    assert route_attempts[0]["search_retryable"] is False
+    assert route_attempts[0]["search_deadline_seconds"] == 0.01

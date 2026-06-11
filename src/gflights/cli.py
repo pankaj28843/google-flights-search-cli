@@ -90,6 +90,8 @@ inspection work before a task-specific crawler uses real itinerary constraints.
 For agent crawlers, prefer top-5 coverage with a top-3 pass gate:
 `--top-k 5 --min-complete-selections 3`. This still records lower-ranked row
 failures as warnings and evidence.
+Synthetic route search has its own deadline and reports `preflight_search_timeout`
+instead of relying on a caller to kill the whole command.
 Google Flights preflight may rotate across public synthetic routes when a route
 hits transient search failures; inspect `diagnostics.route_attempts`.
 
@@ -393,6 +395,12 @@ def preflight_google_flights_command(
         max=7,
         help="Concurrent managed tabs for selecting synthetic route rows through booking.",
     ),
+    search_deadline_seconds: float | None = typer.Option(
+        None,
+        "--search-deadline-seconds",
+        min=5.0,
+        help="Total seconds allowed for each synthetic route search before returning preflight_search_timeout.",
+    ),
     max_tabs: int = typer.Option(
         8,
         "--max-tabs",
@@ -442,6 +450,7 @@ def preflight_google_flights_command(
             min_complete_selections=min_complete_selections,
             selection_concurrency=selection_concurrency,
             max_tabs=max_tabs,
+            search_deadline_seconds=search_deadline_seconds,
         )
     )
     emit(payload, exit_code)

@@ -325,6 +325,10 @@ booking-summary pages with booking options; it still reports a warning when
 fewer than `selection_count` rows completed. If a public synthetic route hits
 transient Google Flights search errors, the command can rotate to another
 public route and records each search/selection attempt in route diagnostics.
+If synthetic search exceeds its route-search deadline, the command reports
+`stop_state=preflight_search_timeout` and includes
+`search_deadline_seconds` plus `search_retryable=false` under
+`diagnostics.route_attempts`.
 
 ## Headless Heal Preflight
 

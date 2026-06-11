@@ -125,6 +125,7 @@ async def run_google_flights_preflight(
     selection_concurrency: int = 3,
     max_tabs: int | None = None,
     timeout_seconds: float = 45.0,
+    search_deadline_seconds: float | None = None,
     adapter: CdpAdapter | None = None,
 ) -> tuple[int, dict[str, Any]]:
     """Run consent seeding plus full public route search/selection smoke test."""
@@ -190,6 +191,7 @@ async def run_google_flights_preflight(
             browser_mode=browser_mode,
             consent_choice=consent_choice,
             timeout_seconds=timeout_seconds,
+            search_deadline_seconds=search_deadline_seconds,
             max_tabs=max_tabs,
             top_k=top_k,
             base_run_id=f"{run_id}-route-{route_number:02d}-search",
@@ -219,6 +221,11 @@ async def run_google_flights_preflight(
             else "search_failed",
             "search_attempt_count": len(search_attempts),
         }
+        if search_attempts:
+            route_attempt["search_retryable"] = bool(search_attempts[-1].get("retryable"))
+            route_attempt["search_deadline_seconds"] = search_attempts[-1].get(
+                "search_deadline_seconds"
+            )
 
         if (
             search_exit != 0
@@ -556,6 +563,7 @@ async def _run_preflight_search_with_retry(
     browser_mode: BrowserMode,
     consent_choice: ConsentChoice,
     timeout_seconds: float,
+    search_deadline_seconds: float | None,
     max_tabs: int | None,
     top_k: int,
     base_run_id: str,
@@ -568,20 +576,43 @@ async def _run_preflight_search_with_retry(
         "status": "tool_error",
         "error": "preflight search did not run",
     }
+    per_attempt_deadline = (
+        max(0.001, search_deadline_seconds)
+        if search_deadline_seconds is not None
+        else max(60.0, min(timeout_seconds * 2.5, 105.0))
+    )
     for attempt in range(1, retry_limit + 2):
         run_id = base_run_id if attempt == 1 else f"{base_run_id}-attempt-{attempt:02d}"
-        search_exit, search_payload = await run_live_search(
-            input_json=input_json,
-            project_root=project_root,
-            browser_mode=browser_mode,
-            run_id=run_id,
-            timeout_seconds=timeout_seconds,
-            batch_concurrency=1,
-            managed_tab_policy="new",
-            max_tabs=max_tabs,
-            rank_objectives=["balanced", "cheapest", "fastest", "least_layover"],
-            top_k=top_k,
-        )
+        try:
+            search_exit, search_payload = await asyncio.wait_for(
+                run_live_search(
+                    input_json=input_json,
+                    project_root=project_root,
+                    browser_mode=browser_mode,
+                    run_id=run_id,
+                    timeout_seconds=timeout_seconds,
+                    batch_concurrency=1,
+                    managed_tab_policy="new",
+                    max_tabs=max_tabs,
+                    rank_objectives=["balanced", "cheapest", "fastest", "least_layover"],
+                    top_k=top_k,
+                ),
+                timeout=per_attempt_deadline,
+            )
+        except asyncio.TimeoutError:
+            search_exit = 6
+            search_payload = {
+                "status": "tool_error",
+                "stop_state": "preflight_search_timeout",
+                "error": (
+                    "synthetic Google Flights search exceeded "
+                    f"{per_attempt_deadline:g}s preflight search deadline"
+                ),
+                "results": [],
+                "warnings": [
+                    "preflight search timed out before row selection; run headless-heal or retry later"
+                ],
+            }
         last_exit = search_exit
         last_payload = search_payload
         retryable = _preflight_search_retryable(search_exit, search_payload)
@@ -597,6 +628,7 @@ async def _run_preflight_search_with_retry(
                 if isinstance(search_payload, dict)
                 else "",
                 "retryable": retryable,
+                "search_deadline_seconds": per_attempt_deadline,
             }
         )
         if search_exit == 0 or not retryable or attempt > retry_limit:
@@ -631,6 +663,8 @@ def _preflight_search_retryable(
         return False
     if search_payload.get("stop_state") == "google_page_error":
         return True
+    if search_payload.get("stop_state") == "preflight_search_timeout":
+        return False
     text = " ".join(
         str(value)
         for value in [
@@ -654,7 +688,7 @@ def _preflight_route_fallback_allowed(
         return True
     stop_state = str(search_payload.get("stop_state") or "")
     status = str(search_payload.get("status") or "")
-    if stop_state in {"blocked", "login_required"}:
+    if stop_state in {"blocked", "login_required", "preflight_search_timeout"}:
         return False
     if status in {"blocked", "login_required"}:
         return False

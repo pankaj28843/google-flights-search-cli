@@ -284,6 +284,8 @@ def test_preflight_google_flights_uses_public_synthetic_smoke(
             "3",
             "--selection-concurrency",
             "4",
+            "--search-deadline-seconds",
+            "90",
             "--max-tabs",
             "7",
             "--project-root",
@@ -300,6 +302,7 @@ def test_preflight_google_flights_uses_public_synthetic_smoke(
     assert calls[0]["top_k"] == 5
     assert calls[0]["min_complete_selections"] == 3
     assert calls[0]["selection_concurrency"] == 4
+    assert calls[0]["search_deadline_seconds"] == 90.0
     assert calls[0]["max_tabs"] == 7
     assert calls[0]["project_root"] == tmp_path
 
