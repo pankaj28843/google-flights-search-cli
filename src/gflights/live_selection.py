@@ -36,58 +36,6 @@ from gflights.live_trace import (
 )
 from gflights.result_extraction import extract_primary_results
 
-OUTBOUND_TERMINAL_JS = r"""
-(() => {
-  const text = (document.body && (document.body.innerText || document.body.textContent) || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const lower = text.toLowerCase();
-  if (!text) return false;
-  if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
-  if (lower.includes("sign in") && lower.includes("google")) return "login_required";
-  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
-  if (/no (matching )?flights|no results/.test(lower)) return "no_results";
-  const hasPrice = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\$)\s*[0-9][0-9,.]*(?:\s+round trip)?/i.test(text);
-  const hasRows = lower.includes("departing flights") && /(round trip|nonstop|[0-9]+\s+stop)/i.test(text);
-  return hasPrice && hasRows ? "fare_rows" : false;
-})()
-""".strip()
-
-RETURN_TERMINAL_JS = r"""
-(() => {
-  const text = (document.body && (document.body.innerText || document.body.textContent) || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const lower = text.toLowerCase();
-  if (!text) return false;
-  if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
-  if (lower.includes("sign in") && lower.includes("google")) return "login_required";
-  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
-  if (/no (matching )?flights|no results/.test(lower)) return "no_results";
-  const hasPrice = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\$)\s*[0-9][0-9,.]*(?:\s+round trip)?/i.test(text);
-  const hasReturnRows = (lower.includes("returning flights") || lower.includes("choose return")) &&
-    /(round trip|nonstop|[0-9]+\s+stop)/i.test(text);
-  return hasPrice && hasReturnRows ? "fare_rows" : false;
-})()
-""".strip()
-
-BOOKING_TERMINAL_JS = r"""
-(() => {
-  const text = (document.body && (document.body.innerText || document.body.textContent) || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const lower = text.toLowerCase();
-  if (!text) return false;
-  if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
-  if (lower.includes("sign in") && lower.includes("google")) return "login_required";
-  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
-  if (/no (matching )?flights|no results/.test(lower)) return "no_results";
-  if (lower.includes("booking options") || lower.includes("book with")) return "booking_summary";
-  return location.href.includes("/travel/flights/booking") ? "booking_url" : false;
-})()
-""".strip()
-
-READY_TERMINAL_CONDITIONS = {"fare_rows", "booking_summary", "booking_url"}
 GOOGLE_PAGE_ERROR_RELOAD_ATTEMPTS = 2
 GOOGLE_PAGE_ERROR_RELOAD_JS = r"""
 (() => {
@@ -389,7 +337,6 @@ async def _run_live_itinerary_selection_once(
             timeout_seconds=timeout_seconds,
             run_root=run_root,
             stage="outbound",
-            condition_js=OUTBOUND_TERMINAL_JS,
             warnings=warnings,
         )
     if search_settle["stop_result"] is not None:
@@ -500,7 +447,6 @@ async def _run_live_itinerary_selection_once(
             timeout_seconds=timeout_seconds,
             run_root=run_root,
             stage="return",
-            condition_js=RETURN_TERMINAL_JS,
             warnings=warnings,
         )
     if return_settle["stop_result"] is not None:
@@ -611,7 +557,6 @@ async def _run_live_itinerary_selection_once(
             timeout_seconds=timeout_seconds,
             run_root=run_root,
             stage="booking",
-            condition_js=BOOKING_TERMINAL_JS,
             warnings=warnings,
         )
     if booking_settle["stop_result"] is not None:
@@ -827,7 +772,6 @@ async def _settle(
     timeout_seconds: float,
     run_root: Path,
     stage: str,
-    condition_js: str,
     warnings: list[str],
 ) -> dict[str, Any]:
     started = perf_counter()
