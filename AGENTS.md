@@ -89,7 +89,10 @@ make validate
   unless a checked-in contract says otherwise. Clicks that should move the
   Google Flights state must verify the next stage with `--wait-text`,
   `--wait-url-contains`, or an equivalent semantic condition; do not replace a
-  missing verification with long blind waits.
+  missing verification with long blind waits. If in-page JavaScript performs
+  its own semantic wait, the surrounding CDP timeout must be longer than that
+  in-page wait; the row click helper waits up to 5 seconds, so its CDP eval
+  timeout must stay above 5 seconds.
 - Build live Google Flights automation in two layers: generic async CDP helpers
   for command invocation, timeouts, artifact capture, and polling assertions;
   then Google Flights domain helpers for conditions such as rows rendered,
@@ -116,3 +119,9 @@ make validate
   user-level constraint from ARIA/booking evidence. UI filters are search-space
   reducers; row-wise extraction and booking evidence remain the source of truth
   for final candidate inclusion.
+- Treat Google Flights text such as `Oops, something went wrong` and `Reload`
+  as a transient page error, not real route availability. In live search, a
+  provisional page-error signal from the terminal wait must continue to dwell
+  and snapshot evidence before returning `tool_error` with
+  `stop_state: google_page_error`; in row selection, the same signal should feed
+  operation-level retry diagnostics.

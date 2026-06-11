@@ -659,6 +659,12 @@ def itinerary_select_command(
         "--allow-over-budget",
         help="Pass cdp --allow-over-budget for externally bounded fanout runs.",
     ),
+    operation_retries: int = typer.Option(
+        2,
+        "--operation-retries",
+        min=0,
+        help="Retry the whole outbound/return/booking selection after transient CDP disconnects.",
+    ),
     browser_mode: BrowserMode = typer.Option(
         "headless",
         "--browser-mode",
@@ -700,6 +706,7 @@ def itinerary_select_command(
             reuse_target=reuse_target,
             max_tabs=max_tabs,
             allow_over_budget=allow_over_budget,
+            operation_retries=operation_retries,
         )
     )
     emit(payload, exit_code)

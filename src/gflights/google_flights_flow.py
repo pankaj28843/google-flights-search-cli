@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from time import perf_counter
 from typing import Any
 
@@ -22,6 +23,7 @@ from gflights.cdp_evidence import (
 )
 
 READY_STAGE_CONDITIONS = {"fare_rows", "booking_summary"}
+TRANSIENT_STAGE_CONDITIONS = {"google_page_error"}
 
 
 async def wait_until_google_flights_stage_ready(
@@ -66,6 +68,14 @@ async def wait_until_google_flights_stage_ready(
             "terminal_status": terminal_condition,
             "assertion": serializable_poll_outcome(outcome),
             "stop_result": result,
+        }
+    if terminal_condition in TRANSIENT_STAGE_CONDITIONS and isinstance(result, CdpResult):
+        return {
+            "ready": False,
+            "terminal_condition": terminal_condition,
+            "terminal_status": "tool_error",
+            "assertion": serializable_poll_outcome(outcome),
+            "stop_result": _transient_stage_result(result, terminal_condition),
         }
     return {
         "ready": _stage_condition_is_ready(stage, terminal_condition),
@@ -144,9 +154,11 @@ async def select_accessible_row_until_next_stage(
     selection = eval_dict(prepare_result.json_payload or {})
     if prepare_result.status == "tool_error":
         return {
+            "status": "tool_error",
             "selected": False,
             "stage": stage,
             "reason": prepare_result.error or "row preparation eval failed",
+            "error": prepare_result.error or "row preparation eval failed",
         }
     if not selection.get("found"):
         selection.setdefault("selected", False)
@@ -164,7 +176,7 @@ async def select_accessible_row_until_next_stage(
             page_id=page_id,
             artifact_name=f"{stage}-click-selected-row-{attempt:02d}.json",
             source_surface=f"cdp:eval:{stage}:click-selected-row:attempt",
-            timeout_seconds=min(3.0, timeout_seconds),
+            timeout_seconds=min(7.0, timeout_seconds),
         )
         click_payload = eval_dict(click_result.json_payload or {})
         click_attempts.append(
@@ -175,6 +187,18 @@ async def select_accessible_row_until_next_stage(
                 "reason": click_payload.get("reason", ""),
             }
         )
+        if click_result.status == "tool_error":
+            selection.update(
+                {
+                    "status": "tool_error",
+                    "selected": False,
+                    "stage": stage,
+                    "reason": click_result.error or f"{stage} row click failed",
+                    "error": click_result.error or f"{stage} row click failed",
+                    "clickAttemptEvidence": click_attempts,
+                }
+            )
+            return selection
         state_result = await helper.eval(
             google_flights_stage_state_js(stage=next_stage, limit=20),
             page_id=page_id,
@@ -182,6 +206,18 @@ async def select_accessible_row_until_next_stage(
             source_surface=f"cdp:eval:{stage}:post-click-stage",
             timeout_seconds=min(3.0, timeout_seconds),
         )
+        if state_result.status == "tool_error":
+            selection.update(
+                {
+                    "status": "tool_error",
+                    "selected": False,
+                    "stage": stage,
+                    "reason": state_result.error or f"{stage} row click transition check failed",
+                    "error": state_result.error or f"{stage} row click transition check failed",
+                    "clickAttemptEvidence": click_attempts,
+                }
+            )
+            return selection
         state = eval_dict(state_result.json_payload or {})
         if _stage_state_is_ready_for(state, next_stage):
             selection.update(
@@ -239,7 +275,7 @@ def _stage_state_is_terminal(value: Any, _result: CdpResult) -> bool:
         return False
     terminal_condition = _terminal_condition(value)
     requested_stage = str(value.get("requestedStage") or "")
-    if terminal_condition in BLOCKED_STOP_STATES:
+    if terminal_condition in BLOCKED_STOP_STATES or terminal_condition in TRANSIENT_STAGE_CONDITIONS:
         return True
     if terminal_condition == "no_results":
         return True
@@ -284,6 +320,21 @@ def _terminal_condition(state: Any) -> str:
         if value is False:
             return "not_ready"
     return "unknown"
+
+
+def _transient_stage_result(result: CdpResult, terminal_condition: str) -> CdpResult:
+    reason = (
+        "Google Flights page reported a transient error and offered Reload"
+        if terminal_condition == "google_page_error"
+        else f"Google Flights page reported transient condition: {terminal_condition}"
+    )
+    return replace(
+        result,
+        status="tool_error",
+        exit_code=6,
+        stop_state=terminal_condition,
+        error=reason,
+    )
 
 
 def _compact_stage_state(state: dict[str, Any]) -> dict[str, Any]:

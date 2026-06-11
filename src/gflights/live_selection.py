@@ -14,6 +14,7 @@ from gflights.app_state import init_app_state
 from gflights.browser import BLOCKED_STOP_STATES, BrowserMode, CdpAdapter, CdpResult, run_subprocess
 from gflights.cdp_evidence import CdpEvidenceHelper
 from gflights.google_flights_flow import (
+    TRANSIENT_STAGE_CONDITIONS,
     expand_accessible_rows_until_stable,
     select_accessible_row_until_next_stage,
     wait_until_google_flights_stage_ready,
@@ -38,6 +39,7 @@ OUTBOUND_TERMINAL_JS = r"""
   if (!text) return false;
   if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
   if (lower.includes("sign in") && lower.includes("google")) return "login_required";
+  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
   if (/no (matching )?flights|no results/.test(lower)) return "no_results";
   const hasPrice = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\$)\s*[0-9][0-9,.]*(?:\s+round trip)?/i.test(text);
   const hasRows = lower.includes("departing flights") && /(round trip|nonstop|[0-9]+\s+stop)/i.test(text);
@@ -54,6 +56,7 @@ RETURN_TERMINAL_JS = r"""
   if (!text) return false;
   if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
   if (lower.includes("sign in") && lower.includes("google")) return "login_required";
+  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
   if (/no (matching )?flights|no results/.test(lower)) return "no_results";
   const hasPrice = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\$)\s*[0-9][0-9,.]*(?:\s+round trip)?/i.test(text);
   const hasReturnRows = (lower.includes("returning flights") || lower.includes("choose return")) &&
@@ -71,6 +74,7 @@ BOOKING_TERMINAL_JS = r"""
   if (!text) return false;
   if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
   if (lower.includes("sign in") && lower.includes("google")) return "login_required";
+  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
   if (/no (matching )?flights|no results/.test(lower)) return "no_results";
   if (lower.includes("booking options") || lower.includes("book with")) return "booking_summary";
   return location.href.includes("/travel/flights/booking") ? "booking_url" : false;
@@ -81,6 +85,108 @@ READY_TERMINAL_CONDITIONS = {"fare_rows", "booking_summary", "booking_url"}
 
 
 async def run_live_itinerary_selection(
+    *,
+    search_url: str,
+    project_root: Path | None = None,
+    adapter: CdpAdapter | None = None,
+    browser_mode: BrowserMode = "headless",
+    run_id: str | None = None,
+    timeout_seconds: float = 45.0,
+    preferred_carrier: str = "",
+    require_nonstop: bool = False,
+    row_rank: int = 1,
+    outbound_row_rank: int | None = None,
+    return_row_rank: int | None = None,
+    outbound_match_text: str = "",
+    return_match_text: str = "",
+    reuse_target: str = "",
+    max_tabs: int | None = None,
+    allow_over_budget: bool = False,
+    operation_retries: int = 2,
+) -> tuple[int, dict[str, Any]]:
+    """Select visible Google Flights rows and retry transient whole-operation failures."""
+
+    if operation_retries <= 0:
+        return await _run_live_itinerary_selection_once(
+            search_url=search_url,
+            project_root=project_root,
+            adapter=adapter,
+            browser_mode=browser_mode,
+            run_id=run_id,
+            timeout_seconds=timeout_seconds,
+            preferred_carrier=preferred_carrier,
+            require_nonstop=require_nonstop,
+            row_rank=row_rank,
+            outbound_row_rank=outbound_row_rank,
+            return_row_rank=return_row_rank,
+            outbound_match_text=outbound_match_text,
+            return_match_text=return_match_text,
+            reuse_target=reuse_target,
+            max_tabs=max_tabs,
+            allow_over_budget=allow_over_budget,
+        )
+
+    adapter = adapter or CdpAdapter(max_tabs=max_tabs, allow_over_budget=allow_over_budget)
+    base_run_id = run_id or _new_run_id()
+    max_attempts = operation_retries + 1
+    attempt_summaries: list[dict[str, Any]] = []
+    last_result: tuple[int, dict[str, Any]] | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        attempt_run_id = base_run_id if attempt == 1 else f"{base_run_id}-attempt-{attempt:02d}"
+        exit_code, payload = await _run_live_itinerary_selection_once(
+            search_url=search_url,
+            project_root=project_root,
+            adapter=adapter,
+            browser_mode=browser_mode,
+            run_id=attempt_run_id,
+            timeout_seconds=timeout_seconds,
+            preferred_carrier=preferred_carrier,
+            require_nonstop=require_nonstop,
+            row_rank=row_rank,
+            outbound_row_rank=outbound_row_rank,
+            return_row_rank=return_row_rank,
+            outbound_match_text=outbound_match_text,
+            return_match_text=return_match_text,
+            reuse_target=reuse_target,
+            max_tabs=max_tabs,
+            allow_over_budget=allow_over_budget,
+        )
+        last_result = (exit_code, payload)
+        transient = _is_transient_operation_failure(payload)
+        attempt_summaries.append(
+            {
+                "attempt": attempt,
+                "run_id": attempt_run_id,
+                "status": payload.get("status"),
+                "exit_code": exit_code,
+                "transient_retryable": transient,
+                "error": payload.get("error") or "",
+                "failed_stage": _payload_failed_stage(payload),
+            }
+        )
+        if exit_code == 0 or not transient or attempt == max_attempts:
+            diagnostics = dict(payload.get("diagnostics") or {})
+            diagnostics.update(
+                {
+                    "operation_attempts": attempt_summaries,
+                    "operation_attempt_count": len(attempt_summaries),
+                    "operation_retry_limit": operation_retries,
+                    "transient_retry_exhausted": bool(
+                        transient and attempt == max_attempts and exit_code != 0
+                    ),
+                    "failed_stage": _payload_failed_stage(payload),
+                }
+            )
+            payload["diagnostics"] = diagnostics
+            return exit_code, payload
+        await asyncio.sleep(min(3.0, 0.75 * attempt))
+
+    assert last_result is not None
+    return last_result
+
+
+async def _run_live_itinerary_selection_once(
     *,
     search_url: str,
     project_root: Path | None = None,
@@ -287,6 +393,27 @@ async def run_live_itinerary_selection(
             match_text=outbound_match_text,
         )
     if not outbound_selection.get("selected"):
+        if outbound_selection.get("status") == "tool_error":
+            return await _finish_selection(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                tab_context=tab_context,
+                result=_selection_tool_error_payload(
+                    run_id=run_id,
+                    search_url=search_url,
+                    browser_mode=browser_mode,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    stage="outbound",
+                    selection=outbound_selection,
+                ),
+            )
         return await _finish_selection(
             adapter=adapter,
             page_id=page_id,
@@ -377,6 +504,27 @@ async def run_live_itinerary_selection(
             match_text=return_match_text,
         )
     if not return_selection.get("selected"):
+        if return_selection.get("status") == "tool_error":
+            return await _finish_selection(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                tab_context=tab_context,
+                result=_selection_tool_error_payload(
+                    run_id=run_id,
+                    search_url=search_url,
+                    browser_mode=browser_mode,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    stage="return",
+                    selection=return_selection,
+                ),
+            )
         return await _finish_selection(
             adapter=adapter,
             page_id=page_id,
@@ -636,6 +784,26 @@ async def _settle(
     terminal_condition = str(stage_ready.get("terminal_condition") or "unknown")
     terminal_status = str(stage_ready.get("terminal_status") or "unknown")
     terminal_result = stage_ready.get("stop_result")
+    if terminal_condition in TRANSIENT_STAGE_CONDITIONS:
+        _write_settlement_json(
+            run_root=run_root,
+            artifacts=helper.artifacts,
+            source_surfaces=helper.source_surfaces,
+            stage=stage,
+            terminal_condition=terminal_condition,
+            terminal_status=terminal_status,
+            dwell_seconds=perf_counter() - started,
+            dwell_enforced=False,
+            network_status="not_run",
+            body_stability={"status": "not_run"},
+            warnings=warnings,
+        )
+        return {
+            "stop_result": terminal_result if isinstance(terminal_result, CdpResult) else None,
+            "ready": False,
+            "terminal_condition": terminal_condition,
+            "terminal_status": terminal_status,
+        }
     if terminal_condition in BLOCKED_STOP_STATES:
         if isinstance(terminal_result, CdpResult):
             terminal_result = _blocked_terminal_result(terminal_result, terminal_condition)
@@ -1164,7 +1332,11 @@ def _stop_payload(
     warnings: list[str],
 ) -> tuple[int, dict[str, Any]]:
     payload: dict[str, Any] = {
-        "status": result.status if result.status in BLOCKED_STOP_STATES else "blocked",
+        "status": (
+            result.status
+            if result.status in BLOCKED_STOP_STATES or result.status == "tool_error"
+            else "blocked"
+        ),
         "confidence": "unknown",
         "live_mode": True,
         "browser_mode": browser_mode,
@@ -1175,7 +1347,11 @@ def _stop_payload(
         "unsupported": [],
         "warnings": [
             *warnings,
-            "live itinerary selection stopped before crossing a provider, login, payment, personal-data, or access-control boundary",
+            (
+                result.error
+                if result.status == "tool_error" and result.error
+                else "live itinerary selection stopped before crossing a provider, login, payment, personal-data, or access-control boundary"
+            ),
         ],
         "evidence": {
             "run_id": run_id,
@@ -1185,6 +1361,8 @@ def _stop_payload(
     }
     if result.fallback:
         payload["fallback"] = result.fallback
+    if result.status == "tool_error" and result.error:
+        payload["error"] = result.error
     return result.exit_code or 4, payload
 
 
@@ -1214,6 +1392,92 @@ def _tool_error_payload(
             "source_surfaces": source_surfaces,
         },
     }
+
+
+def _selection_tool_error_payload(
+    *,
+    run_id: str,
+    search_url: str,
+    browser_mode: BrowserMode,
+    artifacts: list[str],
+    source_surfaces: list[str],
+    stage: str,
+    selection: dict[str, Any],
+) -> tuple[int, dict[str, Any]]:
+    error = str(selection.get("error") or selection.get("reason") or f"{stage} row selection failed")
+    return 6, {
+        "status": "tool_error",
+        "confidence": "unknown",
+        "live_mode": True,
+        "browser_mode": browser_mode,
+        "search_url": search_url,
+        "booking_url": "",
+        "selection": {stage: selection},
+        "unsupported": [],
+        "warnings": [],
+        "error": error,
+        "diagnostics": {
+            "failed_stage": stage,
+        },
+        "evidence": {
+            "run_id": run_id,
+            "artifacts": artifacts,
+            "source_surfaces": source_surfaces,
+        },
+    }
+
+
+def _is_transient_operation_failure(payload: dict[str, Any]) -> bool:
+    if payload.get("status") != "tool_error":
+        return False
+    text = " ".join(
+        str(value)
+        for value in [
+            payload.get("error"),
+            payload.get("message"),
+            payload.get("stop_state"),
+            json.dumps(payload.get("warnings") or []),
+            json.dumps(payload.get("diagnostics") or {}),
+            json.dumps(payload.get("evidence") or {}),
+        ]
+        if value
+    ).casefold()
+    return any(
+        marker in text
+        for marker in [
+            "failed to read json message",
+            "failed to get reader",
+            "cdp command timed out",
+            "use of closed network connection",
+            "connection refused",
+            "browser_dial_failed",
+            "browser commands require a running",
+            "keepalive repair is locked",
+            "starting_daemon",
+            "google_page_error",
+            "google flights page reported a transient error",
+        ]
+    )
+
+
+def _payload_failed_stage(payload: dict[str, Any]) -> str:
+    diagnostics = payload.get("diagnostics")
+    if isinstance(diagnostics, dict) and diagnostics.get("failed_stage"):
+        return str(diagnostics["failed_stage"])
+
+    settlement = payload.get("settlement")
+    if isinstance(settlement, dict) and settlement.get("stage"):
+        return str(settlement["stage"])
+
+    evidence = payload.get("evidence")
+    source_surfaces = evidence.get("source_surfaces") if isinstance(evidence, dict) else None
+    if isinstance(source_surfaces, list):
+        for surface in reversed(source_surfaces):
+            surface_text = str(surface).casefold()
+            for stage in ["booking", "return", "outbound", "open"]:
+                if stage in surface_text:
+                    return stage
+    return "unknown"
 
 
 def _selection_unavailable_payload(

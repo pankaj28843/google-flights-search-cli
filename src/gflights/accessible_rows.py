@@ -158,6 +158,7 @@ def google_flights_stage_state_js(*, stage: str, limit: int = 20) -> str:
         "if (!text) terminalCondition = false;\n"
         "else if (lower.includes('unusual traffic') || lower.includes('access denied')) terminalCondition = 'blocked';\n"
         "else if (lower.includes('sign in') && lower.includes('google')) terminalCondition = 'login_required';\n"
+        "else if (lower.includes('oops, something went wrong') || (lower.includes('no results returned') && /\\breload\\b/.test(lower))) terminalCondition = 'google_page_error';\n"
         "else if (/no (matching )?flights|no results/.test(lower)) terminalCondition = 'no_results';\n"
         "else if (requestedStage === 'booking' && lower.includes('booking options')) terminalCondition = 'booking_summary';\n"
         "else if (requestedStage === 'booking' && lower.includes('book with')) terminalCondition = 'booking_summary';\n"

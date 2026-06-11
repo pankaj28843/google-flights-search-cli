@@ -16,7 +16,7 @@ format-check:
 test:
 	$(UV) run pytest
 
-install: install-tool
+install: install-tool-editable
 
 install-tool:
 	$(UV) tool install --force $(UV_TOOL_PACKAGE)

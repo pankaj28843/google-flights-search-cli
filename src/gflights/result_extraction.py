@@ -285,6 +285,10 @@ def classify_primary_result_absence(snapshot_payload: dict[str, Any]) -> str:
     text = _visible_text(snapshot_payload)
     if not text.strip():
         return "empty_snapshot"
+    if "oops, something went wrong" in text.casefold() or (
+        "no results returned" in text.casefold() and "reload" in text.casefold()
+    ):
+        return "google_page_error"
     if "loading results" in text.casefold() and not _has_visible_fare_rows(text):
         return "loading_results"
     if _NO_RESULTS_RE.search(text):

@@ -43,6 +43,7 @@ GOOGLE_FLIGHTS_URL = "https://www.google.com/travel/flights"
 GOOGLE_FLIGHTS_SEARCH_URL = "https://www.google.com/travel/flights/search"
 MINIMUM_GOOGLE_FLIGHTS_DWELL_SECONDS = 10.0
 READY_TERMINAL_CONDITIONS = {"fare_rows", "booking_summary"}
+TRANSIENT_TERMINAL_CONDITIONS = {"google_page_error"}
 TERMINAL_DOM_CONDITION_JS = r"""
 (() => {
   const text = (document.body && (document.body.innerText || document.body.textContent) || "")
@@ -52,6 +53,7 @@ TERMINAL_DOM_CONDITION_JS = r"""
   if (!text) return false;
   if (lower.includes("unusual traffic") || lower.includes("access denied")) return "blocked";
   if (lower.includes("sign in") && lower.includes("google")) return "login_required";
+  if (lower.includes("oops, something went wrong") || (lower.includes("no results returned") && /\breload\b/.test(lower))) return "google_page_error";
   if (/no (matching )?flights|no results/.test(lower)) return "no_results";
   if (lower.includes("booking options") && lower.includes("book with")) return "booking_summary";
   const hasPrice = /(?:DKK|EUR|USD|INR|NOK|SEK|GBP|₹|€|\$)\s*[0-9][0-9,.]*(?:\s+round trip)?/i.test(text);
@@ -785,6 +787,40 @@ async def _run_one_live_search(
         )
 
     absence_status = classify_primary_result_absence(snapshot_result.json_payload or {})
+    if absence_status == "google_page_error":
+        google_page_error = CdpResult(
+            argv=[],
+            browser_mode=browser_mode,
+            returncode=6,
+            stdout="",
+            stderr="",
+            status="tool_error",
+            exit_code=6,
+            stop_state="google_page_error",
+            error="Google Flights page reported a transient error and offered Reload",
+        )
+        return await _finish_live_search(
+            adapter=adapter,
+            page_id=page_id,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+            run_root=run_root,
+            executed=executed,
+            artifacts=artifacts,
+            source_surfaces=source_surfaces,
+            tab_context=tab_context,
+            exit_code=6,
+            payload=_stop_payload(
+                intent_query_id=intent.query_id,
+                run_id=run_id,
+                browser_mode=browser_mode,
+                result=google_page_error,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                target_url=target_url,
+                query_population=query_population,
+            ),
+        )
     if absence_status == "no_results":
         return await _finish_live_search(
             adapter=adapter,
@@ -1040,6 +1076,10 @@ async def _settle_google_flights_page(
         source_surfaces=source_surfaces,
     )
     terminal_condition = _terminal_condition_from_wait(terminal_result)
+    if terminal_condition in TRANSIENT_TERMINAL_CONDITIONS:
+        warnings.append(
+            f"terminal Google Flights check saw provisional {terminal_condition}; continuing to dwell and snapshot evidence"
+        )
     if terminal_condition in BLOCKED_STOP_STATES:
         stop_result = _blocked_terminal_result(terminal_result, terminal_condition)
         _write_settlement_artifact(
@@ -1463,7 +1503,11 @@ def _stop_payload(
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "query_id": intent_query_id,
-        "status": result.status if result.status in BLOCKED_STOP_STATES else "blocked",
+        "status": (
+            result.status
+            if result.status in BLOCKED_STOP_STATES or result.status == "tool_error"
+            else "blocked"
+        ),
         "confidence": "unknown",
         "live_mode": True,
         "browser_mode": browser_mode,
@@ -1474,7 +1518,11 @@ def _stop_payload(
         "unsupported": [*query_population["unsupported"]],
         "warnings": [
             *query_population["warnings"],
-            "live search stopped before bypassing a browser safety boundary",
+            (
+                result.error
+                if result.status == "tool_error" and result.error
+                else "live search stopped before bypassing a browser safety boundary"
+            ),
         ],
         "evidence": {
             "run_id": run_id,
@@ -1484,6 +1532,8 @@ def _stop_payload(
     }
     if result.fallback:
         payload["fallback"] = result.fallback
+    if result.status == "tool_error" and result.error:
+        payload["error"] = result.error
     return payload
 
 

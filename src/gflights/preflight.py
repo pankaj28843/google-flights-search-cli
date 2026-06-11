@@ -145,18 +145,22 @@ async def run_google_flights_preflight(
     artifacts.append(str(intent_path))
     source_surfaces.append("gflights:preflight:synthetic-intent")
 
-    search_exit, search_payload = await run_live_search(
+    search_exit, search_payload, search_attempts = await _run_preflight_search_with_retry(
         input_json=intent_path,
         project_root=state.root,
         browser_mode=browser_mode,
         timeout_seconds=timeout_seconds,
-        batch_concurrency=1,
-        managed_tab_policy="new",
         max_tabs=max_tabs,
-        rank_objectives=["balanced", "cheapest", "fastest", "least_layover"],
         top_k=top_k,
+        base_run_id=f"{run_id}-search",
     )
     search_artifact = run_root / "preflight-search.json"
+    if isinstance(search_payload, dict):
+        search_payload = dict(search_payload)
+        diagnostics = dict(search_payload.get("diagnostics") or {})
+        diagnostics["preflight_search_attempts"] = search_attempts
+        diagnostics["preflight_search_attempt_count"] = len(search_attempts)
+        search_payload["diagnostics"] = diagnostics
     _write_json(search_artifact, search_payload)
     artifacts.append(str(search_artifact))
     source_surfaces.append("gflights:preflight:search")
@@ -240,6 +244,81 @@ async def run_google_flights_preflight(
         "evidence": _evidence(run_id, artifacts, source_surfaces),
     }
     return (0 if passed else 4), payload
+
+
+async def _run_preflight_search_with_retry(
+    *,
+    input_json: Path,
+    project_root: Path,
+    browser_mode: BrowserMode,
+    timeout_seconds: float,
+    max_tabs: int | None,
+    top_k: int,
+    base_run_id: str,
+    retry_limit: int = 2,
+) -> tuple[int, dict[str, Any] | list[dict[str, Any]], list[dict[str, Any]]]:
+    attempts: list[dict[str, Any]] = []
+    last_exit = 6
+    last_payload: dict[str, Any] | list[dict[str, Any]] = {
+        "status": "tool_error",
+        "error": "preflight search did not run",
+    }
+    for attempt in range(1, retry_limit + 2):
+        run_id = base_run_id if attempt == 1 else f"{base_run_id}-attempt-{attempt:02d}"
+        search_exit, search_payload = await run_live_search(
+            input_json=input_json,
+            project_root=project_root,
+            browser_mode=browser_mode,
+            run_id=run_id,
+            timeout_seconds=timeout_seconds,
+            batch_concurrency=1,
+            managed_tab_policy="new",
+            max_tabs=max_tabs,
+            rank_objectives=["balanced", "cheapest", "fastest", "least_layover"],
+            top_k=top_k,
+        )
+        last_exit = search_exit
+        last_payload = search_payload
+        retryable = _preflight_search_retryable(search_exit, search_payload)
+        attempts.append(
+            {
+                "attempt": attempt,
+                "run_id": run_id,
+                "exit_code": search_exit,
+                "status": search_payload.get("status")
+                if isinstance(search_payload, dict)
+                else "unknown",
+                "stop_state": search_payload.get("stop_state")
+                if isinstance(search_payload, dict)
+                else "",
+                "retryable": retryable,
+            }
+        )
+        if search_exit == 0 or not retryable or attempt > retry_limit:
+            return last_exit, last_payload, attempts
+        await asyncio.sleep(min(3.0, 0.75 * attempt))
+    return last_exit, last_payload, attempts
+
+
+def _preflight_search_retryable(
+    search_exit: int,
+    search_payload: dict[str, Any] | list[dict[str, Any]],
+) -> bool:
+    if search_exit == 0 or not isinstance(search_payload, dict):
+        return False
+    if search_payload.get("stop_state") == "google_page_error":
+        return True
+    text = " ".join(
+        str(value)
+        for value in [
+            search_payload.get("status"),
+            search_payload.get("error"),
+            json.dumps(search_payload.get("warnings") or []),
+            json.dumps(search_payload.get("unsupported") or []),
+        ]
+        if value
+    ).casefold()
+    return "oops, something went wrong" in text or "google_page_error" in text
 
 
 def _has_complete_booking_selection(item: dict[str, Any]) -> bool:

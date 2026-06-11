@@ -338,6 +338,49 @@ class ContextRaceSelectionCdpAdapter(FakeSelectionCdpAdapter):
         )
 
 
+class ReturnSelectionTransientDisconnectAdapter(FakeSelectionCdpAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed_return_prepare = False
+
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if (
+            call_args[0] == "eval"
+            and "found: true" in call_args[1]
+            and self.selection_calls == 1
+            and not self.failed_return_prepare
+        ):
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            self.failed_return_prepare = True
+            message = (
+                "check browser resource budget: failed to read JSON message: "
+                "failed to get reader: use of closed network connection"
+            )
+            return cdp_result(
+                call_args,
+                {
+                    "ok": False,
+                    "code": "connection_failed",
+                    "message": message,
+                },
+                status="tool_error",
+                exit_code=6,
+                error=message,
+            )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
 def _requested_stage(js: str) -> str:
     for stage in ("outbound", "return", "booking"):
         if f'const requestedStage = "{stage}"' in js:
@@ -376,6 +419,7 @@ def cdp_result(
     status: str = "ok",
     exit_code: int = 0,
     browser_mode: BrowserMode = "headless",
+    error: str = "",
 ) -> CdpResult:
     return CdpResult(
         argv=["cdp", *args],
@@ -386,6 +430,7 @@ def cdp_result(
         status=status,
         exit_code=exit_code,
         json_payload=payload,
+        error=error,
         stop_state=payload.get("stop_state")
         if isinstance(payload.get("stop_state"), str)
         else None,
@@ -494,6 +539,36 @@ def test_live_itinerary_selection_retries_terminal_eval_after_context_race(
     assert (
         tmp_path / "runs" / "gf-test-selection-context-race" / "outbound-stage-state-02.json"
     ).is_file()
+
+
+def test_live_itinerary_selection_retries_whole_operation_after_transient_return_error(
+    tmp_path: Path,
+) -> None:
+    adapter = ReturnSelectionTransientDisconnectAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=encoded&hl=en&curr=DKK",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-operation-retry",
+            operation_retries=2,
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["booking_url"].startswith("https://www.google.com/travel/flights/booking?")
+    diagnostics = payload["diagnostics"]
+    assert diagnostics["operation_attempt_count"] == 2
+    assert diagnostics["operation_retry_limit"] == 2
+    assert diagnostics["transient_retry_exhausted"] is False
+    assert diagnostics["operation_attempts"][0]["status"] == "tool_error"
+    assert diagnostics["operation_attempts"][0]["transient_retryable"] is True
+    assert diagnostics["operation_attempts"][0]["failed_stage"] == "return"
+    assert diagnostics["operation_attempts"][1]["status"] == "ok"
+    assert (tmp_path / "runs" / "gf-test-selection-operation-retry").is_dir()
+    assert (tmp_path / "runs" / "gf-test-selection-operation-retry-attempt-02").is_dir()
 
 
 def test_live_itinerary_selection_does_not_report_search_url_as_booking_url(

@@ -135,3 +135,77 @@ def test_google_flights_preflight_blocks_partial_rank_completion(
     assert payload["selection_count"] == 3
     assert payload["complete_selection_count"] == 2
     assert any("selected 2/3 requested rows" in warning for warning in payload["warnings"])
+
+
+def test_google_flights_preflight_retries_transient_search_page_error(
+    tmp_path: Any,
+    monkeypatch: Any,
+) -> None:
+    search_run_ids: list[str] = []
+    selected_ranks: list[int] = []
+
+    async def fake_sleep(_seconds: float) -> None:
+        return None
+
+    async def fake_run_live_search(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        search_run_ids.append(str(kwargs["run_id"]))
+        if len(search_run_ids) == 1:
+            return (
+                6,
+                {
+                    "status": "tool_error",
+                    "stop_state": "google_page_error",
+                    "error": "Google Flights page reported a transient error and offered Reload",
+                    "results": [],
+                },
+            )
+        return (
+            0,
+            {
+                "status": "ok",
+                "target_url": "https://www.google.com/travel/flights/search?synthetic=1",
+                "results": [{"rank": rank} for rank in range(1, 3)],
+                "rankings": {},
+            },
+        )
+
+    async def fake_run_live_itinerary_selection(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        rank = int(kwargs["row_rank"])
+        selected_ranks.append(rank)
+        return (
+            0,
+            {
+                "status": "ok",
+                "booking_url": f"https://www.google.com/travel/flights/booking?rank={rank}",
+                "selected_outbound": {"row_rank": rank},
+                "selected_return": {"row_rank": rank},
+                "booking_options": [],
+                "warnings": [],
+                "evidence": {"run_id": f"selection-{rank}", "artifacts": []},
+            },
+        )
+
+    monkeypatch.setattr(preflight.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(preflight, "run_live_search", fake_run_live_search)
+    monkeypatch.setattr(
+        preflight,
+        "run_live_itinerary_selection",
+        fake_run_live_itinerary_selection,
+    )
+
+    exit_code, payload = asyncio.run(
+        preflight.run_google_flights_preflight(
+            project_root=tmp_path,
+            consent_choice="skip",
+            top_k=2,
+            selection_concurrency=2,
+            max_tabs=5,
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert selected_ranks == [1, 2]
+    assert search_run_ids[0].endswith("-search")
+    assert search_run_ids[1].endswith("-search-attempt-02")
+    assert len(search_run_ids) == 2

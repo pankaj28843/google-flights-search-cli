@@ -1142,6 +1142,53 @@ def test_live_search_reports_loading_snapshot_as_specific_unsupported(
     assert "bounded evidence wait" in payload["unsupported"][0]["reason"]
 
 
+def test_live_search_reports_google_page_error_as_retryable_tool_error(
+    tmp_path: Path,
+) -> None:
+    google_error_text = "Search results No results returned. Oops, something went wrong. Reload"
+    adapter = FakeCdpAdapter(
+        [
+            cdp_result(
+                ["open"],
+                {
+                    "ok": True,
+                    "page": {
+                        "id": "page-1",
+                        "url": "https://www.google.com/travel/flights?hl=en&curr=USD",
+                    },
+                },
+            ),
+            cdp_result(["wait"], {"ok": True}),
+            cdp_result(
+                ["snapshot"],
+                {"ok": True, "snapshot": {"items": [{"text": google_error_text}]}},
+            ),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+            cdp_result(["network"], {"ok": True, "requests": []}),
+        ],
+        settlement_terminal_result=cdp_result(
+            ["wait", "eval"],
+            {"ok": True, "result": {"value": "google_page_error"}},
+        ),
+        settlement_text_samples=[google_error_text, google_error_text],
+    )
+
+    exit_code, payload = asyncio.run(
+        run_live_search(
+            input_json=write_intent(tmp_path),
+            project_root=tmp_path,
+            adapter=adapter,
+            browser_mode="headless",
+            run_id="gf-test-google-page-error",
+        )
+    )
+
+    assert exit_code == 6
+    assert payload["status"] == "tool_error"
+    assert payload["stop_state"] == "google_page_error"
+    assert "transient error" in payload["error"]
+
+
 def test_live_search_currency_footer_is_not_terminal_readiness(tmp_path: Path) -> None:
     adapter = FakeCdpAdapter(
         [
