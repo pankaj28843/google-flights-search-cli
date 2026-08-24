@@ -160,14 +160,15 @@ def _accessible_row_result(
     if not parse_text:
         return None
 
+    summary_text = aria_label or parse_text
     route = _parse_accessible_route(text=text, aria_label=aria_label, combined_text=parse_text)
-    price = _parse_price_from_text(parse_text)
-    stops = _parse_stops_from_text(parse_text)
-    duration_text = _parse_duration_text(parse_text)
+    price = _parse_price_from_text(parse_text) or _parse_price_from_text(summary_text)
+    stops = _parse_stops_from_text(summary_text) or _parse_stops_from_text(parse_text)
+    duration_text = _parse_duration_text(summary_text) or _parse_duration_text(parse_text)
     if price is None or stops is None or duration_text is None:
         return None
 
-    carriers = _parse_accessible_carriers(parse_text, duration_text=duration_text)
+    carriers = _parse_accessible_carriers(summary_text, duration_text=duration_text)
     result: dict[str, Any] = {
         "result_id": f"accessible-row-result-{index}",
         "source_surface": source_surface,
@@ -184,7 +185,7 @@ def _accessible_row_result(
         "layovers": _parse_accessible_layovers(parse_text),
         "price": price,
         "currency": price["currency"],
-        "emissions": _parse_emissions(parse_text),
+        "emissions": _parse_emissions(summary_text) or _parse_emissions(parse_text),
         "baggage_summary": _parse_baggage_summary(parse_text),
         "cabin": _parse_cabin(parse_text),
         "cabin_facilities": _parse_cabin_facilities(parse_text),
@@ -484,11 +485,17 @@ def _parse_accessible_route(
     aria_label: str,
     combined_text: str,
 ) -> dict[str, str | None]:
-    route_match = (
-        _TIME_ROUTE_RE.search(text)
-        or _TIME_ROUTE_RE.search(aria_label)
-        or _TIME_ROUTE_RE.search(combined_text)
-    )
+    aria_times = _TIME_RE.findall(aria_label)
+    airport_codes = _AIRPORT_CODE_RE.findall(text)
+    if len(airport_codes) >= 2:
+        return {
+            "origin": airport_codes[0],
+            "destination": airport_codes[-1],
+            "departure_time": aria_times[0] if len(aria_times) >= 1 else None,
+            "arrival_time": aria_times[1] if len(aria_times) >= 2 else None,
+        }
+
+    route_match = _TIME_ROUTE_RE.search(text) or _TIME_ROUTE_RE.search(combined_text)
     if route_match:
         return {
             "origin": route_match.group("origin"),
@@ -497,11 +504,11 @@ def _parse_accessible_route(
             "arrival_time": route_match.group("arrival_time"),
         }
 
-    airport_codes = _AIRPORT_CODE_RE.findall(text) or _AIRPORT_CODE_RE.findall(combined_text)
-    times = _TIME_RE.findall(text) or _TIME_RE.findall(combined_text)
+    airport_codes = _AIRPORT_CODE_RE.findall(combined_text)
+    times = aria_times or _TIME_RE.findall(text) or _TIME_RE.findall(combined_text)
     return {
         "origin": airport_codes[0] if len(airport_codes) >= 1 else None,
-        "destination": airport_codes[1] if len(airport_codes) >= 2 else None,
+        "destination": airport_codes[-1] if len(airport_codes) >= 2 else None,
         "departure_time": times[0] if len(times) >= 1 else None,
         "arrival_time": times[1] if len(times) >= 2 else None,
     }

@@ -142,7 +142,7 @@ def _intent_route_label(intent: dict[str, Any]) -> str:
 async def run_google_flights_preflight(
     *,
     project_root: Path | None = None,
-    browser_mode: BrowserMode = "headless",
+    browser_mode: BrowserMode = "headed",
     consent_choice: ConsentChoice = "reject-all",
     top_k: int = 5,
     return_top_k: int = 3,

@@ -76,7 +76,7 @@ async def run_live_search(
     input_json: Path,
     project_root: Path | None = None,
     adapter: CdpAdapter | None = None,
-    browser_mode: BrowserMode = "headless",
+    browser_mode: BrowserMode = "headed",
     run_id: str | None = None,
     timeout_seconds: float = 30.0,
     interact_with_form: bool = False,

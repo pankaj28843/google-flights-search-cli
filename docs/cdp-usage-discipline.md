@@ -15,22 +15,25 @@ Flights tabs were cleaned with `cdp page cleanup`, headless pages dropped to
 The performance lesson is harness-level: unmanaged live tabs make later live
 tests slower or blocked before the CLI has a chance to search.
 
-## Preflight
+## Default Headed Preflight
 
 Before any live `cdp` run, inspect the selected browser mode and tab budget:
 
 ```bash
-cdp --browser-mode headless daemon health --json
-cdp --browser-mode headless pages --json
+cdp --browser-mode headed pages --json
 ```
 
-For long Google Flights crawls, use the maintained recovery ceremony instead of
-hand-running isolated cleanup commands:
+For normal Google Flights work, stay in headed mode and keep the total browser
+budget at five tabs:
 
 ```bash
-gflights preflight headless-heal --consent-choice accept-all --json
-gflights preflight google-flights --consent-choice accept-all --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+gflights preflight google-flights --consent-choice accept-all --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 ```
+
+If five page tabs already exist, reuse one exact target or stop. Do not close an
+unowned tab merely to make room.
+
+## Explicit Headless Recovery
 
 `headless-heal` explicitly closes stale Google Flights page targets and stale
 `data-cdp-health` diagnostic targets, runs `cdp daemon health-check --repair`,
@@ -72,7 +75,7 @@ cdp --browser-mode headless page cleanup \
 
 Use headed debugging when live Google Flights row lookup, row detail expansion,
 return-row transition, booking-summary settlement, or booking-option extraction
-is failing and headless artifacts do not explain the current browser behavior.
+is failing.
 The point is to watch the real UI slowly enough to learn the accessibility
 contract, then codify the smallest resilient automation rule.
 
@@ -138,7 +141,7 @@ After code changes to this path, run focused preflight tests before live smoke:
 
 ```bash
 uv run pytest tests/unit/test_live_search.py tests/unit/test_live_selection.py tests/unit/test_preflight.py -q
-gflights itinerary select --browser-mode headed --search-url '<public test search URL>' --timeout-seconds 75 --max-tabs 15 --project-root /tmp/gflights-headed-select --json
+gflights itinerary select --browser-mode headed --search-url '<public test search URL>' --timeout-seconds 75 --max-tabs 5 --project-root /tmp/gflights-headed-select --json
 cdp --browser-mode headed pages --json
 ```
 
@@ -276,15 +279,15 @@ Flights.
 `make live-google-flights` is allowed to open Google Flights. Before timing or
 profiling it, capture:
 
-- `cdp --browser-mode headless daemon health --json`
-- `cdp --browser-mode headless pages --json`
+- `cdp --browser-mode headed pages --json`
 - wall-clock command timing
 - resulting run artifacts
 - post-run tab budget
 
-If live smoke fails because of browser resource budget, fix the browser harness
-state and rerun once. Do not infer Google Flights behavior from an over-budget
-browser. The preferred first repair is:
+If live smoke fails because of browser resource budget, reuse an exact owned
+headed target or stop and rerun after capacity is available. Do not infer
+Google Flights behavior from an over-budget browser. The separate headless
+recovery command is only for explicit maintenance of that profile:
 
 ```bash
 gflights preflight headless-heal --consent-choice accept-all --max-tabs 25 --json

@@ -32,9 +32,9 @@ Workflow:
   gflights itinerary inspect --booking-url URL --json Inspect visible itinerary details
 
 Default search:
-  gflights search opens live Google Flights through headless cdp by default.
+  gflights search opens live Google Flights through headed cdp by default.
   Live flow is URL open -> page settle -> visible DOM/text query -> explicit Google Flights row click only when a command needs selection.
-  Use --browser-mode headed only when a blocked result recommends headed fallback.
+  The default live-browser budget is five tabs; explicit overrides remain bounded.
 
 Environment:
   GFLIGHTS_SEARCH_HOME overrides the state root.
@@ -43,14 +43,12 @@ Environment:
 Agent contract:
   Data commands emit JSON. Unsupported, ambiguous, blocked, and stale behavior is explicit instead of guessed.
   Runtime evidence is task-scoped under the configured state root.
-  For long crawls, run headless-heal first, then request outbound top-5 x return top-3 synthetic
-  Google Flights selection with --min-complete-selections 3. This proves booking combination
-  selection works without blocking on flaky lower-ranked rows.
+  Keep headed browser work within --max-tabs 5. For long crawls, request outbound top-5 x
+  return top-3 synthetic Google Flights selection with --min-complete-selections 3.
 
 Examples:
   gflights doctor --json
-  gflights preflight headless-heal --consent-choice accept-all --json
-  gflights preflight google-flights --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+  gflights preflight google-flights --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
   gflights search --input-json intents.json --concurrency 3 --rank balanced --top-k 10 --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
 
@@ -97,9 +95,8 @@ Google Flights preflight may rotate across public synthetic routes when a route
 hits transient search failures; inspect `diagnostics.route_attempts`.
 
 Examples:
-  gflights preflight headless-heal --json
   gflights preflight google-flights --json
-  gflights preflight google-flights --browser-mode headless --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+  gflights preflight google-flights --browser-mode headed --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 """
 
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
@@ -136,7 +133,7 @@ payment, login, or personal-data entry.
 
 Examples:
   gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --outbound-row-rank 2 --return-row-rank 1 --json
-  gflights itinerary inspect --booking-url URL --browser-mode headless --json
+  gflights itinerary inspect --booking-url URL --browser-mode headed --json
 """
 
 CODEC_HELP = """Decode encoded query/protobuf-like values with confidence metadata.
@@ -227,9 +224,9 @@ def search_command(
         help="Only encode Google Flights search URLs from SearchIntent JSON; do not open CDP.",
     ),
     browser_mode: BrowserMode = typer.Option(
-        "headless",
+        "headed",
         "--browser-mode",
-        help="Browser mode for live cdp runs; use headed only for explicit fallback/debugging.",
+        help="Browser mode for live cdp runs; defaults to headed.",
     ),
     concurrency: int = typer.Option(
         3,
@@ -265,10 +262,10 @@ def search_command(
         help="Managed tab policy: new or reuse. Reuse navigates an existing Google Flights tab when visible.",
     ),
     max_tabs: int = typer.Option(
-        0,
+        5,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+        help="Pass a cdp tab budget and record tab-budget evidence; defaults to 5.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -280,7 +277,7 @@ def search_command(
     """Run live Google Flights by default.
 
     Input may be one SearchIntent object or a JSON array. This opens live
-    Google Flights through headless cdp and writes task-scoped run evidence
+    Google Flights through headed cdp and writes task-scoped run evidence
     under the state root. The live flow is URL open -> page settle -> visible
     DOM/text query; itinerary selection commands repeat that cycle after each
     explicit Google Flights row click.
@@ -366,7 +363,7 @@ def project_init_command(
 @preflight_app.command("google-flights")
 def preflight_google_flights_command(
     browser_mode: BrowserMode = typer.Option(
-        "headless",
+        "headed",
         "--browser-mode",
         help="Browser mode for the public synthetic Google Flights smoke test.",
     ),
@@ -417,10 +414,10 @@ def preflight_google_flights_command(
         help="Total seconds allowed for each synthetic route search before returning preflight_search_timeout.",
     ),
     max_tabs: int = typer.Option(
-        25,
+        5,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero; default matches headless cdp.",
+        help="Pass a cdp tab budget and record tab-budget evidence; defaults to 5.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -544,9 +541,9 @@ def route_resolve_command(
         help="Airport code, city, or city-like route text to resolve, for example CPH.",
     ),
     browser_mode: BrowserMode = typer.Option(
-        "headless",
+        "headed",
         "--browser-mode",
-        help="Browser mode for live cdp route evidence; use headed only for fallback/debugging.",
+        help="Browser mode for live cdp route evidence; defaults to headed.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -608,7 +605,7 @@ def dates_scan_command(
         help="Timeout in seconds for each live date-pair probe.",
     ),
     browser_mode: BrowserMode = typer.Option(
-        "headless",
+        "headed",
         "--browser-mode",
         help="Browser mode for opt-in live date-pair probes.",
     ),
@@ -686,9 +683,9 @@ def itinerary_inspect_command(
         help="Google Flights itinerary/booking URL to inspect without clicking provider Continue.",
     ),
     browser_mode: BrowserMode = typer.Option(
-        "headless",
+        "headed",
         "--browser-mode",
-        help="Browser mode for live cdp inspection; headed is an explicit fallback.",
+        help="Browser mode for live cdp inspection; defaults to headed.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -703,7 +700,7 @@ def itinerary_inspect_command(
     or personal data, or attempt account login.
 
     Examples:
-      gflights itinerary inspect --booking-url URL --browser-mode headless --json
+      gflights itinerary inspect --booking-url URL --json
     """
     del json_output
     exit_code, payload = asyncio.run(
@@ -721,7 +718,7 @@ def itinerary_select_command(
     search_url: str = typer.Option(
         ...,
         "--search-url",
-        help="Google Flights search URL whose visible outbound and return rows should be selected.",
+        help="Google Flights search URL whose visible rows should be selected.",
     ),
     preferred_carrier: str = typer.Option(
         "",
@@ -767,10 +764,10 @@ def itinerary_select_command(
         help="Reuse target id/prefix or google-flights to navigate an existing Google Flights tab.",
     ),
     max_tabs: int = typer.Option(
-        0,
+        5,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence when greater than zero.",
+        help="Pass a cdp tab budget and record tab-budget evidence; defaults to 5.",
     ),
     allow_over_budget: bool = typer.Option(
         False,
@@ -781,7 +778,7 @@ def itinerary_select_command(
         2,
         "--operation-retries",
         min=0,
-        help="Retry the whole outbound/return/booking selection after transient CDP disconnects.",
+        help="Retry the whole row-selection workflow after transient CDP disconnects.",
     ),
     timeout_seconds: float = typer.Option(
         45.0,
@@ -790,9 +787,9 @@ def itinerary_select_command(
         help="Semantic wait timeout per selection stage before retry/unsupported classification.",
     ),
     browser_mode: BrowserMode = typer.Option(
-        "headless",
+        "headed",
         "--browser-mode",
-        help="Browser mode for live cdp selection; headed is an explicit fallback.",
+        help="Browser mode for live cdp selection; defaults to headed.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -804,9 +801,10 @@ def itinerary_select_command(
     """Select visible Google Flights rows and return a Google booking-summary URL.
 
     The command opens a search URL, waits for visible fare rows, clicks a matching
-    outbound row, waits again, clicks a matching return row, and stops at the
-    Google Flights booking-summary page. It must not click provider Continue or
-    enter checkout.
+    outbound row, selects a return row when Google presents return choices, and
+    stops at the Google Flights booking-summary page. One-way searches may go
+    directly from outbound selection to the booking summary. It must not click
+    provider Continue or enter checkout.
 
     Examples:
       gflights itinerary select --search-url URL --preferred-carrier "Preferred Carrier" --require-nonstop --json

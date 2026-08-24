@@ -121,10 +121,13 @@ booking, or personal-data entry.
 `gflights itinerary select` is the row-clicking workflow. It accepts
 `--search-url`, `--preferred-carrier`, `--require-nonstop`, `--row-rank`,
 `--outbound-row-rank`, `--return-row-rank`, `--outbound-match-text`, and
-`--return-match-text`, opens the search URL, selects one visible outbound row
-and one visible return row, and returns a Google Flights booking-summary URL
-plus selected row summaries and visible booking options when parseable. It must
-not click a provider `Continue` button or enter provider checkout.
+`--return-match-text`, opens the search URL, selects one visible outbound row,
+selects one visible return row when Google presents return choices, and returns
+a Google Flights booking-summary URL plus selected row summaries and visible
+booking options when parseable. For one-way search URLs, the outbound click may
+transition directly to the booking summary; in that case `selection.return` and
+`selected_return` are `null`. It must not click a provider `Continue` button or
+enter provider checkout.
 
 For JSON-array live search, `--concurrency` controls bounded parallel managed
 tabs. The default is 3, allowed range is 1-5, and outputs must preserve input
@@ -302,7 +305,7 @@ must leave `code_or_id` null unless a separate reviewed decode surface supplies
 a stable ID. If no supported choices are visible, the command returns exit `3`
 with `status: unsupported`, `selected: null`, empty `choices`, and
 `route.resolve.live_autocomplete_extraction: deferred`. Browser stop states
-return exit `4` with `stop_state` and headed fallback guidance when available.
+return exit `4` with a structured `stop_state` and safe diagnostic guidance.
 
 ### Dates And Date Windows
 
@@ -488,7 +491,8 @@ Observed itinerary/detail fields:
 `booking_options`, and `itinerary` fields after it reaches a Google Flights
 booking-summary URL. These fields come from selected row text and the visible
 booking-summary snapshot; missing optional fields remain absent/null rather
-than guessed.
+than guessed. `selected_return` is also `null` for one-way selections where
+Google transitions directly from the selected outbound row to booking summary.
 
 Terminal information was not found in the selected itinerary evidence. The CLI
 must output `terminal_info.status = "not_found"` or omit the field with an
@@ -619,9 +623,11 @@ the pure functional core.
 
 Implementation policy:
 
-- Default live browser mode: `headless`.
-- Use `headed` only when headless is blocked, ambiguous, missing required visual
-  evidence, or explicitly requested.
+- Default live browser mode: `headed`.
+- Default browser budget: five total page tabs. Refuse to open another target
+  when doing so would exceed that budget; prefer exact-target reuse.
+- `headless` is available only for explicitly requested maintenance or recovery
+  work and is not the normal-search fallback.
 - Record browser mode, target page id, URL, command, run id, and artifacts for
   every live capture.
 - Record UUID v4 task trace evidence for live browser work. Batch/fanout
@@ -689,10 +695,10 @@ Slice 07 must write red tests before implementation code for:
 - JSON array input validation and one-output-per-search-intent behavior
 - service-level replay over repository TDD assets
 - date-window scan output shape
-- headless default and headed fallback recommendation
+- headed default and five-tab browser budget
 - codec decode confidence output
 - deterministic exit codes
-- editable/symlinked `uv tool install` smoke behavior
+- self-contained production and editable/symlinked `uv tool install` smoke behavior
 
 The first green implementation may use repository TDD assets and fake adapters.
 Live Google Flights is the default CLI value path; smoke tests may still be

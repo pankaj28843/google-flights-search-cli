@@ -16,10 +16,10 @@ format-check:
 test:
 	$(UV) run pytest
 
-install: install-tool-editable
+install: install-tool
 
 install-tool:
-	$(UV) tool install --force $(UV_TOOL_PACKAGE)
+	$(UV) tool install --force --reinstall --link-mode copy $(UV_TOOL_PACKAGE)
 
 install-editable: install-tool-editable
 

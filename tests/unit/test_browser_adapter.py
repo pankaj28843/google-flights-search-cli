@@ -36,7 +36,7 @@ class SequenceRunner:
         return self.results.pop(0)
 
 
-def test_cdp_adapter_builds_headless_json_command() -> None:
+def test_cdp_adapter_builds_headed_json_command() -> None:
     runner = FakeRunner(ProcessResult(returncode=0, stdout='{"targets":[]}', stderr=""))
     adapter = CdpAdapter(runner=runner)
 
@@ -44,12 +44,12 @@ def test_cdp_adapter_builds_headless_json_command() -> None:
 
     assert runner.calls == [
         (
-            ["cdp", "--browser-mode", "headless", "--json", "--timeout", "30s", "pages"],
+            ["cdp", "--browser-mode", "headed", "--json", "--timeout", "30s", "pages"],
             30.0,
         )
     ]
     assert result.status == "ok"
-    assert result.browser_mode == "headless"
+    assert result.browser_mode == "headed"
     assert result.json_payload == {"targets": []}
 
 
@@ -168,7 +168,7 @@ def test_cdp_adapter_passes_allow_over_budget_flag() -> None:
     assert runner.calls[0][0] == [
         "cdp",
         "--browser-mode",
-        "headless",
+        "headed",
         "--json",
         "--timeout",
         "30s",
@@ -240,10 +240,7 @@ def test_cdp_adapter_maps_resource_budget_to_browser_stop() -> None:
     assert result.status == "blocked"
     assert result.stop_state == "browser_resource_budget_exceeded"
     assert result.exit_code == 4
-    assert result.fallback == {
-        "recommended_browser_mode": "headed",
-        "reason": "headless blocked or human confirmation required",
-    }
+    assert result.fallback is None
     assert "browser resource budget exceeded" in result.error
 
 
@@ -292,7 +289,7 @@ def test_run_subprocess_kills_and_reaps_timeout(monkeypatch: object) -> None:
     assert process.waited is True
 
 
-def test_headless_blocked_payload_recommends_headed_fallback() -> None:
+def test_headed_blocked_payload_stays_blocked_without_mode_fallback() -> None:
     runner = FakeRunner(
         ProcessResult(
             returncode=0,
@@ -306,13 +303,11 @@ def test_headless_blocked_payload_recommends_headed_fallback() -> None:
 
     assert result.status == "blocked"
     assert result.stop_state == "unusual_traffic"
-    assert result.fallback == {
-        "recommended_browser_mode": "headed",
-        "reason": "headless blocked or human confirmation required",
-    }
+    assert result.exit_code == 4
+    assert result.fallback is None
 
 
-def test_headless_payment_boundary_recommends_headed_fallback() -> None:
+def test_headed_payment_boundary_is_a_stop_without_mode_fallback() -> None:
     runner = FakeRunner(
         ProcessResult(
             returncode=0,
@@ -326,7 +321,4 @@ def test_headless_payment_boundary_recommends_headed_fallback() -> None:
 
     assert result.status == "payment_or_booking_boundary"
     assert result.exit_code == 4
-    assert result.fallback == {
-        "recommended_browser_mode": "headed",
-        "reason": "headless blocked or human confirmation required",
-    }
+    assert result.fallback is None

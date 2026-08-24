@@ -13,12 +13,13 @@ Write failing tests for:
 - installed help does not expose repository TDD replay assets
 - service-level replay returns route choices, ambiguity, result rows, selected
   itinerary details, and blocked stop states from checked TDD assets
-- browser adapter defaults to headless
-- blocked headless scenario recommends headed fallback
+- browser adapter defaults to headed with a five-tab budget
+- browser stop states remain structured without mode fallback
 - `codec decode --key --value` reports raw wire paths, round-trip codec
   metadata, and confidence
 - deterministic exit codes
-- `uv tool install --editable --link-mode symlink .` exposes the CLI entry point
+- production `uv tool install .` exposes a self-contained CLI entry point
+- `uv tool install --editable --link-mode symlink .` remains available for development
 
 ## Current E2E Bootstrap
 
@@ -44,7 +45,8 @@ agentic contract for the first implementation. It asserts:
   boundaries
 - `itinerary select` exposes the row-clicking workflow that turns a search URL
   into a Google Flights booking-summary URL without crossing provider checkout
-- `doctor --json` reports headless default and live-search-by-default config
+- `doctor --json` reports headed default, five-tab budget, and
+  live-search-by-default config
 - `codec decode --key --value` reports generic raw wire paths and keeps
   confidence non-`proven`
 - `search` defaults to live cdp, with fake adapters used in unit tests so
@@ -64,9 +66,12 @@ agentic contract for the first implementation. It asserts:
   network-idle wait, returns `no_results` for visible no-results text, and
   returns specific `unsupported` output for persistent empty/loading evidence
 - deferred live Google filter requests exit `3`
+- an isolated production `uv tool install . --force` copies the package into
+  the tool environment instead of linking through the uv cache, exposes
+  `gflights`, repairs incomplete installed dependency metadata through
+  `--reinstall`, and passes `gflights doctor --json`
 - an isolated `uv tool install --editable --link-mode symlink . --force`
-  exposes `gflights`, then `gflights doctor --json` proves the installed entry
-  point behavior
+  remains covered as the development install path
 
 The editable install test sets `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`, and
 `UV_CACHE_DIR` to temporary directories so it does not write to the user's global
@@ -106,7 +111,7 @@ state.
 The command path under test is:
 
 ```bash
-gflights search --input-json <intent.json> --browser-mode headless --json
+gflights search --input-json <intent.json> --browser-mode headed --max-tabs 5 --json
 ```
 
 ## Test Layers

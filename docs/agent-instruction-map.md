@@ -10,7 +10,7 @@ and validation commands that make those rules executable.
 | General CLI behavior | `docs/detailed-cli-spec.md`, `docs/schema-and-json-contracts.md` | `make validate` |
 | App-state cache and freshness | `docs/cache-layer-policy.md` | `uv run pytest tests/unit/test_app_state.py tests/unit/test_services.py -q` |
 | Query-state/protobuf behavior | `docs/query-state-maintenance.md` | `uv run pytest tests/unit/test_query_state.py -q` |
-| Live CDP orchestration and tab hygiene | `docs/cdp-usage-discipline.md`, `docs/browser-evidence-policy.md` | `cdp --browser-mode headless daemon health --json`; focused live-search tests |
+| Live CDP orchestration and tab hygiene | `docs/cdp-usage-discipline.md`, `docs/browser-evidence-policy.md` | `cdp --browser-mode headed pages --json`; focused live-search tests |
 | Live Google Flights row discovery, expansion, selection, and extraction | `AGENTS.md` Live Google Flights Changes, `docs/browser-evidence-policy.md` Selector Policy, `docs/cdp-usage-discipline.md` Reuse Policy | `cdp click --help`; `cdp eval --help`; `gflights --help`; `uv run pytest tests/unit/test_live_selection.py tests/unit/test_live_search.py tests/unit/test_result_extraction.py -q` |
 | Fixtures and checked evidence | `docs/fixture-contract.md` | fixture-focused pytest plus `make validate` |
 | Review and cleanup | `docs/review-and-cleanup.md` | `git diff --check`; `make validate` before commit |
@@ -40,7 +40,7 @@ primary live-browser contract.
 The practical command contract is:
 
 ```bash
-cdp --browser-mode headless daemon health --json
+cdp --browser-mode headed pages --json
 cdp click --help
 cdp eval --help
 gflights --help
@@ -92,7 +92,7 @@ cdp eval --help >/dev/null
 cdp click --help >/dev/null
 cdp wait --help >/dev/null
 gflights --help >/dev/null
-cdp --browser-mode headless daemon health --json >/dev/null
+cdp --browser-mode headed pages --json >/dev/null
 uv run pytest tests/unit/test_live_selection.py tests/unit/test_live_search.py tests/unit/test_result_extraction.py -q
 git diff --check
 ```
@@ -100,8 +100,8 @@ git diff --check
 Live smoke evidence from this session:
 
 ```bash
-gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 1 --max-tabs 20 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
-gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 3 --max-tabs 20 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
+gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 1 --max-tabs 5 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
+gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 3 --max-tabs 5 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
 ```
 
 The row-rank 1 smoke reached a Google Flights booking URL, waited for booking

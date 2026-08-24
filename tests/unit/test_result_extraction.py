@@ -229,6 +229,42 @@ def test_extract_primary_results_from_accessible_rows() -> None:
     assert result["evidence"]["artifacts"] == ["accessible-rows.json"]
 
 
+def test_accessible_connecting_row_prefers_overall_aria_summary_over_expanded_legs() -> None:
+    payload = {
+        "accessible_rows": [
+            {
+                "rank": 4,
+                "stage": "outbound",
+                "text": (
+                    "11:45 AM Copenhagen Airport (CPH) 12:55 PM Oslo lufthavn (OSL) "
+                    "Scandinavian Airlines Economy SK 1458 Travel time: 1 hr 10 min "
+                    "8:00 PM Oslo lufthavn (OSL) 9:35 PM Heathrow Airport (LHR) "
+                    "Scandinavian Airlines Economy SK 1519"
+                ),
+                "ariaLabel": (
+                    "From 128 euros. 1 stop flight with Scandinavian Airlines. "
+                    "Leaves Copenhagen Airport at 11:45 AM on Tuesday, September 15 and "
+                    "arrives at Heathrow Airport at 9:35 PM on Tuesday, September 15. "
+                    "Total duration 10 hr 50 min. Layover (1 of 1) is a 7 hr 25 min "
+                    "layover at Oslo lufthavn in Oslo. 159 kg CO2e +79% emissions. "
+                    "Select flight"
+                ),
+            }
+        ]
+    }
+
+    [result] = extract_primary_results(payload, confidence="medium")
+
+    assert result["origin_airports"] == ["CPH"]
+    assert result["destination_airports"] == ["LHR"]
+    assert result["departure_times"] == ["11:45 AM"]
+    assert result["arrival_times"] == ["9:35 PM"]
+    assert result["duration_minutes"] == 10 * 60 + 50
+    assert result["stops"] == {"count": 1, "text": "1 stop"}
+    assert result["carriers"] == ["Scandinavian Airlines"]
+    assert result["emissions"] == {"text": "159 kg CO2e +79% emissions"}
+
+
 def test_classify_primary_result_absence_states() -> None:
     assert classify_primary_result_absence({"snapshot": {"items": []}}) == "empty_snapshot"
     assert (

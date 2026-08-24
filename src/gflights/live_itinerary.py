@@ -18,7 +18,7 @@ async def run_live_itinerary_inspection(
     booking_url: str,
     project_root: Path | None = None,
     adapter: CdpAdapter | None = None,
-    browser_mode: BrowserMode = "headless",
+    browser_mode: BrowserMode = "headed",
     run_id: str | None = None,
     timeout_seconds: float = 30.0,
 ) -> tuple[int, dict[str, Any]]:

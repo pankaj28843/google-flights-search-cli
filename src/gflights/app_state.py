@@ -211,7 +211,8 @@ def init_app_state(root: Path | None = None) -> AppState:
     cache_max_age_seconds = _configured_cache_max_age_seconds(existing_config)
     defaults = {
         "version": 1,
-        "browser_default_mode": "headless",
+        "browser_default_mode": "headed",
+        "browser_max_tabs": 5,
         "live_google_flights_by_default": True,
         "google_flights_live_env": "1",
         "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
@@ -223,6 +224,8 @@ def init_app_state(root: Path | None = None) -> AppState:
         **defaults,
         **existing_config,
         "version": 1,
+        "browser_default_mode": "headed",
+        "browser_max_tabs": 5,
         "live_google_flights_by_default": True,
         "google_flights_live_env": "1",
         "cache_max_age_seconds": cache_max_age_seconds,

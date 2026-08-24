@@ -125,7 +125,6 @@ const collectAccessibleFlightRows = (requestedStage, rowLimit) => {
       });
       if (rowLimit && rows.length >= rowLimit) return rows;
     }
-    if (rows.length && requestedStage !== "auto") break;
   }
   return rows;
 };
@@ -242,7 +241,7 @@ def accessible_row_expand_js(
         "    if (detailsButton) buttonRecords.push({record: outputRecord, button: detailsButton});\n"
         "    if (rank >= limit) break;\n"
         "  }\n"
-        "  if (rank >= limit || (rank > 0 && stage !== 'auto')) break;\n"
+        "  if (rank >= limit) break;\n"
         "}\n"
         "for (const button of buttons) {\n"
         "  button.click();\n"
@@ -291,17 +290,19 @@ def accessible_row_prepare_selection_js(
         "  link.removeAttribute('data-gflights-selection-link');\n"
         "}\n"
         "const rowElements = [];\n"
+        "const seenRows = new Set();\n"
         "for (const record of listsForStage(stage)) {\n"
         "  for (const link of Array.from(record.list.querySelectorAll('[role=\"link\"][aria-label]'))) {\n"
         "    const label = normalize(link.getAttribute('aria-label')).toLowerCase();\n"
         "    if (!label.includes('select flight')) continue;\n"
         "    const rowEl = link.closest('li') || link.closest('[role=\"listitem\"]') || link;\n"
+        "    if (seenRows.has(rowEl)) continue;\n"
+        "    seenRows.add(rowEl);\n"
         "    const ariaLabel = normalize(link.getAttribute('aria-label'));\n"
         "    const rect = visibleRect(rowEl);\n"
         "    if (!rect || !rowLooksLikeFlight(ariaLabel)) continue;\n"
         "    rowElements.push({link, rowEl, ariaLabel, combinedText: ariaLabel, rect});\n"
         "  }\n"
-        "  if (rowElements.length) break;\n"
         "}\n"
         "const matches = rowElements.filter((row) => {\n"
         "  const searchable = row.combinedText.toLowerCase();\n"
@@ -310,11 +311,12 @@ def accessible_row_prepare_selection_js(
         "  if (matchText && !searchable.includes(matchText.toLowerCase())) return false;\n"
         "  return true;\n"
         "});\n"
-        "const selected = matches[rowRank - 1] || matches[0] || null;\n"
+        "const selected = matches[rowRank - 1] || null;\n"
         "if (!selected) {\n"
         "  return {\n"
         "    selected: false,\n"
         "    found: false,\n"
+        "    reason: rowRank > matches.length ? 'requested row rank exceeds matched row count' : 'no matching row found',\n"
         "    preferredCarrier,\n"
         "    requireNonstop,\n"
         "    rowRank,\n"

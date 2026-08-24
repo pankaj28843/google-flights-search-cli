@@ -269,6 +269,29 @@ class ReturnStageTimeoutSelectionCdpAdapter(FakeSelectionCdpAdapter):
                     },
                 },
             )
+        if (
+            call_args[0] == "eval"
+            and 'const requestedStage = "booking"' in call_args[1]
+            and self.selection_calls >= 1
+        ):
+            self.calls.append((call_args, browser_mode, timeout_seconds))
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "booking",
+                            "terminalCondition": "not_ready",
+                            "rowCount": 0,
+                            "rows": [],
+                            "currentUrl": "https://www.google.com/travel/flights/search?tfs=encoded",
+                            "currentTitle": "Google Flights",
+                            "hasBookingOptions": False,
+                        }
+                    },
+                },
+            )
         return await super().run_json(
             args,
             browser_mode=browser_mode,
@@ -333,6 +356,69 @@ class BookingUrlBeforeOptionsSelectionCdpAdapter(FakeSelectionCdpAdapter):
                             "bodySample": "Booking options Book with Finnair Continue"
                             if terminal_condition == "booking_summary"
                             else "Loading results",
+                        }
+                    },
+                },
+            )
+        return await super().run_json(
+            args,
+            browser_mode=browser_mode,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class OneWayDirectBookingSelectionCdpAdapter(FakeSelectionCdpAdapter):
+    async def run_json(
+        self,
+        args: Sequence[str],
+        *,
+        browser_mode: BrowserMode = "headless",
+        timeout_seconds: float = 30.0,
+    ) -> CdpResult:
+        call_args = list(args)
+        if (
+            call_args[0] == "eval"
+            and 'const requestedStage = "return"' in call_args[1]
+            and self.selection_calls >= 1
+        ):
+            self.stage_state_calls["return"] = self.stage_state_calls.get("return", 0) + 1
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "return",
+                            "terminalCondition": "no_results",
+                            "rowCount": 0,
+                            "rows": [],
+                            "currentUrl": "https://www.google.com/travel/flights/booking?tfs=encoded",
+                            "currentTitle": "One way | Google Flights",
+                            "hasBookingOptions": True,
+                        }
+                    },
+                },
+            )
+        if (
+            call_args[0] == "eval"
+            and 'const requestedStage = "booking"' in call_args[1]
+            and self.selection_calls >= 1
+        ):
+            self.stage_state_calls["booking"] = self.stage_state_calls.get("booking", 0) + 1
+            return cdp_result(
+                call_args,
+                {
+                    "ok": True,
+                    "result": {
+                        "value": {
+                            "requestedStage": "booking",
+                            "terminalCondition": "booking_summary",
+                            "rowCount": 0,
+                            "rows": [],
+                            "currentUrl": "https://www.google.com/travel/flights/booking?tfs=encoded",
+                            "currentTitle": "One way | Google Flights",
+                            "hasBookingOptions": True,
+                            "bodySample": "Booking options Book with Finnair Continue",
                         }
                     },
                 },
@@ -582,6 +668,37 @@ def test_live_itinerary_selection_returns_booking_url_and_closes_tab(tmp_path: P
     assert adapter.calls[-1][0] == ["page", "close", "--target", "page-1"]
 
 
+def test_live_itinerary_selection_accepts_one_way_outbound_to_booking(
+    tmp_path: Path,
+) -> None:
+    adapter = OneWayDirectBookingSelectionCdpAdapter()
+
+    exit_code, payload = asyncio.run(
+        run_live_itinerary_selection(
+            search_url="https://www.google.com/travel/flights/search?tfs=oneway&hl=en&curr=INR",
+            project_root=tmp_path,
+            adapter=adapter,  # type: ignore[arg-type]
+            run_id="gf-test-selection-one-way",
+            require_nonstop=True,
+        )
+    )
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["booking_url"].startswith("https://www.google.com/travel/flights/booking?")
+    assert payload["selection"]["outbound"]["selected"] is True
+    assert payload["selection"]["outbound"]["nextStage"] == "booking"
+    assert payload["selection"]["return"] is None
+    assert payload["selected_return"] is None
+    assert adapter.selection_calls == 1
+
+    run_root = tmp_path / "runs" / "gf-test-selection-one-way"
+    assert (run_root / "outbound-settlement.json").is_file()
+    assert not (run_root / "return-settlement.json").exists()
+    assert (run_root / "booking-settlement.json").is_file()
+    assert (run_root / "booking-snapshot.json").is_file()
+
+
 def test_live_itinerary_selection_recovers_workflow_created_target_with_uuid_trace(
     tmp_path: Path,
 ) -> None:
@@ -678,6 +795,8 @@ def test_live_itinerary_selection_stops_when_return_stage_never_appears(
             project_root=tmp_path,
             adapter=adapter,  # type: ignore[arg-type]
             run_id="gf-test-selection-return-not-ready",
+            operation_retries=0,
+            timeout_seconds=1,
         )
     )
 

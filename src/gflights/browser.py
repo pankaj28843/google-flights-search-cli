@@ -67,7 +67,7 @@ class CdpAdapter:
         self,
         args: Sequence[str],
         *,
-        browser_mode: BrowserMode = "headless",
+        browser_mode: BrowserMode = "headed",
         timeout_seconds: float = 30.0,
     ) -> CdpResult:
         max_attempts = 3
@@ -255,6 +255,7 @@ def _cdp_result_from_process(
     stop_state = payload.get("stop_state")
     stop_state_text = str(stop_state) if stop_state is not None else None
     fallback = _headed_fallback(browser_mode, status, stop_state_text)
+    is_browser_stop = status in BLOCKED_STOP_STATES or stop_state_text in BLOCKED_STOP_STATES
     return CdpResult(
         argv=argv,
         browser_mode=browser_mode,
@@ -262,7 +263,7 @@ def _cdp_result_from_process(
         stdout=process.stdout,
         stderr=process.stderr,
         status=status,
-        exit_code=4 if fallback else 0,
+        exit_code=4 if is_browser_stop else 0,
         json_payload=payload,
         stop_state=stop_state_text,
         fallback=fallback,

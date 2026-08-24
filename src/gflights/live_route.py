@@ -22,7 +22,7 @@ async def run_live_route_resolution(
     input_text: str,
     project_root: Path | None = None,
     adapter: CdpAdapter | None = None,
-    browser_mode: BrowserMode = "headless",
+    browser_mode: BrowserMode = "headed",
     run_id: str | None = None,
     timeout_seconds: float = 30.0,
 ) -> tuple[int, dict[str, Any]]:

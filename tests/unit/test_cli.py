@@ -61,7 +61,8 @@ def test_search_defaults_to_live_cdp_without_tdd_replay(
 
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["status"] == "experimental"
-    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["browser_mode"] == "headed"
+    assert calls[0]["max_tabs"] == 5
     assert calls[0]["interact_with_form"] is False
     assert calls[0]["rank_objectives"] == []
     assert calls[0]["top_k"] == 0
@@ -170,7 +171,7 @@ def test_search_url_only_encodes_target_urls_without_cdp(
     assert payload[0]["results"] == []
 
 
-def test_itinerary_inspect_uses_headless_live_cdp_by_default(
+def test_itinerary_inspect_uses_headed_live_cdp_by_default(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -205,7 +206,7 @@ def test_itinerary_inspect_uses_headless_live_cdp_by_default(
 
     assert result.exit_code == 4, result.output
     assert json.loads(result.stdout)["status"] == "payment_or_booking_boundary"
-    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["browser_mode"] == "headed"
     assert calls[0]["project_root"] == tmp_path
 
 
@@ -248,7 +249,7 @@ def test_route_resolve_defaults_to_live_cdp_without_tdd_replay(
     assert result.exit_code == 3, result.output
     assert json.loads(result.stdout)["status"] == "unsupported"
     assert calls[0]["input_text"] == "CPH"
-    assert calls[0]["browser_mode"] == "headless"
+    assert calls[0]["browser_mode"] == "headed"
     assert calls[0]["project_root"] == tmp_path
 
 
@@ -311,6 +312,36 @@ def test_preflight_google_flights_uses_public_synthetic_smoke(
     assert calls[0]["search_deadline_seconds"] == 90.0
     assert calls[0]["max_tabs"] == 7
     assert calls[0]["project_root"] == tmp_path
+
+
+def test_preflight_google_flights_defaults_to_headed_with_five_tab_budget(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_google_flights_preflight(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 0, {"status": "ok", "selections": []}
+
+    monkeypatch.setattr(cli, "run_google_flights_preflight", fake_run_google_flights_preflight)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "preflight",
+            "google-flights",
+            "--min-complete-selections",
+            "1",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["browser_mode"] == "headed"
+    assert calls[0]["max_tabs"] == 5
 
 
 def test_preflight_google_flights_rejects_min_complete_above_top_k(tmp_path: Path) -> None:
@@ -489,3 +520,33 @@ def test_itinerary_select_passes_independent_leg_and_reuse_options(
     assert calls[0]["allow_over_budget"] is True
     assert calls[0]["operation_retries"] == 4
     assert calls[0]["timeout_seconds"] == 23
+
+
+def test_itinerary_select_defaults_to_headed_with_five_tab_budget(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    async def fake_run_live_itinerary_selection(**kwargs: Any) -> tuple[int, dict[str, Any]]:
+        calls.append(kwargs)
+        return 0, {"status": "ok", "warnings": [], "booking_url": "https://example.test"}
+
+    monkeypatch.setattr(cli, "run_live_itinerary_selection", fake_run_live_itinerary_selection)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "itinerary",
+            "select",
+            "--search-url",
+            "https://www.google.com/travel/flights/search?tfs=redacted",
+            "--project-root",
+            str(tmp_path),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["browser_mode"] == "headed"
+    assert calls[0]["max_tabs"] == 5

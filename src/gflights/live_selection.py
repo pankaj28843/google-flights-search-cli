@@ -69,7 +69,7 @@ async def run_live_itinerary_selection(
     search_url: str,
     project_root: Path | None = None,
     adapter: CdpAdapter | None = None,
-    browser_mode: BrowserMode = "headless",
+    browser_mode: BrowserMode = "headed",
     run_id: str | None = None,
     timeout_seconds: float = 45.0,
     preferred_carrier: str = "",
@@ -182,7 +182,7 @@ async def _run_live_itinerary_selection_once(
     search_url: str,
     project_root: Path | None = None,
     adapter: CdpAdapter | None = None,
-    browser_mode: BrowserMode = "headless",
+    browser_mode: BrowserMode = "headed",
     run_id: str | None = None,
     timeout_seconds: float = 45.0,
     preferred_carrier: str = "",
@@ -197,7 +197,7 @@ async def _run_live_itinerary_selection_once(
     allow_over_budget: bool = False,
     task_trace: TaskTrace | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Select visible Google Flights outbound/return rows and return booking URL."""
+    """Select visible Google Flights rows and return a Google booking URL."""
 
     adapter = adapter or CdpAdapter(max_tabs=max_tabs, allow_over_budget=allow_over_budget)
     state = init_app_state(project_root)
@@ -440,74 +440,18 @@ async def _run_live_itinerary_selection_once(
             ),
         )
 
-    async with helper.stage("return rows ready"):
-        return_settle = await _settle(
-            helper=helper,
-            page_id=page_id,
-            timeout_seconds=timeout_seconds,
-            run_root=run_root,
-            stage="return",
-            warnings=warnings,
-        )
-    if return_settle["stop_result"] is not None:
-        return await _finish_selection(
-            adapter=adapter,
-            page_id=page_id,
-            browser_mode=browser_mode,
-            timeout_seconds=timeout_seconds,
-            run_root=run_root,
-            executed=executed,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            tab_context=tab_context,
-            result=_stop_payload(
-                run_id=run_id,
-                search_url=search_url,
-                browser_mode=browser_mode,
-                result=return_settle["stop_result"],
-                artifacts=artifacts,
-                source_surfaces=source_surfaces,
-                warnings=warnings,
-            ),
-        )
-    if not return_settle["ready"]:
-        return await _finish_selection(
-            adapter=adapter,
-            page_id=page_id,
-            browser_mode=browser_mode,
-            timeout_seconds=timeout_seconds,
-            run_root=run_root,
-            executed=executed,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            tab_context=tab_context,
-            result=_stage_not_ready_payload(
-                run_id=run_id,
-                search_url=search_url,
-                browser_mode=browser_mode,
-                artifacts=artifacts,
-                source_surfaces=source_surfaces,
-                warnings=warnings,
+    return_selection: dict[str, Any] | None = None
+    if _selection_next_stage(outbound_selection) != "booking":
+        async with helper.stage("return rows ready"):
+            return_settle = await _settle(
+                helper=helper,
+                page_id=page_id,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
                 stage="return",
-                settlement=return_settle,
-                selection={"outbound": outbound_selection},
-            ),
-        )
-
-    async with helper.stage("select return row"):
-        return_selection = await _select_row(
-            helper=helper,
-            page_id=page_id,
-            timeout_seconds=timeout_seconds,
-            run_root=run_root,
-            stage="return",
-            preferred_carrier=preferred_carrier,
-            require_nonstop=require_nonstop,
-            row_rank=return_row_rank or row_rank,
-            match_text=return_match_text,
-        )
-    if not return_selection.get("selected"):
-        if return_selection.get("status") == "tool_error":
+                warnings=warnings,
+            )
+        if return_settle["stop_result"] is not None:
             return await _finish_selection(
                 adapter=adapter,
                 page_id=page_id,
@@ -518,37 +462,95 @@ async def _run_live_itinerary_selection_once(
                 artifacts=artifacts,
                 source_surfaces=source_surfaces,
                 tab_context=tab_context,
-                result=_selection_tool_error_payload(
+                result=_stop_payload(
+                    run_id=run_id,
+                    search_url=search_url,
+                    browser_mode=browser_mode,
+                    result=return_settle["stop_result"],
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    warnings=warnings,
+                ),
+            )
+        if not return_settle["ready"]:
+            return await _finish_selection(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                tab_context=tab_context,
+                result=_stage_not_ready_payload(
                     run_id=run_id,
                     search_url=search_url,
                     browser_mode=browser_mode,
                     artifacts=artifacts,
                     source_surfaces=source_surfaces,
+                    warnings=warnings,
+                    stage="return",
+                    settlement=return_settle,
+                    selection={"outbound": outbound_selection},
+                ),
+            )
+
+        async with helper.stage("select return row"):
+            return_selection = await _select_row(
+                helper=helper,
+                page_id=page_id,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                stage="return",
+                preferred_carrier=preferred_carrier,
+                require_nonstop=require_nonstop,
+                row_rank=return_row_rank or row_rank,
+                match_text=return_match_text,
+            )
+        if not return_selection.get("selected"):
+            if return_selection.get("status") == "tool_error":
+                return await _finish_selection(
+                    adapter=adapter,
+                    page_id=page_id,
+                    browser_mode=browser_mode,
+                    timeout_seconds=timeout_seconds,
+                    run_root=run_root,
+                    executed=executed,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    tab_context=tab_context,
+                    result=_selection_tool_error_payload(
+                        run_id=run_id,
+                        search_url=search_url,
+                        browser_mode=browser_mode,
+                        artifacts=artifacts,
+                        source_surfaces=source_surfaces,
+                        stage="return",
+                        selection=return_selection,
+                    ),
+                )
+            return await _finish_selection(
+                adapter=adapter,
+                page_id=page_id,
+                browser_mode=browser_mode,
+                timeout_seconds=timeout_seconds,
+                run_root=run_root,
+                executed=executed,
+                artifacts=artifacts,
+                source_surfaces=source_surfaces,
+                tab_context=tab_context,
+                result=_selection_unavailable_payload(
+                    run_id=run_id,
+                    search_url=search_url,
+                    browser_mode=browser_mode,
+                    artifacts=artifacts,
+                    source_surfaces=source_surfaces,
+                    warnings=warnings,
                     stage="return",
                     selection=return_selection,
                 ),
             )
-        return await _finish_selection(
-            adapter=adapter,
-            page_id=page_id,
-            browser_mode=browser_mode,
-            timeout_seconds=timeout_seconds,
-            run_root=run_root,
-            executed=executed,
-            artifacts=artifacts,
-            source_surfaces=source_surfaces,
-            tab_context=tab_context,
-            result=_selection_unavailable_payload(
-                run_id=run_id,
-                search_url=search_url,
-                browser_mode=browser_mode,
-                artifacts=artifacts,
-                source_surfaces=source_surfaces,
-                warnings=warnings,
-                stage="return",
-                selection=return_selection,
-            ),
-        )
 
     async with helper.stage("booking summary ready"):
         booking_settle = await _settle(
@@ -1190,7 +1192,7 @@ def _itinerary_from_booking_snapshot(result: CdpResult) -> dict[str, Any] | None
 def _selection_details(
     *,
     outbound_selection: dict[str, Any],
-    return_selection: dict[str, Any],
+    return_selection: dict[str, Any] | None,
     itinerary: dict[str, Any] | None,
 ) -> dict[str, Any]:
     return {
@@ -1212,10 +1214,10 @@ def _selection_details(
 def _selected_leg_summary(
     *,
     stage: str,
-    selection: dict[str, Any],
+    selection: dict[str, Any] | None,
     itinerary: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
-    if not selection.get("selected"):
+    if not selection or not selection.get("selected"):
         return None
 
     summary = _row_selection_summary(stage, selection)
@@ -1666,7 +1668,7 @@ def _selection_unavailable_payload(
 
 def _selection_unavailable_reason(stage: str, selection: dict[str, Any]) -> str:
     if _row_click_transition_timed_out(selection):
-        expected_stage = "booking" if stage == "return" else "return"
+        expected_stage = "booking" if stage == "return" else "return or booking"
         return (
             "Google Flights accepted the row click but did not reach the expected "
             f"{expected_stage} stage before the bounded semantic wait timed out"
@@ -1686,6 +1688,11 @@ def _row_click_transition_timed_out(selection: dict[str, Any]) -> bool:
         and selection.get("transitionMatched") is False
         and selection.get("transitionCondition") == "assertion_timeout"
     )
+
+
+def _selection_next_stage(selection: dict[str, Any]) -> str:
+    value = selection.get("nextStage")
+    return value if isinstance(value, str) else ""
 
 
 def _stage_not_ready_payload(

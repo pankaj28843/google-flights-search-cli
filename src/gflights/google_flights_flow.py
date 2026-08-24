@@ -170,7 +170,7 @@ async def select_accessible_row_until_next_stage(
     started = perf_counter()
     attempt = 0
     click_attempts: list[dict[str, Any]] = []
-    next_stage = "return" if stage == "outbound" else "booking"
+    next_stages = ("return", "booking") if stage == "outbound" else ("booking",)
     while perf_counter() - started < timeout_seconds:
         attempt += 1
         click_result = await helper.eval(
@@ -201,27 +201,38 @@ async def select_accessible_row_until_next_stage(
                 }
             )
             return selection
-        state_result = await helper.eval(
-            google_flights_stage_state_js(stage=next_stage, limit=20),
-            page_id=page_id,
-            artifact_name=f"{stage}-post-click-stage-{attempt:02d}.json",
-            source_surface=f"cdp:eval:{stage}:post-click-stage",
-            timeout_seconds=min(3.0, timeout_seconds),
-        )
-        if state_result.status == "tool_error":
-            selection.update(
+        transition_checks: list[dict[str, Any]] = []
+        for next_stage in next_stages:
+            state_result = await helper.eval(
+                google_flights_stage_state_js(stage=next_stage, limit=20),
+                page_id=page_id,
+                artifact_name=f"{stage}-post-click-{next_stage}-stage-{attempt:02d}.json",
+                source_surface=f"cdp:eval:{stage}:post-click-{next_stage}-stage",
+                timeout_seconds=min(3.0, timeout_seconds),
+            )
+            if state_result.status == "tool_error":
+                selection.update(
+                    {
+                        "status": "tool_error",
+                        "selected": False,
+                        "stage": stage,
+                        "reason": state_result.error
+                        or f"{stage} row click transition check failed",
+                        "error": state_result.error or f"{stage} row click transition check failed",
+                        "clickAttemptEvidence": click_attempts,
+                    }
+                )
+                return selection
+            state = eval_dict(state_result.json_payload or {})
+            transition_checks.append(
                 {
-                    "status": "tool_error",
-                    "selected": False,
-                    "stage": stage,
-                    "reason": state_result.error or f"{stage} row click transition check failed",
-                    "error": state_result.error or f"{stage} row click transition check failed",
-                    "clickAttemptEvidence": click_attempts,
+                    "expectedStage": next_stage,
+                    "terminalCondition": _terminal_condition(state),
+                    "ready": _stage_state_is_ready_for(state, next_stage),
                 }
             )
-            return selection
-        state = eval_dict(state_result.json_payload or {})
-        if _stage_state_is_ready_for(state, next_stage):
+            if not _stage_state_is_ready_for(state, next_stage):
+                continue
             selection.update(
                 {
                     "selected": True,
@@ -231,8 +242,10 @@ async def select_accessible_row_until_next_stage(
                     "clickDispatch": "dom-link-click",
                     "transitionMatched": True,
                     "transitionCondition": _terminal_condition(state),
+                    "nextStage": next_stage,
                     "transitionElapsedMs": round((perf_counter() - started) * 1000),
                     "nextStageState": _compact_stage_state(state),
+                    "transitionChecks": transition_checks,
                     "clickAttemptEvidence": click_attempts,
                 }
             )
@@ -251,7 +264,8 @@ async def select_accessible_row_until_next_stage(
             "transitionCondition": "assertion_timeout",
             "transitionElapsedMs": round((perf_counter() - started) * 1000),
             "reason": (
-                f"row click did not reach expected {next_stage} stage within {timeout_seconds:g}s"
+                "row click did not reach expected "
+                f"{_stage_list_text(next_stages)} stage within {timeout_seconds:g}s"
             ),
             "clickAttemptEvidence": click_attempts,
         }
@@ -260,7 +274,7 @@ async def select_accessible_row_until_next_stage(
     write_json(
         assertion_path,
         {
-            "assertion": f"google-flights-{stage}-row-click-reaches-{next_stage}",
+            "assertion": (f"google-flights-{stage}-row-click-reaches-{'-or-'.join(next_stages)}"),
             "status": "assertion_timeout",
             "timeout_seconds": timeout_seconds,
             "click_attempts": click_attempts,
@@ -340,6 +354,12 @@ def _transient_stage_result(result: CdpResult, terminal_condition: str) -> CdpRe
         stop_state=terminal_condition,
         error=reason,
     )
+
+
+def _stage_list_text(stages: tuple[str, ...]) -> str:
+    if len(stages) == 1:
+        return stages[0]
+    return " or ".join(stages)
 
 
 def _compact_stage_state(state: dict[str, Any]) -> dict[str, Any]:

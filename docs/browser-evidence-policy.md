@@ -8,13 +8,9 @@ tab-budget preflight, target reuse, managed-tab memory, and close/cleanup rules.
 
 ## Browser Modes
 
-Implemented live probes default to headless cdp mode. Headed mode is allowed
-when:
-
-- headless is blocked
-- visual confirmation is required
-- selector or state evidence is ambiguous
-- a user explicitly requests headed mode
+Implemented live probes default to headed cdp mode with a five-tab browser
+budget. Headless mode is limited to the explicitly named maintenance and
+recovery workflow; it is not a fallback for normal searches.
 
 Record browser mode for every run.
 
@@ -30,8 +26,8 @@ Opt-in local cdp smoke is available through:
 make live-cdp
 ```
 
-That smoke checks local `cdp doctor` and `cdp pages` through the adapter in
-headless mode. It does not open Google Flights. Google Flights live evidence
+That smoke checks local `cdp doctor` and `cdp pages` through the adapter. It does
+not open Google Flights. Google Flights live evidence
 refreshes require separate task-scoped runs and artifacts.
 
 Google Flights smoke is available through:
@@ -40,7 +36,7 @@ Google Flights smoke is available through:
 make live-google-flights
 ```
 
-This opens Google Flights in headless mode through the default live search path,
+This opens Google Flights in headed mode through the default live search path,
 writes state-local `runs/<run-id>/` artifacts under `~/.gflights` or
 `GFLIGHTS_SEARCH_HOME`, and returns visible-text result rows when extractable,
 `experimental` evidence output when rows are not extractable, or a structured

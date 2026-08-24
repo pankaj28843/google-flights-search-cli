@@ -66,7 +66,7 @@ make validate
 
 - When changing live Google Flights orchestration, settlement, or batch
   concurrency, first check CDP health with
-  `cdp --browser-mode headless daemon health --json` and command support with
+  `cdp --browser-mode headed pages --json` and command support with
   `cdp wait --help`, `cdp text --help`, and `cdp network --help`. Validate the change with
   `uv run pytest tests/unit/test_live_search.py -q`, plus the relevant
   app-state/help tests when state paths or CLI options change. Use terminal DOM

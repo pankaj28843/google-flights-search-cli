@@ -602,8 +602,8 @@ def doctor_report() -> dict[str, Any]:
     return {
         "status": "ok",
         "browser": {
-            "default_mode": "headless",
-            "headed_fallback_allowed": True,
+            "default_mode": "headed",
+            "max_tabs": 5,
         },
         "validation": {
             "live_google_flights_by_default": True,

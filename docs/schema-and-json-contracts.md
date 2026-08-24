@@ -81,7 +81,7 @@ remains usable for form interaction but not for direct query-state encoding.
 Live search evidence capture:
 
 ```bash
-gflights search --input-json <intent.json> --browser-mode headless --json
+gflights search --input-json <intent.json> --browser-mode headed --max-tabs 5 --json
 gflights search --input-json <intents.json> --concurrency 3 --json
 gflights search --input-json <intents.json> --rank cheapest,fastest,least-layover,balanced --top-k 10 --json
 gflights search --input-json <intents.json> --browser-mode headed --managed-tab-policy reuse --max-tabs 3 --json
@@ -107,8 +107,7 @@ and returns one of:
 - `experimental` with weak confidence when cdp evidence capture succeeds but
   the no-row state is not classifiable yet, with zero price observations
   written, or
-- `blocked` with exit code `4` and headed fallback guidance when a browser stop
-  state appears.
+- `blocked` with exit code `4` when a browser stop state appears.
 
 When ranking flags are supplied, `ok` outputs preserve raw `results` and add a
 `ranking` object plus one array per requested objective, for example
@@ -168,7 +167,7 @@ payloads, cookies, storage, or full cdp JSON artifacts.
 Route autocomplete resolution:
 
 ```bash
-gflights route resolve --input-text <text> --browser-mode headless --json
+gflights route resolve --input-text <text> --browser-mode headed --json
 ```
 
 When visible route evidence contains a single reviewed match, the command exits
@@ -399,10 +398,13 @@ The command returns `status`, `confidence`, `live_mode`, `browser_mode`,
 `selected_outbound`, `selected_return`, `booking_options`, `itinerary`,
 `unsupported`, `warnings`, and `evidence`. It opens or explicitly reuses a page
 for the search URL, waits for visible fare rows, clicks only explicit Google
-Flights rows matching the requested visible criteria, waits for the Google
-booking-summary state, captures visible booking-summary text, and returns a
-`booking_url` only when the current URL remains under `/travel/flights/booking`.
-It stops before provider checkout, payment, login, or personal-data entry.
+Flights rows matching the requested visible criteria, selects a return row when
+Google presents return choices, waits for the Google booking-summary state,
+captures visible booking-summary text, and returns a `booking_url` only when the
+current URL remains under `/travel/flights/booking`. For one-way search URLs,
+Google may transition directly from the selected outbound row to booking
+summary; then `selection.return` and `selected_return` are `null`. It stops
+before provider checkout, payment, login, or personal-data entry.
 
 Live selected-itinerary inspection:
 

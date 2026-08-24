@@ -68,7 +68,7 @@ def test_root_help_is_self_explanatory_without_repo_docs() -> None:
     help_text = f"{result.stdout}\n{result.stderr}"
     for expected in [
         "Default search:",
-        "headless cdp",
+        "headed cdp",
         "Workflow:",
         "Agent contract:",
         "Environment:",
@@ -148,7 +148,7 @@ def test_every_command_help_has_examples_and_documented_options() -> None:
             "JSON array",
             "live Google Flights",
             "--browser-mode",
-            "headless",
+            "headed",
             "--concurrency",
             "--rank",
             "--top-k",
@@ -360,7 +360,7 @@ def test_dates_scan_project_root_uses_fresh_cache_without_live_browser(tmp_path:
     assert payload[0]["ranked_pairs"][0]["evidence"]["source_surfaces"] == ["sqlite-cache"]
 
 
-def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) -> None:
+def test_doctor_reports_headed_default_and_live_search_policy(tmp_path: Path) -> None:
     result = run_cli(
         "doctor",
         "--json",
@@ -370,8 +370,8 @@ def test_doctor_reports_headless_default_and_live_search_policy(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     payload = assert_json_stdout(result)
     assert payload["status"] == "ok"
-    assert payload["browser"]["default_mode"] == "headless"
-    assert payload["browser"]["headed_fallback_allowed"] is True
+    assert payload["browser"]["default_mode"] == "headed"
+    assert payload["browser"]["max_tabs"] == 5
     assert payload["validation"]["live_google_flights_by_default"] is True
     assert payload["app_state"]["config_path"] == str(tmp_path / "app-state" / "config.json")
     assert payload["app_state"]["cache_root"] == str(tmp_path / "app-state" / "cache")
@@ -432,6 +432,49 @@ def test_make_install_editable_exposes_agent_entrypoint(tmp_path: Path) -> None:
     doctor = subprocess.run(
         [str(executable), "doctor", "--json"],
         cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    assert doctor.returncode == 0, doctor.stderr
+    payload = assert_json_stdout(doctor)
+    assert payload["status"] == "ok"
+
+
+def test_make_install_exposes_self_contained_agent_entrypoint(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "UV_TOOL_DIR": str(tmp_path / "tools"),
+            "UV_TOOL_BIN_DIR": str(tmp_path / "bin"),
+            "UV_CACHE_DIR": str(tmp_path / "cache"),
+            "PYTHONUTF8": "1",
+        }
+    )
+    install = subprocess.run(
+        ["make", "install"],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=180,
+        check=False,
+    )
+    assert install.returncode == 0, install.stderr
+
+    executable = tmp_path / "bin" / ("gflights.exe" if os.name == "nt" else "gflights")
+    assert executable.exists()
+    site_packages = next(
+        (tmp_path / "tools" / "google-flights-search-cli" / "lib").glob("python*/site-packages")
+    )
+    assert (site_packages / "gflights").is_dir()
+    assert not list(site_packages.glob("_editable_impl_google_flights_search_cli*"))
+
+    doctor = subprocess.run(
+        [str(executable), "doctor", "--json"],
+        cwd=tmp_path,
         env=env,
         text=True,
         capture_output=True,

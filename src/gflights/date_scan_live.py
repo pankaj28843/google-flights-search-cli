@@ -23,7 +23,7 @@ class LiveDatePairProbe:
         self,
         *,
         project_root: Path,
-        browser_mode: BrowserMode = "headless",
+        browser_mode: BrowserMode = "headed",
         max_probes: int,
         timeout_seconds: float = 30.0,
         live_search_runner: LiveSearchRunner = run_live_search,

@@ -7,7 +7,8 @@ Current phase: live-cdp-by-default search orchestration, parser-backed live
 route visible-text extraction, generic query-codec validation, fake-tested live
 form interaction planning, and visible-text primary-result extraction. The
 behavior spec is written, the Python project passes the offline agentic
-contract, and `gflights search` uses headless cdp by default. Post-result
+contract, and `gflights search` uses headed cdp by default with a five-tab
+browser budget. Post-result
 ranking objectives, top-K alternatives, independent itinerary row selection,
 structured booking-summary extraction, and opt-in tab-budget evidence now exist
 for the live workflows. `--live-form` is an additional explicit experimental
@@ -50,8 +51,12 @@ Install it editable for local development:
 make install-editable
 ```
 
-Both targets install the `gflights` entry point with `uv tool install`; the
-editable target uses `--editable --link-mode symlink --force`.
+`make install` creates a self-contained, non-editable `uv` tool install. This is
+the production and macOS-safe path: the installed command does not point into a
+disposable uv build-cache directory, and `--reinstall --link-mode copy` repairs
+stale or incomplete dependency metadata in an existing tool environment.
+`make install-editable` is reserved for local development and uses
+`--editable --link-mode symlink --force`.
 
 The Python suite covers offline contracts, route autocomplete replay through
 service tests, app-state/cache behavior, fake live search orchestration, fake
@@ -71,17 +76,18 @@ Current expected result: 2 `live_cdp` tests pass against local `cdp doctor` and
 Google Flights smoke:
 
 ```bash
-gflights preflight headless-heal --consent-choice accept-all --json
-gflights preflight google-flights --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+cdp --browser-mode headed pages --json
+gflights preflight google-flights --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 make live-google-flights
 ```
 
-Current expected result: opens Google Flights in headless mode and returns
+Current expected result: opens Google Flights in headed mode, stays within the
+five-tab browser budget, and returns
 visible-text result rows when extractable, `experimental` evidence output when
 a no-row state is not classifiable, `unsupported` when bounded
 evidence waits still show empty/loading results, `no_results` when visible text
-explicitly says there are no flights, or exits `4` with a structured stop state
-and headed fallback recommendation. `gflights route resolve` also opens live
+explicitly says there are no flights, or exits `4` with a structured stop state.
+`gflights route resolve` also opens live
 cdp evidence and returns either parsed visible autocomplete choices, explicit
 live extraction deferral, or a structured browser stop state.
 Long crawls should request top 5 rows for coverage but may set
@@ -113,8 +119,10 @@ data.
 
 Use `gflights itinerary select --search-url <url> --preferred-carrier "<carrier>"
 --outbound-row-rank 2 --return-row-rank 1 --json` when an agent needs to turn a
-Google Flights search URL into a Google booking-summary URL before running
-`gflights itinerary inspect`.
+round-trip Google Flights search URL into a Google booking-summary URL before
+running `gflights itinerary inspect`. For one-way searches, omit
+`--return-row-rank`; the command accepts an outbound-to-booking transition and
+returns `selection.return` / `selected_return` as `null`.
 
 ## Behavior Contract
 
@@ -150,8 +158,8 @@ scripts/
 
 The checked-in tests cover the agentic CLI contract for `schema`, `intent`,
 `project`, `route`, `dates`, `codec`, `doctor`, unsupported/deferred/ambiguous
-exit codes, isolated editable `uv tool install --editable --link-mode symlink .`
-smoke behavior, domain/service invariants, generic `tfs`/`tfu` wire decode round
+exit codes, isolated production and editable `uv tool install` smoke behavior,
+domain/service invariants, generic `tfs`/`tfu` wire decode round
 trips, fake live form interaction planning, and cdp adapter command
 construction and stop-state handling. Live tests cover local cdp smoke and
 command-scoped Google Flights live evidence.
