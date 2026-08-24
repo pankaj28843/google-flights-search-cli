@@ -33,7 +33,7 @@ def test_init_app_state_creates_config_and_sqlite_cache(tmp_path: Path) -> None:
     assert state.run_root == tmp_path / "runs"
     assert state.config["live_google_flights_by_default"] is True
     assert state.config["browser_default_mode"] == "headed"
-    assert state.config["browser_max_tabs"] == 5
+    assert state.config["browser_max_tabs"] == 50
     assert state.config["google_flights_live_env"] == "1"
     assert state.config["cache_max_age_seconds"] == 6 * 60 * 60
     assert state.config["cache_root"] == str(tmp_path / "cache")
@@ -75,7 +75,7 @@ def test_init_app_state_preserves_existing_config_values(tmp_path: Path) -> None
     reloaded = init_app_state(tmp_path)
 
     assert reloaded.config["browser_default_mode"] == "headed"
-    assert reloaded.config["browser_max_tabs"] == 5
+    assert reloaded.config["browser_max_tabs"] == 50
     assert reloaded.config["custom_note"] == "keep user configuration"
     assert reloaded.config["live_google_flights_by_default"] is True
     assert reloaded.config["cache_max_age_seconds"] == 8 * 60 * 60

@@ -10,6 +10,7 @@ from typing import Any
 import typer
 
 from gflights import services
+from gflights.app_state import DEFAULT_BROWSER_MAX_TABS
 from gflights.browser import BrowserMode
 from gflights.date_scan_live import LiveDatePairProbe
 from gflights.live_itinerary import run_live_itinerary_inspection
@@ -34,7 +35,8 @@ Workflow:
 Default search:
   gflights search opens live Google Flights through headed cdp by default.
   Live flow is URL open -> page settle -> visible DOM/text query -> explicit Google Flights row click only when a command needs selection.
-  The default live-browser budget is five tabs; explicit overrides remain bounded.
+  The default headed Chrome/CDP capacity is 50 tabs. The flight-search fanout
+  remains bounded separately at five concurrent managed tabs.
 
 Environment:
   GFLIGHTS_SEARCH_HOME overrides the state root.
@@ -43,12 +45,13 @@ Environment:
 Agent contract:
   Data commands emit JSON. Unsupported, ambiguous, blocked, and stale behavior is explicit instead of guessed.
   Runtime evidence is task-scoped under the configured state root.
-  Keep headed browser work within --max-tabs 5. For long crawls, request outbound top-5 x
-  return top-3 synthetic Google Flights selection with --min-complete-selections 3.
+  Keep headed browser work within --max-tabs 50 by default. For long crawls,
+  request outbound top-5 x return top-3 synthetic Google Flights selection with
+  --min-complete-selections 3; JSON-array search fanout remains capped at five.
 
 Examples:
   gflights doctor --json
-  gflights preflight google-flights --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+  gflights preflight google-flights --max-tabs 50 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
   gflights search --input-json intents.json --concurrency 3 --rank balanced --top-k 10 --json
   gflights dates scan --input-json intents.json --project-root ~/.gflights --objective balanced --top-k 10 --json
 
@@ -96,7 +99,7 @@ hits transient search failures; inspect `diagnostics.route_attempts`.
 
 Examples:
   gflights preflight google-flights --json
-  gflights preflight google-flights --browser-mode headed --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+  gflights preflight google-flights --browser-mode headed --max-tabs 50 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 """
 
 ROUTE_HELP = """Resolve city and airport route choices from reviewed evidence.
@@ -262,10 +265,10 @@ def search_command(
         help="Managed tab policy: new or reuse. Reuse navigates an existing Google Flights tab when visible.",
     ),
     max_tabs: int = typer.Option(
-        5,
+        DEFAULT_BROWSER_MAX_TABS,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence; defaults to 5.",
+        help="Pass headed Chrome/CDP tab capacity and record tab-budget evidence; defaults to 50. Flight-search fanout remains capped at five.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -414,10 +417,10 @@ def preflight_google_flights_command(
         help="Total seconds allowed for each synthetic route search before returning preflight_search_timeout.",
     ),
     max_tabs: int = typer.Option(
-        5,
+        DEFAULT_BROWSER_MAX_TABS,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence; defaults to 5.",
+        help="Pass headed Chrome/CDP tab capacity and record tab-budget evidence; defaults to 50. Flight-search fanout remains capped at five.",
     ),
     project_root: Path | None = typer.Option(
         None,
@@ -764,10 +767,10 @@ def itinerary_select_command(
         help="Reuse target id/prefix or google-flights to navigate an existing Google Flights tab.",
     ),
     max_tabs: int = typer.Option(
-        5,
+        DEFAULT_BROWSER_MAX_TABS,
         "--max-tabs",
         min=0,
-        help="Pass a cdp tab budget and record tab-budget evidence; defaults to 5.",
+        help="Pass headed Chrome/CDP tab capacity and record tab-budget evidence; defaults to 50. Flight-search fanout remains capped at five.",
     ),
     allow_over_budget: bool = typer.Option(
         False,

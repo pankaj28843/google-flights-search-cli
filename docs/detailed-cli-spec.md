@@ -624,8 +624,11 @@ the pure functional core.
 Implementation policy:
 
 - Default live browser mode: `headed`.
-- Default browser budget: five total page tabs. Refuse to open another target
-  when doing so would exceed that budget; prefer exact-target reuse.
+- Default browser capacity: 50 total page tabs with an 8 GiB minimum free-memory
+  guard. Refuse to open another target when doing so would exceed that capacity;
+  prefer exact-target reuse.
+- Google Flights search fanout is a separate five-tab budget and remains capped
+  independently of the browser-wide capacity.
 - `headless` is available only for explicitly requested maintenance or recovery
   work and is not the normal-search fallback.
 - Record browser mode, target page id, URL, command, run id, and artifacts for
@@ -695,7 +698,7 @@ Slice 07 must write red tests before implementation code for:
 - JSON array input validation and one-output-per-search-intent behavior
 - service-level replay over repository TDD assets
 - date-window scan output shape
-- headed default and five-tab browser budget
+- headed default, 50-tab browser capacity, and separate five-tab search budget
 - codec decode confidence output
 - deterministic exit codes
 - self-contained production and editable/symlinked `uv tool install` smoke behavior

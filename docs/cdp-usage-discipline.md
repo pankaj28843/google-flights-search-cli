@@ -23,15 +23,17 @@ Before any live `cdp` run, inspect the selected browser mode and tab budget:
 cdp --browser-mode headed pages --json
 ```
 
-For normal Google Flights work, stay in headed mode and keep the total browser
-budget at five tabs:
+For normal Google Flights work, stay in headed mode and keep the Chrome/CDP
+capacity at 50 tabs. The Google Flights search fanout remains capped at five
+managed tabs independently of that browser-wide capacity:
 
 ```bash
-gflights preflight google-flights --consent-choice accept-all --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+gflights preflight google-flights --consent-choice accept-all --max-tabs 50 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 ```
 
-If five page tabs already exist, reuse one exact target or stop. Do not close an
-unowned tab merely to make room.
+If 50 page tabs already exist, reuse one exact target or stop. Do not close an
+unowned tab merely to make room. Keep at least 8 GiB free before opening more
+headed targets.
 
 ## Explicit Headless Recovery
 
@@ -141,7 +143,7 @@ After code changes to this path, run focused preflight tests before live smoke:
 
 ```bash
 uv run pytest tests/unit/test_live_search.py tests/unit/test_live_selection.py tests/unit/test_preflight.py -q
-gflights itinerary select --browser-mode headed --search-url '<public test search URL>' --timeout-seconds 75 --max-tabs 5 --project-root /tmp/gflights-headed-select --json
+gflights itinerary select --browser-mode headed --search-url '<public test search URL>' --timeout-seconds 75 --max-tabs 50 --project-root /tmp/gflights-headed-select --json
 cdp --browser-mode headed pages --json
 ```
 

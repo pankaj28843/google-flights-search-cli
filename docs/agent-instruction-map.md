@@ -100,8 +100,8 @@ git diff --check
 Live smoke evidence from this session:
 
 ```bash
-gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 1 --max-tabs 5 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
-gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 3 --max-tabs 5 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
+gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 1 --max-tabs 50 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
+gflights itinerary select --browser-mode headed --search-url '<public JFK-SFO round-trip search URL>' --row-rank 3 --max-tabs 50 --project-root artifacts/headed-manual-inspection-2026-06-10 --json
 ```
 
 The row-rank 1 smoke reached a Google Flights booking URL, waited for booking

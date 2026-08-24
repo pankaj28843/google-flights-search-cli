@@ -371,7 +371,10 @@ def test_doctor_reports_headed_default_and_live_search_policy(tmp_path: Path) ->
     payload = assert_json_stdout(result)
     assert payload["status"] == "ok"
     assert payload["browser"]["default_mode"] == "headed"
-    assert payload["browser"]["max_tabs"] == 5
+    assert payload["browser"]["max_tabs"] == 50
+    assert payload["browser"]["min_free_memory_mb"] == 8192
+    assert payload["flight_search"]["tab_budget"] == 5
+    assert payload["flight_search"]["json_array_max_concurrency"] == 5
     assert payload["validation"]["live_google_flights_by_default"] is True
     assert payload["app_state"]["config_path"] == str(tmp_path / "app-state" / "config.json")
     assert payload["app_state"]["cache_root"] == str(tmp_path / "app-state" / "cache")

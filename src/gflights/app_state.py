@@ -14,6 +14,9 @@ APP_HOME_ENV = "GFLIGHTS_SEARCH_HOME"
 GOOGLE_FLIGHTS_LIVE_ENV = "GFLIGHTS_RUN_GOOGLE_FLIGHTS_LIVE"
 CACHE_MAX_AGE_ENV = "GFLIGHTS_CACHE_MAX_AGE_SECONDS"
 DEFAULT_CACHE_MAX_AGE_SECONDS = 6 * 60 * 60
+DEFAULT_BROWSER_MAX_TABS = 50
+DEFAULT_BROWSER_MIN_FREE_MEMORY_MB = 8 * 1024
+DEFAULT_FLIGHT_SEARCH_TAB_BUDGET = 5
 CACHE_SCHEMA_VERSION = 1
 SQLITE_BUSY_TIMEOUT_MS = 5_000
 
@@ -212,7 +215,7 @@ def init_app_state(root: Path | None = None) -> AppState:
     defaults = {
         "version": 1,
         "browser_default_mode": "headed",
-        "browser_max_tabs": 5,
+        "browser_max_tabs": DEFAULT_BROWSER_MAX_TABS,
         "live_google_flights_by_default": True,
         "google_flights_live_env": "1",
         "cache_max_age_seconds": DEFAULT_CACHE_MAX_AGE_SECONDS,
@@ -225,7 +228,7 @@ def init_app_state(root: Path | None = None) -> AppState:
         **existing_config,
         "version": 1,
         "browser_default_mode": "headed",
-        "browser_max_tabs": 5,
+        "browser_max_tabs": DEFAULT_BROWSER_MAX_TABS,
         "live_google_flights_by_default": True,
         "google_flights_live_env": "1",
         "cache_max_age_seconds": cache_max_age_seconds,

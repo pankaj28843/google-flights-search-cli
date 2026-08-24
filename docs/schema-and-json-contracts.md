@@ -81,7 +81,7 @@ remains usable for form interaction but not for direct query-state encoding.
 Live search evidence capture:
 
 ```bash
-gflights search --input-json <intent.json> --browser-mode headed --max-tabs 5 --json
+gflights search --input-json <intent.json> --browser-mode headed --max-tabs 50 --json
 gflights search --input-json <intents.json> --concurrency 3 --json
 gflights search --input-json <intents.json> --rank cheapest,fastest,least-layover,balanced --top-k 10 --json
 gflights search --input-json <intents.json> --browser-mode headed --managed-tab-policy reuse --max-tabs 3 --json
@@ -91,7 +91,8 @@ The command accepts either one `SearchIntent` object or a JSON array of
 `SearchIntent` objects. Single-object input returns one JSON object. JSON-array
 input returns a JSON array in the same order, with one output object per input
 intent. Real CDP JSON-array live search may open up to `--concurrency` parallel
-managed tabs, clamped to 1-5 and defaulting to 3. The command opens Google
+managed tabs, clamped to 1-5 and defaulting to 3. This five-tab search fanout
+is independent of the 50-tab browser capacity passed by `--max-tabs`. The command opens Google
 Flights with language and currency context,
 writes a state-local `runs/<run-id>/` evidence bundle, records
 `task-trace.json`, records `managed-tab-close.json` when it owns a page target,

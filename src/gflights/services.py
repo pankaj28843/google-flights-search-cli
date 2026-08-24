@@ -11,7 +11,15 @@ from urllib.parse import urlencode
 
 from pydantic import ValidationError
 
-from gflights.app_state import AppState, PriceCache, init_app_state, price_cache_for_state
+from gflights.app_state import (
+    DEFAULT_BROWSER_MAX_TABS,
+    DEFAULT_BROWSER_MIN_FREE_MEMORY_MB,
+    DEFAULT_FLIGHT_SEARCH_TAB_BUDGET,
+    AppState,
+    PriceCache,
+    init_app_state,
+    price_cache_for_state,
+)
 from gflights.codec import CodecError, decode_query_value
 from gflights.domain import SearchIntent
 from gflights.query_state import UnsupportedQueryState, build_query_state
@@ -603,7 +611,12 @@ def doctor_report() -> dict[str, Any]:
         "status": "ok",
         "browser": {
             "default_mode": "headed",
-            "max_tabs": 5,
+            "max_tabs": DEFAULT_BROWSER_MAX_TABS,
+            "min_free_memory_mb": DEFAULT_BROWSER_MIN_FREE_MEMORY_MB,
+        },
+        "flight_search": {
+            "tab_budget": DEFAULT_FLIGHT_SEARCH_TAB_BUDGET,
+            "json_array_max_concurrency": DEFAULT_FLIGHT_SEARCH_TAB_BUDGET,
         },
         "validation": {
             "live_google_flights_by_default": True,

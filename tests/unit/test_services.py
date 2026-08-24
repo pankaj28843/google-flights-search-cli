@@ -307,7 +307,7 @@ def test_project_init_creates_config_and_artifact_root(tmp_path: Path) -> None:
     assert not (tmp_path / "fixtures").exists()
     assert (tmp_path / "runs").is_dir()
     assert config["browser_default_mode"] == "headed"
-    assert config["browser_max_tabs"] == 5
+    assert config["browser_max_tabs"] == 50
     assert config["live_google_flights_by_default"] is True
     assert config["cache_root"] == str(tmp_path / "cache")
     assert config["database_path"] == str(tmp_path / "cache" / "cache.sqlite")

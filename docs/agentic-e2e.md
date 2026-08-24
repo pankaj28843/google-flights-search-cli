@@ -13,7 +13,8 @@ Write failing tests for:
 - installed help does not expose repository TDD replay assets
 - service-level replay returns route choices, ambiguity, result rows, selected
   itinerary details, and blocked stop states from checked TDD assets
-- browser adapter defaults to headed with a five-tab budget
+- browser adapter defaults to headed with a 50-tab capacity and separate
+  five-tab Google Flights search fanout budget
 - browser stop states remain structured without mode fallback
 - `codec decode --key --value` reports raw wire paths, round-trip codec
   metadata, and confidence
@@ -45,7 +46,8 @@ agentic contract for the first implementation. It asserts:
   boundaries
 - `itinerary select` exposes the row-clicking workflow that turns a search URL
   into a Google Flights booking-summary URL without crossing provider checkout
-- `doctor --json` reports headed default, five-tab budget, and
+- `doctor --json` reports headed default, 50-tab browser capacity, separate
+  five-tab search fanout, and
   live-search-by-default config
 - `codec decode --key --value` reports generic raw wire paths and keeps
   confidence non-`proven`
@@ -111,7 +113,7 @@ state.
 The command path under test is:
 
 ```bash
-gflights search --input-json <intent.json> --browser-mode headed --max-tabs 5 --json
+gflights search --input-json <intent.json> --browser-mode headed --max-tabs 50 --json
 ```
 
 ## Test Layers

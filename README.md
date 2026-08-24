@@ -7,8 +7,9 @@ Current phase: live-cdp-by-default search orchestration, parser-backed live
 route visible-text extraction, generic query-codec validation, fake-tested live
 form interaction planning, and visible-text primary-result extraction. The
 behavior spec is written, the Python project passes the offline agentic
-contract, and `gflights search` uses headed cdp by default with a five-tab
-browser budget. Post-result
+contract, and `gflights search` uses headed cdp by default with a 50-tab
+Chrome/CDP capacity. Google Flights JSON-array search fanout remains capped at
+five concurrent managed tabs. Post-result
 ranking objectives, top-K alternatives, independent itinerary row selection,
 structured booking-summary extraction, and opt-in tab-budget evidence now exist
 for the live workflows. `--live-form` is an additional explicit experimental
@@ -77,12 +78,12 @@ Google Flights smoke:
 
 ```bash
 cdp --browser-mode headed pages --json
-gflights preflight google-flights --max-tabs 5 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
+gflights preflight google-flights --max-tabs 50 --top-k 5 --return-top-k 3 --min-complete-selections 3 --json
 make live-google-flights
 ```
 
 Current expected result: opens Google Flights in headed mode, stays within the
-five-tab browser budget, and returns
+50-tab Chrome/CDP capacity while keeping flight-search fanout at five, and returns
 visible-text result rows when extractable, `experimental` evidence output when
 a no-row state is not classifiable, `unsupported` when bounded
 evidence waits still show empty/loading results, `no_results` when visible text

@@ -13,7 +13,12 @@ from typing import Any
 from urllib.parse import urlencode
 
 from gflights.accessible_rows import accessible_row_expand_js, accessible_rows_js
-from gflights.app_state import AppState, init_app_state, price_cache_for_state
+from gflights.app_state import (
+    DEFAULT_FLIGHT_SEARCH_TAB_BUDGET,
+    AppState,
+    init_app_state,
+    price_cache_for_state,
+)
 from gflights.browser import (
     BLOCKED_STOP_STATES,
     BrowserMode,
@@ -110,7 +115,7 @@ async def run_live_search(
             task_trace=task_trace,
         )
 
-    concurrency = max(1, min(batch_concurrency, 5))
+    concurrency = max(1, min(batch_concurrency, DEFAULT_FLIGHT_SEARCH_TAB_BUDGET))
     batch_trace = task_trace or new_task_trace(
         command="gflights.search", name="search-batch", run_id=run_id or "auto"
     )
@@ -997,7 +1002,13 @@ async def _expand_considered_accessible_rows(
 
 
 def _considered_row_limit(top_k: int) -> int:
-    return min(max(top_k if top_k > 0 else 5, 5), 50)
+    return min(
+        max(
+            top_k if top_k > 0 else DEFAULT_FLIGHT_SEARCH_TAB_BUDGET,
+            DEFAULT_FLIGHT_SEARCH_TAB_BUDGET,
+        ),
+        50,
+    )
 
 
 def _eval_value(payload: dict[str, Any]) -> Any:

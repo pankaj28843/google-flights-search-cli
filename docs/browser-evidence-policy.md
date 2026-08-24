@@ -8,9 +8,11 @@ tab-budget preflight, target reuse, managed-tab memory, and close/cleanup rules.
 
 ## Browser Modes
 
-Implemented live probes default to headed cdp mode with a five-tab browser
-budget. Headless mode is limited to the explicitly named maintenance and
-recovery workflow; it is not a fallback for normal searches.
+Implemented live probes default to headed cdp mode with a 50-tab Chrome/CDP
+capacity and an 8 GiB minimum free-memory guard. Google Flights search fanout
+has its own five-tab limit; it is not the browser-wide capacity. Headless mode
+is limited to the explicitly named maintenance and recovery workflow; it is
+not a fallback for normal searches.
 
 Record browser mode for every run.
 

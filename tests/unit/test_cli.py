@@ -62,7 +62,7 @@ def test_search_defaults_to_live_cdp_without_tdd_replay(
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["status"] == "experimental"
     assert calls[0]["browser_mode"] == "headed"
-    assert calls[0]["max_tabs"] == 5
+    assert calls[0]["max_tabs"] == 50
     assert calls[0]["interact_with_form"] is False
     assert calls[0]["rank_objectives"] == []
     assert calls[0]["top_k"] == 0
@@ -314,7 +314,7 @@ def test_preflight_google_flights_uses_public_synthetic_smoke(
     assert calls[0]["project_root"] == tmp_path
 
 
-def test_preflight_google_flights_defaults_to_headed_with_five_tab_budget(
+def test_preflight_google_flights_defaults_to_headed_with_50_tab_capacity(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -341,7 +341,7 @@ def test_preflight_google_flights_defaults_to_headed_with_five_tab_budget(
 
     assert result.exit_code == 0, result.output
     assert calls[0]["browser_mode"] == "headed"
-    assert calls[0]["max_tabs"] == 5
+    assert calls[0]["max_tabs"] == 50
 
 
 def test_preflight_google_flights_rejects_min_complete_above_top_k(tmp_path: Path) -> None:
@@ -522,7 +522,7 @@ def test_itinerary_select_passes_independent_leg_and_reuse_options(
     assert calls[0]["timeout_seconds"] == 23
 
 
-def test_itinerary_select_defaults_to_headed_with_five_tab_budget(
+def test_itinerary_select_defaults_to_headed_with_50_tab_capacity(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -549,4 +549,4 @@ def test_itinerary_select_defaults_to_headed_with_five_tab_budget(
 
     assert result.exit_code == 0, result.output
     assert calls[0]["browser_mode"] == "headed"
-    assert calls[0]["max_tabs"] == 5
+    assert calls[0]["max_tabs"] == 50
